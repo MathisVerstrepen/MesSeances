@@ -870,8 +870,7 @@ for (const mode of ['initial', 'edit'] as const) {
     const submit = form.getByRole('button', { name: 'Trouver une séance' })
     const disclosure = form.getByRole('button', { name: 'Options avancées' })
 
-    // Check layering before result selection scrolls the document. Scrolled calendar
-    // positioning is a pre-existing datepicker issue, separate from the action footer.
+    // Keep the entire calendar visible and above the filter panel in short viewports.
     const calendar = form.getByRole('button', {
       name: /^Choisir une autre date/,
     })

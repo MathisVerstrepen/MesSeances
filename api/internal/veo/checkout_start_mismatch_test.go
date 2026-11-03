@@ -127,7 +127,7 @@ func TestSyncStartMismatchRetainsCoverageAndHealthyEnrichment(t *testing.T) {
 		if b.start.Day() == 28 {
 			t.Fatal("mismatched start fetched")
 		}
-		return fixtureResponse(200, `<div id=s_fin>fin prévue à 01h15</div><script>{"auditorium_showtime":"salle-2"}</script>`, "text/html"), nil
+		return fixtureResponse(200, bookingFormFixture(req.URL.String())+`<div id=s_fin>fin prévue à 01h15</div><script>{"auditorium_showtime":"salle-2"}</script>`, "text/html"), nil
 	})
 	d, s, err := Sync(t.Context(), checkoutClientFixture{fixtureGetter: f, client: c}, fixtureOptions())
 	if err != nil || len(d.Showtimes) != len(baseline.Showtimes) || !reflect.DeepEqual(d.Coverage, baseline.Coverage) || s.CheckoutStartMismatches != 2 || s.ExactEnds != 2 || s.Checkouts != 4 || s.CheckoutRetryAttempts != 0 {

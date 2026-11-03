@@ -299,6 +299,40 @@ func TestMetadataUnknownRuntime(t *testing.T) {
 		t.Fatalf("unknown runtime metadata: movie=%+v err=%v", m, err)
 	}
 }
+
+func TestMetadataObjectMatchesLegacyArray(t *testing.T) {
+	for _, title := range []string{"", "Source title"} {
+		for _, metadata := range []string{
+			`{"titre":"Metadata title","duree":"1h33","affichette":"safe-1.jpg","synopsis":"Summary","genreprincipal":"Drame","datedesortie":"2026-09-09"}`,
+			`{"titre":"Unknown runtime","duree":"NC","datedesortie":null}`,
+			`{"titre":"Optional fields absent"}`,
+		} {
+			f := fixtureFilm("-73")
+			f.Title, f.Metadata = title, json.RawMessage("["+metadata+"]")
+			want, err := parseMovie(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.Metadata = json.RawMessage(metadata)
+			got, err := parseMovie(f)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("metadata object changed film: got=%+v want=%+v err=%v", got, want, err)
+			}
+		}
+	}
+	for _, metadata := range []string{
+		`{}`, `{"message":"synthetic-private-body"}`, `{"titre":null}`, `{"titre":" "}`,
+		`{"titre":"Film","result":true}`, `{"titre":"Film","result":null}`,
+		`{"titre":12}`, `{"titre":"Film","duree":93}`, `{"titre":"Film","duree":"invalid"}`,
+		`{"titre":"Film","synopsis":{}}`, `{"titre":"Film","datedesortie":[]}`,
+	} {
+		f := fixtureFilm("73")
+		f.Metadata = json.RawMessage(metadata)
+		if _, err := parseMovie(f); err == nil {
+			t.Fatal("malformed metadata object accepted")
+		}
+	}
+}
 func TestMetadataFirstEntryAndGaps(t *testing.T) {
 	for _, n := range []int{1, 2, 3} {
 		f := fixtureFilm("2714300920262")
@@ -313,7 +347,7 @@ func TestMetadataFirstEntryAndGaps(t *testing.T) {
 			t.Fatalf("metadata array %d err=%v", n, err)
 		}
 	}
-	for _, metadata := range []string{`[]`, `{"result":false,"message":"not a movie title"}`} {
+	for _, metadata := range []string{`[]`, `null`, `{"result":false,"message":"not a movie title"}`} {
 		f := fixtureFilm("-9223372036854775808")
 		f.Metadata = json.RawMessage(metadata)
 		m, err := parseMovie(f)

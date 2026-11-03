@@ -101,6 +101,104 @@ func alternateVADFilm() map[string]any {
 	}
 }
 
+func unavailableVADFilm() map[string]any {
+	return map[string]any{
+		"num_visa": 0, "idfilm_cotecine": nil, "titre_cotecine": "Unavailable event",
+		"movie_data": map[string]any{"result": false},
+		"dates": []any{map[string]any{"date": 20270914, "showtimes": []any{map[string]any{
+			"id_cinema": 639, "id_seance": 0, "id_bordereau": 9,
+			"places_en_vente_vad": 0, "places_vad_restantes": -1,
+		}}}},
+	}
+}
+
+func TestSyncSkipsUnavailableVADPlaceholders(t *testing.T) {
+	c := fixtureCinema()
+	standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+	baseline, wantSummary, err := Sync(t.Context(), singleFetcher(t, fixturePage(c)), fixtureOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, variant := range []struct {
+		number   int
+		nullVisa bool
+	}{{0, false}, {73, false}, {73, true}} {
+		f := unavailableVADFilm()
+		f["num_visa"] = variant.number
+		if variant.nullVisa {
+			f["visa"] = nil
+		}
+		raw := jsonBytes(t, f)
+		var decoded film
+		if json.Unmarshal(raw, &decoded) != nil || !decoded.alternateVAD || decoded.Visa != "" || decoded.Dates != nil || decoded.Metadata != nil {
+			t.Fatal("placeholder retained film/session data")
+		}
+		for _, placement := range []string{"program", "events", "both"} {
+			program, events := []json.RawMessage{standard}, []json.RawMessage{}
+			if placement != "events" {
+				program = append(program, raw)
+			}
+			if placement != "program" {
+				events = append(events, raw)
+			}
+			page := wireProgramPage(t, c, program, events)
+			data, summary, err := Sync(t.Context(), wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page}), fixtureOptions())
+			if err != nil || !reflect.DeepEqual(data, baseline) || summary != wantSummary {
+				t.Fatalf("placeholder changed valid sessions: summary=%+v err=%v", summary, err)
+			}
+		}
+		page := wireProgramPage(t, c, []json.RawMessage{raw}, []json.RawMessage{})
+		data, _, err := Sync(t.Context(), wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page}), fixtureOptions())
+		if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(data, schedule.Dataset{}) {
+			t.Fatal("placeholder-only snapshot accepted")
+		}
+	}
+}
+
+func TestSyncRejectsUnavailableVADLookalikes(t *testing.T) {
+	for _, scope := range []string{"film", "session"} {
+		fields := map[string][]string{
+			"visa": {`0`, `73`, `""`}, "num_visa": {`"0"`, `1.5`, `1e3`, `null`, `omitted`},
+			"idfilm_cotecine": {`""`, `"film"`, `0`, `omitted`}, "dates": {`null`, `omitted`},
+		}
+		if scope == "session" {
+			fields = map[string][]string{
+				"id_seance": {`"0"`, `1`, `null`, `omitted`}, "salle": {`""`, `null`, `1`},
+				"places_en_vente_vad": {`"0"`, `1`, `null`, `omitted`}, "places_vad_restantes": {`omitted`},
+			}
+		}
+		for key, values := range fields {
+			for _, value := range values {
+				t.Run(scope+"/"+key+"/"+value, func(t *testing.T) {
+					f := unavailableVADFilm()
+					target := f
+					if scope == "session" {
+						target = f["dates"].([]any)[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+					}
+					if value == "omitted" {
+						delete(target, key)
+					} else {
+						target[key] = json.RawMessage(value)
+					}
+					raw := jsonBytes(t, f)
+					var decoded film
+					_ = json.Unmarshal(raw, &decoded)
+					if decoded.alternateVAD {
+						t.Fatal("lookalike bypassed session validation")
+					}
+					c := fixtureCinema()
+					standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+					page := wireProgramPage(t, c, []json.RawMessage{standard}, []json.RawMessage{raw})
+					data, _, err := Sync(t.Context(), wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page}), fixtureOptions())
+					if err == nil || !reflect.DeepEqual(data, schedule.Dataset{}) {
+						t.Fatal("malformed placeholder published a partial snapshot")
+					}
+				})
+			}
+		}
+	}
+}
+
 func wireProgramPage(t *testing.T, c cinema, program, events []json.RawMessage) []byte {
 	t.Helper()
 	return jsonBytes(t, map[string]any{"pageProps": map[string]any{
@@ -577,6 +675,38 @@ func TestSyncUnionMetadataAndUnknownEnds(t *testing.T) {
 	}
 	if d.Showtimes[2].Movie.Slug != "cineville-film--693091020261" || d.Showtimes[2].Movie.RuntimeMinutes != 0 || d.Showtimes[2].Movie.PosterURL != "" {
 		t.Fatal("event gaps")
+	}
+}
+
+func TestSyncMetadataObjectsInBothProgramArrays(t *testing.T) {
+	p := fixturePage(fixtureCinema())
+	event := fixtureFilm("-73")
+	event.Dates[0].Showtimes[0].ID = "2"
+	p.Events = []film{event}
+	want, wantSummary, err := Sync(t.Context(), singleFetcher(t, p), fixtureOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, placement := range []string{"program", "events", "both"} {
+		t.Run(placement, func(t *testing.T) {
+			// Copy both slices so each case starts with the legacy wire shape.
+			mixed := p
+			mixed.Program, mixed.Events = append([]film(nil), p.Program...), append([]film(nil), p.Events...)
+			for _, films := range [][]film{mixed.Program, mixed.Events} {
+				if placement == "program" && films[0].Visa == "-73" || placement == "events" && films[0].Visa != "-73" {
+					continue
+				}
+				var entries []json.RawMessage
+				if err := json.Unmarshal(films[0].Metadata, &entries); err != nil {
+					t.Fatal(err)
+				}
+				films[0].Metadata = entries[0]
+			}
+			got, summary, err := Sync(t.Context(), singleFetcher(t, mixed), fixtureOptions())
+			if err != nil || !reflect.DeepEqual(got, want) || summary != wantSummary {
+				t.Fatalf("mixed metadata changed dataset: summary=%+v err=%v", summary, err)
+			}
+		})
 	}
 }
 
