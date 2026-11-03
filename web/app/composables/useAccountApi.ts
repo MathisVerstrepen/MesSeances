@@ -21,6 +21,7 @@ import type {
   AccountTheaterFollows,
   SaveAccountTheaterFollow,
   AccountActivityResponse,
+  ActivityVisit,
 } from '~/types/cinemaFollows'
 import type {
   AccountWatchlist,
@@ -170,6 +171,15 @@ export function useAccountApi() {
         'GET',
         signal,
       ),
+    visitActivity: (
+      input: {
+        expected_username: string
+        scope: string
+        last_event_id: string
+      },
+      signal?: AbortSignal,
+    ) =>
+      request<ActivityVisit>('/account/activity/visit', input, 'POST', signal),
     watchlist: (signal?: AbortSignal) =>
       request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
     watched: (signal?: AbortSignal) =>

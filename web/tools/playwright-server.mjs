@@ -57,6 +57,7 @@ let follows = { username: scenario.username, revision: '0', theater_ids: [] }
 let followPosts = 0
 let followGets = 0
 let activityGets = 0
+const activityVisits = new Map()
 let selected = {
   username: scenario.username,
   revision: '1',
@@ -130,6 +131,34 @@ function json(response, body, status = 200) {
 const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
+  if (request.method === 'POST' && path === '/api/v1/account/activity/visit') {
+    let body = ''
+    request.on('data', (chunk) => {
+      body += chunk
+    })
+    request.on('end', () => {
+      const input = JSON.parse(body)
+      if (
+        scenario.state !== 'complete' ||
+        input.expected_username !== scenario.username
+      )
+        return json(
+          response,
+          { error: { code: 'authentication_required' } },
+          401,
+        )
+      const key = `${scenario.username}/${input.scope}`
+      const previous = activityVisits.get(key) || '0'
+      if (BigInt(input.last_event_id) > BigInt(previous))
+        activityVisits.set(key, input.last_event_id)
+      json(response, {
+        username: scenario.username,
+        scope: input.scope,
+        previous_last_event_id: previous,
+      })
+    })
+    return
+  }
   if (request.method === 'GET') {
     if (
       (scenario.cinemovida || scenario.ocine) &&
@@ -873,6 +902,7 @@ try {
         followPosts = 0
         followGets = 0
         activityGets = 0
+        activityVisits.clear()
         unexpected.length = 0
         json(response, { ready: true })
       })

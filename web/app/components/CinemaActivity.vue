@@ -132,14 +132,25 @@ const firstPending = computed(
     initial.status.value === 'pending' ||
     initial.status.value === 'idle',
 )
-onMounted(() => {
+onNuxtReady(() => {
   // Hydration can reuse the server's first page; replay history depth on the client.
-  if (restorePages > 1 && initial.status.value === 'success') {
+  // Wait until hydration ends so refresh cannot reuse that cached first page.
+  if (
+    !disposed &&
+    props.slug === activitySlug &&
+    restorePages > 1 &&
+    initial.status.value === 'success'
+  ) {
     restoring.value = true
     void initial.refresh()
   }
 })
 const groups = computed(() => groupActivityItems(response.value?.items ?? []))
+const visit = useActivityVisit(
+  () => (response.value ? `theater:${response.value.theater.id}` : ''),
+  () => response.value?.items ?? [],
+  () => !!response.value && !firstPending.value && !firstError.value,
+)
 const historyStart = computed(() => {
   const started = response.value?.coverage.history_started_at
   return started ? activityObservationDay(started) : ''
@@ -272,7 +283,13 @@ async function loadMore() {
         :groups="groups"
         :theater-id="response.theater.id"
         :date-heading-level="3"
+        :previous-last-event-id="visit.previousLastEventID.value"
         label="Historique de la programmation"
+      />
+      <ActivityVisitStatus
+        v-if="response.items.length"
+        :failed="visit.error.value"
+        @retry="visit.retry"
       />
       <div
         v-if="response.next_cursor"

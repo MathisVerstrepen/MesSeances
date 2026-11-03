@@ -19,11 +19,27 @@ const props = defineProps<{
   label: string
   dateHeadingLevel: 2 | 3
   theaterId?: string
+  previousLastEventId?: string | null
 }>()
 
 function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
   return 'theater' in item ? item.theater.id : props.theaterId!
 }
+
+function isNewActivity(item: TheaterActivityItem) {
+  return (
+    props.previousLastEventId != null &&
+    BigInt(item.event_id) > BigInt(props.previousLastEventId)
+  )
+}
+
+const firstOlderEventId = computed(() =>
+  props.previousLastEventId == null
+    ? undefined
+    : props.groups
+        .flatMap((group) => group.items)
+        .find((item) => !isNewActivity(item))?.event_id,
+)
 </script>
 
 <template>
@@ -78,8 +94,20 @@ function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
           v-for="item in group.items"
           :key="item.event_id"
           :data-event-id="item.event_id"
-          class="flex min-w-0 items-start gap-4 sm:gap-6"
+          :data-activity-status="previousLastEventId == null ? undefined : isNewActivity(item) ? 'new' : 'old'"
+          class="flex min-w-0 items-start gap-4 sm:gap-6 relative"
         >
+          <div
+            v-if="item.event_id === firstOlderEventId"
+            data-activity-older-separator
+            role="separator"
+            aria-label="Activité antérieure à votre dernière visite"
+            class="pointer-events-none absolute -top-4 inset-x-0 flex -translate-y-1/2 items-center gap-3 text-xs font-semibold text-muted"
+          >
+            <span class="h-px min-w-0 flex-1 bg-ink/30" />
+            <span class="shrink-0">Avant votre dernière visite</span>
+            <span class="h-px min-w-0 flex-1 bg-ink/30" />
+          </div>
           <NuxtLink
             :to="cinemaMovieTarget(item.movie.slug, eventTheaterId(item))"
             :aria-label="item.movie.title"
@@ -127,6 +155,11 @@ function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
               >
             </component>
             <p class="leading-5">
+              <span
+                v-if="isNewActivity(item)"
+                class="mr-2 inline-block bg-[#facc15] px-1.5 py-0.5 align-top text-xs font-bold leading-4 text-ink"
+                >Nouveau</span
+              >
               <span
                 class="inline-block border-l-2 pl-2 align-top text-xs font-bold leading-4"
                 :class="item.type === 'return_to_program' ? 'border-accent text-accent' : 'border-ink text-ink'"

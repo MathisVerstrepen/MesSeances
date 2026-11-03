@@ -1,5 +1,11 @@
 import type { Theater, TheaterActivityItem } from './api'
 
+export interface ActivityVisit {
+  username: string
+  scope: string
+  previous_last_event_id: string
+}
+
 export interface AccountTheaterFollows {
   username: string
   revision: string

@@ -17,6 +17,11 @@ const {
   refresh,
   loadMore,
 } = useAccountActivity()
+const visit = useActivityVisit(
+  'followed',
+  () => response.value?.items ?? [],
+  () => !!response.value && !loading.value && !error.value,
+)
 </script>
 
 <template>
@@ -94,7 +99,13 @@ const {
             v-else
             :groups="groups"
             :date-heading-level="2"
+            :previous-last-event-id="visit.previousLastEventID.value"
             label="Activité des cinémas suivis"
+          />
+          <ActivityVisitStatus
+            v-if="response.items.length"
+            :failed="visit.error.value"
+            @retry="visit.retry"
           />
           <div v-if="revalidationError" class="mt-8 space-y-4">
             <p role="alert" class="account-alert">
