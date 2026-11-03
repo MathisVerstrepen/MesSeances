@@ -23,9 +23,18 @@ type fixtureGetter struct {
 }
 
 func (f *fixtureGetter) RequestCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.calls }
-func (f *fixtureGetter) Checkout(ctx context.Context, raw string, _ time.Time) (CheckoutResult, error) {
+func (f *fixtureGetter) Checkout(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
 	body, err := f.Get(ctx, OperationCheckout, raw)
-	return CheckoutResult{Body: body}, err
+	if err != nil {
+		return CheckoutResult{}, err
+	}
+	u, _ := url.Parse(raw)
+	slug := strings.Split(u.Path, "/")[1]
+	canonical := fmt.Sprintf("https://achat.veocinemas.fr/%s/reserver/F123/D%d/VF/81/", slug, start.Unix())
+	// Model the session-bound form as well as the optional metadata: admitted
+	// entry-form cinemas require it even when a numeric room marker is present.
+	body = append(body, []byte(bookingFormFixture(canonical))...)
+	return CheckoutResult{Body: body, canonicalURL: canonical}, nil
 }
 func (f *fixtureGetter) Get(ctx context.Context, op Operation, raw string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
@@ -402,7 +411,7 @@ func TestCheckoutConcurrencyBoundAndCancellation(t *testing.T) {
 	rows := make([]schedule.ShowtimeRecord, 50)
 	now := fixtureOptions().Now
 	for i := range rows {
-		rows[i] = schedule.ShowtimeRecord{TheaterID: "veo-P1028", BookingURL: fmt.Sprintf("https://achat.veocinemas.fr/fixture/r/%d", i+1), StartTime: now.Add(time.Hour)}
+		rows[i] = schedule.ShowtimeRecord{TheaterID: "veo-P9999", BookingURL: fmt.Sprintf("https://achat.veocinemas.fr/fixture/r/%d", i+1), StartTime: now.Add(time.Hour)}
 	}
 	if err := enrichCheckouts(t.Context(), g, rows, &SyncSummary{}, now); err != nil {
 		t.Fatal(err)

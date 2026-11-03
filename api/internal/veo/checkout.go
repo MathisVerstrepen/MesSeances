@@ -566,6 +566,8 @@ func entryCheckoutAction(theaterID string) string {
 		return "https://achat.veocinemas.fr/caussade/reserver/"
 	case "veo-P6864":
 		return "https://achat.veocinemas.fr/colomiers/reserver/"
+	case "veo-P1028":
+		return "https://achat.veocinemas.fr/castelnaudary/reserver/"
 	case "veo-G06DB":
 		return "https://achat.cinema-senechal.com/reserver/"
 	default:

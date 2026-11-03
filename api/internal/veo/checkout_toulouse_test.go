@@ -26,7 +26,7 @@ func toulouseEntryPage(start time.Time) CheckoutResult {
 // Run the same binding, parser-attestation and retry controls for each admitted
 // cinema. All pages remain synthetic; only the cinema identity differs.
 func TestBoundEntryCheckouts(t *testing.T) {
-	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}} {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}, {"P1028", "castelnaudary"}} {
 		t.Run(cinema.id, func(t *testing.T) {
 			row := func(i int) schedule.ShowtimeRecord {
 				r := retryTestRow(i)
@@ -116,7 +116,7 @@ func testEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T, retryTestRow
 		name   string
 		change func(*schedule.ShowtimeRecord, *CheckoutResult)
 	}{
-		{"other cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.TheaterID = "veo-P1028" }},
+		{"other cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.TheaterID = "veo-P9999" }},
 		{"other admitted cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
 			if r.TheaterID == "veo-G0699" {
 				r.TheaterID = "veo-P0833"

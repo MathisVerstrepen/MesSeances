@@ -54,7 +54,7 @@ type film struct {
 
 func (f *film) UnmarshalJSON(b []byte) error {
 	*f = film{}
-	if isAlternateVADFilm(b) {
+	if isAlternateVADFilm(b) || isUnavailableVADFilm(b) {
 		f.alternateVAD = true
 		return nil
 	}
@@ -102,6 +102,47 @@ func isAlternateVADFilm(b []byte) bool {
 		}
 		for _, s := range date.Showtimes {
 			if len(s.ID) != 0 || len(s.Room) != 0 || len(s.ForSale) == 0 || len(s.Remaining) == 0 {
+				return false
+			}
+			hasSessions = true
+		}
+	}
+	return hasSessions
+}
+
+// The provider also publishes VAD placeholders without a film or session ID.
+// They cannot identify a showing; accept only the observed zero/null sentinels,
+// never a standard film with a supplied visa or a mixture of real sessions.
+func isUnavailableVADFilm(b []byte) bool {
+	var candidate struct {
+		Visa   suppliedFilmVisa `json:"visa"`
+		Number json.RawMessage  `json:"num_visa"`
+		ID     json.RawMessage  `json:"idfilm_cotecine"`
+		Dates  []struct {
+			Showtimes []struct {
+				ID        json.RawMessage `json:"id_seance"`
+				Room      json.RawMessage `json:"salle"`
+				ForSale   json.RawMessage `json:"places_en_vente_vad"`
+				Remaining json.RawMessage `json:"places_vad_restantes"`
+			} `json:"showtimes"`
+		} `json:"dates"`
+	}
+	if json.Unmarshal(b, &candidate) != nil || bool(candidate.Visa) ||
+		!bytes.Equal(bytes.TrimSpace(candidate.ID), []byte("null")) || candidate.Dates == nil {
+		return false
+	}
+	number := string(bytes.TrimSpace(candidate.Number))
+	if number != "0" && !schedule.ValidCinevilleIdentity("movie", number) {
+		return false
+	}
+	hasSessions := false
+	for _, date := range candidate.Dates {
+		if date.Showtimes == nil {
+			return false
+		}
+		for _, s := range date.Showtimes {
+			if !bytes.Equal(bytes.TrimSpace(s.ID), []byte("0")) || len(s.Room) != 0 ||
+				!bytes.Equal(bytes.TrimSpace(s.ForSale), []byte("0")) || len(s.Remaining) == 0 {
 				return false
 			}
 			hasSessions = true
@@ -345,48 +386,32 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 	if len(raw) == 0 {
 		return m, errPayload
 	}
-	if raw[0] == '{' {
-		var missing struct {
-			Result *bool `json:"result"`
+	entries, err := parseMovieMetadata(raw)
+	if err != nil {
+		return m, err
+	}
+	if len(entries) > 0 {
+		v := entries[0]
+		if m.Title == "" {
+			m.Title = strings.TrimSpace(v.Title)
 		}
-		if json.Unmarshal(raw, &missing) != nil || missing.Result == nil || *missing.Result {
-			return m, errPayload
+		var err error
+		m.RuntimeMinutes, err = parseRuntime(v.Runtime)
+		if err != nil {
+			return m, err
 		}
-	} else {
-		var entries []struct {
-			Title    string  `json:"titre"`
-			Runtime  string  `json:"duree"`
-			Poster   string  `json:"affichette"`
-			Overview string  `json:"synopsis"`
-			Genre    string  `json:"genreprincipal"`
-			Release  *string `json:"datedesortie"`
+		if schedule.ValidCinevillePosterURL(schedule.CinevillePosterPrefix + v.Poster) {
+			m.PosterURL = schedule.CinevillePosterPrefix + v.Poster
 		}
-		if raw[0] != '[' || json.Unmarshal(raw, &entries) != nil {
-			return m, errPayload
+		m.Overview = strings.TrimSpace(v.Overview)
+		if g := strings.TrimSpace(v.Genre); g != "" {
+			m.Genres = []string{g}
 		}
-		if len(entries) > 0 {
-			v := entries[0]
-			if m.Title == "" {
-				m.Title = strings.TrimSpace(v.Title)
-			}
-			var err error
-			m.RuntimeMinutes, err = parseRuntime(v.Runtime)
-			if err != nil {
-				return m, err
-			}
-			if schedule.ValidCinevillePosterURL(schedule.CinevillePosterPrefix + v.Poster) {
-				m.PosterURL = schedule.CinevillePosterPrefix + v.Poster
-			}
-			m.Overview = strings.TrimSpace(v.Overview)
-			if g := strings.TrimSpace(v.Genre); g != "" {
-				m.Genres = []string{g}
-			}
-			if v.Release != nil && *v.Release != "" {
-				for _, layout := range []string{time.DateOnly, "20060102", "02/01/2006"} {
-					if d, err := time.Parse(layout, *v.Release); err == nil && d.Format(layout) == *v.Release {
-						m.ReleaseDate = d.Format(time.DateOnly)
-						break
-					}
+		if v.Release != nil && *v.Release != "" {
+			for _, layout := range []string{time.DateOnly, "20060102", "02/01/2006"} {
+				if d, err := time.Parse(layout, *v.Release); err == nil && d.Format(layout) == *v.Release {
+					m.ReleaseDate = d.Format(time.DateOnly)
+					break
 				}
 			}
 		}
@@ -396,6 +421,53 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 	}
 	return m, nil
 }
+
+// movie_data is published either as a legacy array or a single metadata object.
+type movieMetadata struct {
+	Title    string  `json:"titre"`
+	Runtime  string  `json:"duree"`
+	Poster   string  `json:"affichette"`
+	Overview string  `json:"synopsis"`
+	Genre    string  `json:"genreprincipal"`
+	Release  *string `json:"datedesortie"`
+}
+
+func parseMovieMetadata(raw []byte) ([]movieMetadata, error) {
+	// The current source uses null when metadata is unavailable. The required
+	// source title still identifies the film; optional fields remain unknown.
+	if bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	if raw[0] == '[' {
+		var entries []movieMetadata
+		if json.Unmarshal(raw, &entries) != nil {
+			return nil, errPayload
+		}
+		return entries, nil
+	}
+	if raw[0] != '{' {
+		return nil, errPayload
+	}
+	var object struct {
+		movieMetadata
+		Result json.RawMessage `json:"result"`
+	}
+	if json.Unmarshal(raw, &object) != nil {
+		return nil, errPayload
+	}
+	if len(object.Result) > 0 {
+		if !bytes.Equal(bytes.TrimSpace(object.Result), []byte("false")) {
+			return nil, errPayload
+		}
+		return nil, nil
+	}
+	// Distinguish the observed metadata object from an arbitrary/error object.
+	if strings.TrimSpace(object.Title) == "" {
+		return nil, errPayload
+	}
+	return []movieMetadata{object.movieMetadata}, nil
+}
+
 func mergeMovie(first, next schedule.MovieRecord) schedule.MovieRecord {
 	if first.ProviderID == "" {
 		return next
