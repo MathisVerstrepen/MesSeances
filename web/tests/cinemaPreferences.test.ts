@@ -220,6 +220,7 @@ async function fixture(
 async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
   const listeners = new Map<string, () => void>()
   const target = {
+    setInterval: () => 0,
     addEventListener: (name: string, callback: () => void) =>
       listeners.set(name, callback),
   }
@@ -229,6 +230,10 @@ async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
     useWatchlist: () => ({ startSynchronization() {} }),
     useWatched: () => ({ startSynchronization() {} }),
     useCinemaFollows: () => ({ startSynchronization() {} }),
+    useActivityNotification: () => ({
+      startSynchronization() {},
+      refresh() {},
+    }),
     defineNuxtPlugin: (
       plugin: (app: {
         hook: (name: string, callback: () => void) => void
@@ -1139,6 +1144,9 @@ test('account plugin revalidates theater notifications and revisit events withou
   let revalidations = 0
   let clears = 0
   let starts = 0
+  let notificationStarts = 0
+  let notificationReads = 0
+  let poll: (() => void) | undefined
   const channels: MockChannel[] = []
   class MockChannel {
     onmessage?: (event: { data: string }) => void
@@ -1172,6 +1180,14 @@ test('account plugin revalidates theater notifications and revisit events withou
       useWatchlist: () => ({ startSynchronization() {} }),
       useWatched: () => ({ startSynchronization() {} }),
       useCinemaFollows: () => ({ startSynchronization() {} }),
+      useActivityNotification: () => ({
+        startSynchronization: () => {
+          notificationStarts++
+        },
+        refresh: () => {
+          notificationReads++
+        },
+      }),
       useAccountSession: () => ({
         status: ref('ready'),
         refresh: () => {
@@ -1187,6 +1203,11 @@ test('account plugin revalidates theater notifications and revisit events withou
       BroadcastChannel: MockChannel,
       window: {
         BroadcastChannel: MockChannel,
+        setInterval: (callback: () => void, delay: number) => {
+          assert.equal(delay, 60000)
+          poll = callback
+          return 0
+        },
         addEventListener: (
           name: string,
           callback: (event: { persisted?: boolean }) => void,
@@ -1202,7 +1223,12 @@ test('account plugin revalidates theater notifications and revisit events withou
     },
   )
   assert.equal(starts, 0, 'private refs must not load before hydration')
+  assert.equal(notificationStarts, 0)
   hooks.get('app:mounted')!()
+  assert.equal(notificationStarts, 1)
+  assert.ok(poll)
+  poll()
+  assert.equal(notificationReads, 1)
   channels[0]!.onmessage!({ data: 'theaters-changed' })
   for (const name of ['focus', 'online', 'visibilitychange'])
     listeners.get(name)!({})
@@ -1222,12 +1248,18 @@ test('account plugin revalidates theater notifications and revisit events withou
   channels[0]!.onmessage!({ data: 'changed' })
   assert.equal(refreshes, 1)
   listeners.get('pagehide')!({})
+  poll()
+  assert.equal(notificationReads, 1, 'hidden pages must not poll')
   listeners.get('focus')!({})
   assert.equal(clears, 2)
   assert.equal(revalidations, 6)
   listeners.get('pageshow')!({ persisted: true })
   assert.equal(refreshes, 2)
   assert.equal(starts, 1)
+  poll()
+  assert.equal(notificationReads, 2)
+  channels[0]!.onmessage!({ data: 'activity-visited' })
+  assert.equal(revalidations, 7)
 })
 
 test('same-owner session admission replaces an obsolete pending read without leaving synchronization blocked', async () => {

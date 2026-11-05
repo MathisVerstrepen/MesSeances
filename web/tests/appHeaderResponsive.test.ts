@@ -53,6 +53,7 @@ async function render(
     ...vue,
     useRoute: () => ({ path: options.path ?? '/' }),
     useAccountSession: () => ({ session: vue.ref(options.session ?? null) }),
+    useActivityNotification: () => ({ hasNew: vue.ref(false) }),
     useCinemaPreferences: () => ({
       favoriteTheaterIds: vue.ref(
         Array.from({ length: options.count ?? 4 }, (_, index) => `${index}`),
@@ -180,7 +181,7 @@ test('mobile nav uses legible short labels, retaining full search name, destinat
   }
   assert.match(link(html, '/planning'), /<span>Planning<\/span>/)
   assert.match(link(html, '/films'), /<span>Films<\/span>/)
-  assert.match(link(html, '/connexion'), /<span>Connexion<\/span>/)
+  assert.match(link(html, '/connexion'), />Connexion</)
   const brand = link(html, '/')
   assert.match(brand, /shrink-0/)
   assert.match(brand, /aria-label="MesSeances, accueil"/)
@@ -215,7 +216,7 @@ test('Films is selected on upcoming releases, catalog and film detail routes onl
 test('header keeps account labels and selected links unchanged on account and cinema routes', async () => {
   const anonymous = await render({ path: '/inscription' })
   assert.match(link(anonymous, '/connexion'), /aria-current="page"/)
-  assert.match(link(anonymous, '/connexion'), /<span>Connexion<\/span>/)
+  assert.match(link(anonymous, '/connexion'), />Connexion</)
   const signedIn = await render({
     path: '/compte',
     session: {
@@ -230,7 +231,7 @@ test('header keeps account labels and selected links unchanged on account and ci
     },
   })
   assert.match(link(signedIn, '/compte'), /aria-current="page"/)
-  assert.match(link(signedIn, '/compte'), /<span>Mon compte<\/span>/)
+  assert.match(link(signedIn, '/compte'), />Mon compte</)
   assert.match(link(signedIn, '/compte'), /text-\[10px\]/)
   assert.match(link(signedIn, '/compte'), /lg:text-xs/)
   assert.match(

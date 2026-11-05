@@ -12,6 +12,7 @@ import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const route = useRoute()
 const { session: accountSession } = useAccountSession()
+const { hasNew: hasNewActivity } = useActivityNotification()
 const accountHref = computed(() =>
   accountSession.value
     ? accountDestination(accountSession.value)
@@ -158,14 +159,16 @@ onMounted(() => {
         <NuxtLink
           :to="accountHref"
           :prefetch="false"
+          :aria-description="hasNewActivity ? 'Nouvelle activité disponible' : undefined"
           class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-center text-[10px] font-extrabold uppercase sm:px-3 lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:px-4 lg:text-xs lg:aria-[current=page]:after:absolute lg:aria-[current=page]:after:right-4 lg:aria-[current=page]:after:bottom-[0.55rem] lg:aria-[current=page]:after:left-4 lg:aria-[current=page]:after:h-[3px] lg:aria-[current=page]:after:bg-highlight lg:aria-[current=page]:after:content-['']"
           :class="isActive('/compte') ? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"
           :aria-current="isActive('/compte') ? 'page' : undefined"
         >
           <UserRound :size="15" stroke-width="2.5" aria-hidden="true" />
-          <span>{{
-            accountSession?.account ? 'Mon compte' : 'Connexion'
-          }}</span>
+          <span class="inline-flex items-center gap-1.5"
+            >{{ accountSession?.account ? 'Mon compte' : 'Connexion'
+            }}<ActivityNotificationDot v-if="hasNewActivity" /></span
+          >
         </NuxtLink>
       </nav>
     </div>

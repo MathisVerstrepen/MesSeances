@@ -4,6 +4,7 @@ import { accountDestination } from '~/utils/accountState'
 
 definePageMeta({ middleware: 'account-auth' })
 const account = useAccountSession()
+const { hasNew: hasNewActivity } = useActivityNotification()
 const complete = computed(() => account.session.value?.state === 'complete')
 useHead({ title: 'Mon compte - MesSeances' })
 </script>
@@ -59,9 +60,11 @@ useHead({ title: 'Mon compte - MesSeances' })
           <NuxtLink
             to="/compte/activite"
             :prefetch="false"
+            :aria-description="hasNewActivity ? 'Nouvelle activité disponible' : undefined"
             class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             <Activity :size="20" class="shrink-0" aria-hidden="true" />Activité
+            <ActivityNotificationDot v-if="hasNewActivity" />
             <ChevronRight
               :size="20"
               class="ml-auto shrink-0"

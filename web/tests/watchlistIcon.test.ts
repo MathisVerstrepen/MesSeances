@@ -177,6 +177,7 @@ test('watchlist navigation and home reuse the plain clock without bookmark regre
     const Navigation = await component(path, {
       useRoute: () => ({ path: '/compte/watchlist' }),
       useAccountSession: () => ({ session: ref({ state: 'complete' }) }),
+      useActivityNotification: () => ({ hasNew: ref(false) }),
       definePageMeta: () => {},
       useHead: () => {},
     })
