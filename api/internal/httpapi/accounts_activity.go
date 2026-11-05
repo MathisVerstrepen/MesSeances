@@ -64,3 +64,21 @@ func (h *accountHTTP) followedActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, view)
 }
+
+func (h *accountHTTP) activityNotification(w http.ResponseWriter, r *http.Request) {
+	if allowed, retry := h.activityReads.allow(requestIdentityFromContext(r.Context()).publicKey); !allowed {
+		accountError(w, &accounts.RateLimitError{RetryAfter: retry})
+		return
+	}
+	raw, err := h.cookie(r)
+	if err != nil {
+		accountError(w, err)
+		return
+	}
+	view, err := h.service.ActivityNotification(r.Context(), raw)
+	if err != nil {
+		accountError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
