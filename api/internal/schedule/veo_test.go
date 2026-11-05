@@ -145,3 +145,23 @@ func TestVeoDatasetTimingAndPlatformChecks(t *testing.T) {
 		t.Fatal("Castelia completeness")
 	}
 }
+
+func TestVeoSaintAffriqueRelayStructuralPolicy(t *testing.T) {
+	const raw = "https://relay.mvtx.us/ticketing/dbz?code_theater=P0793&gid_entity=synthetic_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261105&perft=20:30&code=VF"
+	id := VeoShowingID("P0793", "synthetic")
+	for _, value := range []string{raw, strings.ReplaceAll(raw, ",", "%2C"), strings.ReplaceAll(raw, "code=VF", "code=%56%46"), strings.ReplaceAll(raw, "code=VF", "code=VO")} {
+		if !ValidVeoBookingURL(value, "P0793", id) || !ValidVeoCheckoutURL(value) || ValidVeoGueretRelayURL(value) {
+			t.Fatal("valid source rejected or escaped scope")
+		}
+		for _, theater := range []string{"G06DB", "P1394", "P1028", "EMS1361"} {
+			if ValidVeoBookingURL(value, theater, VeoShowingID(theater, "synthetic")) {
+				t.Fatal("cross-cinema source accepted")
+			}
+		}
+	}
+	for _, value := range []string{raw + "&code=VF", raw + "&x=1", raw + "#", raw + "\n", strings.Replace(raw, "code=VF", "code=VOSTF", 1), strings.Replace(raw, "&code=VF", "", 1), strings.Replace(raw, "code_theater=P0793", "code_theater=P1394", 1), strings.Replace(raw, "20261105", "20260229", 1), strings.Replace(raw, "20:30", "24:00", 1), strings.Replace(raw, "code=VF", "code=%2556F", 1), strings.Replace(raw, "synthetic_123.opaque", "%26x%3D1", 1), strings.Replace(raw, "https:", "http:", 1), strings.Replace(raw, "relay.mvtx.us", "relay.mvtx.us:443", 1)} {
+		if ValidVeoBookingURL(value, "P0793", id) || ValidVeoCheckoutURL(value) {
+			t.Fatal("unsafe source accepted")
+		}
+	}
+}

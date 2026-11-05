@@ -35,13 +35,23 @@ func VeoShowingID(theater, sourceSession string) string {
 }
 
 func ValidVeoCheckoutURL(raw string) bool {
-	return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || ValidVeoGueretRelayURL(raw))
+	return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || ValidVeoGueretRelayURL(raw) || ValidVeoSaintAffriqueRelayURL(raw))
 }
 
 // ValidVeoGueretRelayURL is structural only. Acquisition binds the decoded date,
 // clock and tags to the actual source row; checkout binds the final epoch again.
 // Keep the single ASCII decoding policy mirrored in migration 065 and web/tool.
 func ValidVeoGueretRelayURL(raw string) bool {
+	return validVeoRelayURL(raw, "P1394", false)
+}
+
+// ValidVeoSaintAffriqueRelayURL keeps Le Moderne's six-key source route scoped
+// to its own cinema. The extra code is the source VF/VO version.
+func ValidVeoSaintAffriqueRelayURL(raw string) bool {
+	return validVeoRelayURL(raw, "P0793", true)
+}
+
+func validVeoRelayURL(raw, theater string, withCode bool) bool {
 	const prefix = "https://relay.mvtx.us/ticketing/dbz?"
 	if len(raw) > maxURLLength || !strings.HasPrefix(raw, prefix) {
 		return false
@@ -49,7 +59,8 @@ func ValidVeoGueretRelayURL(raw string) bool {
 	values := map[string]string{}
 	for _, pair := range strings.Split(strings.TrimPrefix(raw, prefix), "&") {
 		key, value, ok := strings.Cut(pair, "=")
-		if !ok || values[key] != "" || !containsVeoRelayKey(key) {
+		validKey := containsVeoRelayKey(key) || withCode && key == "code"
+		if !ok || values[key] != "" || !validKey {
 			return false
 		}
 		// No plus-as-space, encoded delimiters, Unicode, double decoding or
@@ -62,7 +73,14 @@ func ValidVeoGueretRelayURL(raw string) bool {
 	}
 	date := values["perfd"]
 	d, err := time.Parse("20060102", date)
-	return len(values) == 5 && values["code_theater"] == "P1394" && err == nil && d.Year() >= 1 && d.Format("20060102") == date && veoRelayClock.MatchString(values["perft"])
+	count := 5
+	if withCode {
+		count++
+		if values["code"] != "VF" && values["code"] != "VO" {
+			return false
+		}
+	}
+	return len(values) == count && values["code_theater"] == theater && err == nil && d.Year() >= 1 && d.Format("20060102") == date && veoRelayClock.MatchString(values["perft"])
 }
 
 var veoRelayValue = regexp.MustCompile(`^[A-Za-z0-9._~,:%\-]+$`)
@@ -82,7 +100,7 @@ func ValidVeoBookingURL(raw, theater, showing string) bool {
 		return false
 	}
 	if theater != "EMS1361" {
-		return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || theater == "G06DB" && ValidVeoGueretRelayURL(raw))
+		return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || theater == "G06DB" && ValidVeoGueretRelayURL(raw) || theater == "P0793" && ValidVeoSaintAffriqueRelayURL(raw))
 	}
 	u, err := url.Parse(raw)
 	if err != nil || len(raw) > maxURLLength || u.Scheme != "https" || u.Host != "castelginest.miracinemas.fr" || u.User != nil || u.Opaque != "" || u.RawPath != "" || u.RawFragment != "" || u.RawQuery != "" || u.ForceQuery || (u.Path != "" && u.Path != "/") || strings.ContainsAny(raw, "%\\") {
