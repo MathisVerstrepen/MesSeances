@@ -336,16 +336,22 @@ func parseShowtime(s showtimeResponse, c cinema, m schedule.MovieRecord, date st
 		provider = "relay"
 	}
 	for _, t := range s.Data.Ticketing {
-		if t.Provider == provider && t.Type == "DESKTOP" {
+		if (t.Provider == provider || c.ID == "P0793" && t.Provider == "relay") && t.Type == "DESKTOP" {
 			count++
 			if len(t.URLs) != 1 {
 				return schedule.ShowtimeRecord{}, errShape
 			}
 			booking = t.URLs[0]
+			if c.ID == "P0793" && t.Provider == "relay" && !saintAffriqueSourceBinding(booking, start, s.Tags) {
+				return schedule.ShowtimeRecord{}, errShape
+			}
 		}
 	}
 	id := schedule.VeoShowingID(c.ID, s.ID)
 	if count != 1 || !schedule.ValidVeoBookingURL(booking, c.ID, id) {
+		return schedule.ShowtimeRecord{}, errShape
+	}
+	if c.ID == "P0793" && strings.HasPrefix(booking, "https://relay.mvtx.us/") && !saintAffriqueSourceBinding(booking, start, s.Tags) {
 		return schedule.ShowtimeRecord{}, errShape
 	}
 	if c.dedicatedGueret() && !gueretSourceBinding(booking, start, s.Tags) {
