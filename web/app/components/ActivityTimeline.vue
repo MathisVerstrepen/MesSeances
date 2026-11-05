@@ -111,6 +111,7 @@ const firstOlderEventId = computed(() =>
           <NuxtLink
             :to="cinemaMovieTarget(item.movie.slug, eventTheaterId(item))"
             :aria-label="item.movie.title"
+            :aria-description="isNewActivity(item) ? 'Nouvelle activité' : undefined"
             class="relative block w-18 shrink-0 focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink sm:w-24 lg:w-28"
           >
             <PosterImage
@@ -126,6 +127,12 @@ const firstOlderEventId = computed(() =>
               fallback-class="text-zinc-600"
             />
             <WatchedBadge :slug="item.movie.slug" />
+            <span
+              v-if="isNewActivity(item)"
+              aria-hidden="true"
+              class="pointer-events-none absolute bottom-1 left-1 bg-[#facc15] px-1.5 py-0.5 text-xs font-bold leading-4 text-ink"
+              >Nouveau</span
+            >
           </NuxtLink>
           <div class="min-w-0 flex-1">
             <NuxtLink
@@ -155,11 +162,6 @@ const firstOlderEventId = computed(() =>
               >
             </component>
             <p class="leading-5">
-              <span
-                v-if="isNewActivity(item)"
-                class="mr-2 inline-block bg-[#facc15] px-1.5 py-0.5 align-top text-xs font-bold leading-4 text-ink"
-                >Nouveau</span
-              >
               <span
                 class="inline-block border-l-2 pl-2 align-top text-xs font-bold leading-4"
                 :class="item.type === 'return_to_program' ? 'border-accent text-accent' : 'border-ink text-ink'"
