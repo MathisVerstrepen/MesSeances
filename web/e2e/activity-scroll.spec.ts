@@ -47,6 +47,13 @@ for (const privateFeed of [false, true]) {
       .getByRole('button', { name: 'Afficher plus', exact: true })
       .click()
     await expect(rows).toHaveCount(40)
+    await expect(page.locator('main [data-activity-status="new"]')).toHaveCount(
+      40,
+    )
+    await page.evaluate(() => document.fonts.ready)
+    const rowHeights = await rows.evaluateAll((elements) =>
+      elements.map((element) => element.getBoundingClientRect().height),
+    )
     const lastMovie = rows
       .last()
       .getByRole('link', { name: movie.title, exact: true })
@@ -74,6 +81,16 @@ for (const privateFeed of [false, true]) {
     }
     await expect(rows).toHaveCount(40)
     await expect(page.locator(signal)).toHaveAttribute('aria-busy', 'false')
+    await expect(page.locator('main [data-activity-status="old"]')).toHaveCount(
+      40,
+    )
+    // A return visit removes the new badges, but must preserve row geometry
+    // so the saved position remains reachable before and after read tracking.
+    expect(
+      await rows.evaluateAll((elements) =>
+        elements.map((element) => element.getBoundingClientRect().height),
+      ),
+    ).toEqual(rowHeights)
     await expect
       .poll(async () =>
         Math.abs((await page.evaluate(() => window.scrollY)) - saved),
