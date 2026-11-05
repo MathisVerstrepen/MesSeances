@@ -128,12 +128,15 @@ type checkoutResponse struct {
 var checkoutDestination = regexp.MustCompile(`^/([a-z0-9]+(?:-[a-z0-9]+)*)/reserver/F[1-9][0-9]*/D([0-9]{10})/(VF|VO)/[1-9][0-9]*/$`)
 
 func checkoutFetchURLAllowed(u *url.URL) bool {
-	return checkoutURLAllowed(u) || canonicalCheckoutURL(u) || gueretFetchURL(u)
+	return checkoutURLAllowed(u) || canonicalCheckoutURL(u) || gueretFetchURL(u) || saintAffriqueRoot(u)
 }
 
 func boundCheckoutURL(u *url.URL, b checkoutBinding) bool {
 	if schedule.ValidVeoGueretRelayURL(b.source) {
 		return boundGueretURL(u, b)
+	}
+	if schedule.ValidVeoSaintAffriqueRelayURL(b.source) {
+		return boundSaintAffriqueURL(u, b)
 	}
 	if !checkoutFetchURLAllowed(u) {
 		return false
@@ -151,6 +154,12 @@ func boundCheckoutURL(u *url.URL, b checkoutBinding) bool {
 
 func checkoutRedirect(request *http.Request, via []*http.Request) error {
 	valid := false
+	if len(via) > 0 && via[0] != nil {
+		if b, ok := via[0].Context().Value(checkoutBindingKey{}).(checkoutBinding); ok && schedule.ValidVeoSaintAffriqueRelayURL(b.source) {
+			valid = saintAffriqueRedirect(request, via, b)
+			return syncproxy.NewRedirectChecker(func(*url.URL) bool { return valid })(request, via)
+		}
+	}
 	if len(via) > 0 && via[0] != nil {
 		if b, ok := via[0].Context().Value(checkoutBindingKey{}).(checkoutBinding); ok && schedule.ValidVeoGueretRelayURL(b.source) {
 			valid = gueretRedirect(request, via, b)
@@ -219,6 +228,22 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	saintAffriqueBound := bound && schedule.ValidVeoSaintAffriqueRelayURL(binding.source)
+	if saintAffriqueBound {
+		if saintAffriqueUnavailable(req.URL, r, binding) {
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+			binding.response.unavailableEnrichment = true
+			return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+		}
+		if !saintAffriqueResponseAllowed(req.URL, r, binding) {
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+			return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+		}
+	}
 	regularUnavailable := bound && regularFinal404Unavailable(req, r, binding)
 	gueretBound := bound && schedule.ValidVeoGueretRelayURL(binding.source)
 	if bound && req.Method == http.MethodGet && (regularUnavailable || gueretBound && gueretUnavailable(req.URL, r, binding)) {
@@ -253,7 +278,7 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		binding.response.unavailableEnrichment = true
 		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
-	if bound && !schedule.ValidVeoGueretRelayURL(binding.source) && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
+	if bound && !saintAffriqueBound && !schedule.ValidVeoGueretRelayURL(binding.source) && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
 		// Inspect the raw header before net/http resolves dot segments or loses
 		// a bare fragment marker. Relative/normalized aliases are not approved.
 		raw := r.Header.Get("Location")

@@ -471,3 +471,36 @@ test('Véo results preserve opaque source slugs, VOSTFR, absent rooms and unknow
     assert.equal(toTheaterShowtimeResults(response)[0]!.end?.estimated, false)
   }
 })
+
+test('Saint-Affrique six-key relay keeps strict frontend and crawler parity', () => {
+  const raw =
+    'https://relay.mvtx.us/ticketing/dbz?code_theater=P0793&gid_entity=synthetic_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261105&perft=20:30&code=VF'
+  const id = veoShowingId('P0793', 'synthetic')
+  for (const value of [
+    raw,
+    raw.replaceAll(',', '%2C'),
+    raw.replace('code=VF', 'code=%56%46'),
+    raw.replace('code=VF', 'code=VO'),
+  ]) {
+    parity(value, 'booking', id, 'veo-P0793')
+    parity(value, null)
+    for (const theater of ['G06DB', 'P1394', 'P1028', 'EMS1361'])
+      parity(value, null, veoShowingId(theater, 'synthetic'), `veo-${theater}`)
+  }
+  for (const value of [
+    raw + '&code=VF',
+    raw + '&x=1',
+    raw + '#',
+    raw + '\n',
+    raw.replace('&code=VF', ''),
+    raw.replace('code=VF', 'code=VOSTF'),
+    raw.replace('P0793', 'P1394'),
+    raw.replace('20261105', '20260229'),
+    raw.replace('20:30', '24:00'),
+    raw.replace('code=VF', 'code=%2556F'),
+    raw.replace('synthetic_123.opaque', '%26x%3D1'),
+    raw.replace('https:', 'http:'),
+    raw.replace('relay.mvtx.us', 'relay.mvtx.us:443'),
+  ])
+    parity(value, null, id, 'veo-P0793')
+})

@@ -21,7 +21,14 @@ func canonicalCheckoutURL(u *url.URL) bool {
 }
 
 func gueretSourceBinding(raw string, start time.Time, tags []string) bool {
-	if !schedule.ValidVeoGueretRelayURL(raw) || start.IsZero() || start.Nanosecond() != 0 || start.Second() != 0 {
+	if !schedule.ValidVeoGueretRelayURL(raw) {
+		return false
+	}
+	return relaySourceTimeBinding(raw, start, tags)
+}
+
+func relaySourceTimeBinding(raw string, start time.Time, tags []string) bool {
+	if start.IsZero() || start.Nanosecond() != 0 || start.Second() != 0 {
 		return false
 	}
 	u, _ := url.Parse(raw)

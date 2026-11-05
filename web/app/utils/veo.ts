@@ -39,7 +39,10 @@ export function safeVeoBooking(
     )
   if (checkout?.[0] === raw)
     return theater === 'EMS1361' ? null : { url: raw, kind: 'booking' }
-  if (theater === 'G06DB' && validGueretRelay(raw))
+  if (
+    (theater === 'G06DB' || theater === 'P0793') &&
+    validVeoRelay(raw, theater)
+  )
     return { url: raw, kind: 'booking' }
   if (theater && theater !== 'EMS1361') return null
   const root = /^https:\/\/castelginest\.miracinemas\.fr\/?$/.exec(raw)
@@ -58,8 +61,9 @@ export function safeVeoBooking(
 }
 
 // Structural only. Source acquisition binds start/tags; transport binds final D.
-// Single ASCII decode, mirrored by Go, SQL 065 and crawlability tooling.
-function validGueretRelay(raw: string): boolean {
+// Single ASCII decode, mirrored by Go, SQL 074 and crawlability tooling.
+function validVeoRelay(raw: string, theater: string): boolean {
+  const saintAffrique = theater === 'P0793'
   const prefix = 'https://relay.mvtx.us/ticketing/dbz?'
   if (raw.length > 4096 || !raw.startsWith(prefix)) return false
   const values = new Map<string, string>()
@@ -70,7 +74,14 @@ function validGueretRelay(raw: string): boolean {
     if (
       parts.length !== 2 ||
       values.has(key) ||
-      !['code_theater', 'gid_entity', 'tags', 'perfd', 'perft'].includes(key)
+      ![
+        'code_theater',
+        'gid_entity',
+        'tags',
+        'perfd',
+        'perft',
+        ...(saintAffrique ? ['code'] : []),
+      ].includes(key)
     )
       return false
     if (
@@ -94,8 +105,9 @@ function validGueretRelay(raw: string): boolean {
   const day = values.get('perfd') ?? ''
   const clock = values.get('perft') ?? ''
   if (
-    values.size !== 5 ||
-    values.get('code_theater') !== 'P1394' ||
+    values.size !== (saintAffrique ? 6 : 5) ||
+    (saintAffrique && !['VF', 'VO'].includes(values.get('code') ?? '')) ||
+    values.get('code_theater') !== (saintAffrique ? 'P0793' : 'P1394') ||
     !/^[0-9]{8}$/.test(day) ||
     day.length !== 8 ||
     !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(clock) ||

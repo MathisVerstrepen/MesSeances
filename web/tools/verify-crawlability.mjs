@@ -434,7 +434,11 @@ function reservationUrl(showtime) {
             raw,
           )
         if (checkout?.[0] === raw && theater !== 'EMS1361') return raw
-        if (theater === 'G06DB' && validGueretRelay(raw)) return raw
+        if (
+          (theater === 'G06DB' || theater === 'P0793') &&
+          validVeoRelay(raw, theater)
+        )
+          return raw
         if (!theater || theater === 'EMS1361') {
           const root = /^https:\/\/castelginest\.miracinemas\.fr\/?$/.exec(raw)
           if (root?.[0] === raw) return raw
@@ -652,8 +656,9 @@ function majesticReservationUrl(showtime) {
 }
 
 // Structural only. Source acquisition binds start/tags; transport binds final D.
-// Single ASCII decode, mirrored by Go, SQL 065 and the frontend policy.
-function validGueretRelay(raw) {
+// Single ASCII decode, mirrored by Go, SQL 074 and the frontend policy.
+function validVeoRelay(raw, theater) {
+  const saintAffrique = theater === 'P0793'
   const prefix = 'https://relay.mvtx.us/ticketing/dbz?'
   if (raw.length > 4096 || !raw.startsWith(prefix)) return false
   const values = new Map()
@@ -664,7 +669,14 @@ function validGueretRelay(raw) {
     if (
       parts.length !== 2 ||
       values.has(key) ||
-      !['code_theater', 'gid_entity', 'tags', 'perfd', 'perft'].includes(key)
+      ![
+        'code_theater',
+        'gid_entity',
+        'tags',
+        'perfd',
+        'perft',
+        ...(saintAffrique ? ['code'] : []),
+      ].includes(key)
     )
       return false
     if (
@@ -688,8 +700,9 @@ function validGueretRelay(raw) {
   const day = values.get('perfd') ?? ''
   const clock = values.get('perft') ?? ''
   if (
-    values.size !== 5 ||
-    values.get('code_theater') !== 'P1394' ||
+    values.size !== (saintAffrique ? 6 : 5) ||
+    (saintAffrique && !['VF', 'VO'].includes(values.get('code') ?? '')) ||
+    values.get('code_theater') !== (saintAffrique ? 'P0793' : 'P1394') ||
     !/^[0-9]{8}$/.test(day) ||
     day.length !== 8 ||
     !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(clock) ||
