@@ -1,5 +1,11 @@
 import type { Theater, TheaterActivityItem } from './api'
 
+export interface ActivityNotification {
+  username: string
+  follows_revision: string
+  has_new_activity: boolean
+}
+
 export interface ActivityVisit {
   username: string
   scope: string

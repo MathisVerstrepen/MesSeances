@@ -24,6 +24,7 @@ interface ScriptExports {
   state?: {
     account: { session: Ref<AccountSession | null> }
     complete: Ref<boolean>
+    hasNewActivity: Ref<boolean>
     accountDestination: typeof accountState.accountDestination
   }
   active?: Ref<boolean>
@@ -53,7 +54,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
   const { descriptor } = parse(home)
   let title = ''
   const state = evaluate(
-    `${descriptor.scriptSetup!.content}\nexports.state = { account, complete, accountDestination };`,
+    `${descriptor.scriptSetup!.content}\nexports.state = { account, complete, hasNewActivity, accountDestination };`,
     {
       computed,
       require: (name: string) => (name === '@lucide/vue' ? {} : accountState),
@@ -63,6 +64,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
         title = head.title
       },
       useAccountSession: () => ({ session }),
+      useActivityNotification: () => ({ hasNew: ref(false) }),
     },
   ).state
   assert.ok(state)
@@ -112,6 +114,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
       activityActive: false,
       watchedActive: false,
       upcomingEntries: [],
+      hasNewActivity: false,
     }),
   })
   sidebar.component('NuxtLink', {
@@ -161,6 +164,7 @@ test('desktop settings selection follows exact normalized route, not account hom
       {
         computed,
         useRoute: () => ({ path }),
+        useActivityNotification: () => ({ hasNew: ref(false) }),
         require: () => ({}),
       },
     )
@@ -174,6 +178,7 @@ test('desktop settings selection follows exact normalized route, not account hom
         watchlistActive: false,
         activityActive: false,
         upcomingEntries: [],
+        hasNewActivity: false,
       }),
     })
     app.component('NuxtLink', {

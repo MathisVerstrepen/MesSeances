@@ -57,6 +57,7 @@ let follows = { username: scenario.username, revision: '0', theater_ids: [] }
 let followPosts = 0
 let followGets = 0
 let activityGets = 0
+let activityNotificationGets = 0
 const activityVisits = new Map()
 let selected = {
   username: scenario.username,
@@ -287,6 +288,27 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/auth/session')
       return json(response, syntheticSession())
+    if (path === '/api/v1/account/activity/notification') {
+      activityNotificationGets++
+      if (scenario.state !== 'complete')
+        return json(
+          response,
+          { error: { code: 'authentication_required' } },
+          401,
+        )
+      if (scenario.feed === 'error')
+        return json(response, { error: { code: 'accounts_unavailable' } }, 503)
+      const previous = BigInt(
+        activityVisits.get(`${scenario.username}/followed`) || '0',
+      )
+      return json(response, {
+        username: scenario.username,
+        follows_revision: follows.revision,
+        has_new_activity: activityPage().items.some(
+          (item) => BigInt(item.event_id) > previous,
+        ),
+      })
+    }
     if (path === '/api/v1/account/theater-follows') {
       followGets++
       return json(response, follows)
@@ -849,6 +871,7 @@ try {
         followPosts,
         followGets,
         activityGets,
+        activityNotificationGets,
         screeningQueries,
         upcomingQueries,
         selected,
@@ -902,6 +925,7 @@ try {
         followPosts = 0
         followGets = 0
         activityGets = 0
+        activityNotificationGets = 0
         activityVisits.clear()
         unexpected.length = 0
         json(response, { ready: true })

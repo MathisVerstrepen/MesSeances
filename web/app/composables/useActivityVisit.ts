@@ -12,6 +12,8 @@ export function useActivityVisit(
 ) {
   const account = useAccountSession()
   const api = useAccountApi()
+  const app = useNuxtApp()
+  const notification = useActivityNotification()
   const previousLastEventID = ref<string | null>(null)
   const error = ref(false)
   const active = ref(false)
@@ -107,6 +109,10 @@ export function useActivityVisit(
         )
           throw new Error('Invalid activity visit')
         previous = value.previous_last_event_id
+        if (feed === 'followed') {
+          void notification.refresh()
+          app._accountChannel?.postMessage('activity-visited')
+        }
       }
       if (valid()) {
         // Keep the previous visit fixed across pagination and refreshes.
