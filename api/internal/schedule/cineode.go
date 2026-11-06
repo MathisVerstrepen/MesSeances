@@ -98,8 +98,8 @@ func CineodeWebsite(id string) string {
 }
 
 var cineodeMovie = regexp.MustCompile(`^([1-9][0-9]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$`)
-var cineodePoster = regexp.MustCompile(`^https://fr\.web\.img[0-9]*\.acsta\.net/(img|medias|pictures)/[A-Za-z0-9_./-]+\.(jpg|jpeg|png|webp)$`)
-var cineodeCotecinePoster = regexp.MustCompile(`^https://static\.cotecine\.fr/tb/Affiches/180x240/[A-Za-z0-9_+-]+\.JPG$`)
+var cineodePoster = regexp.MustCompile(`^https://fr\.web\.img[0-9]*\.acsta\.net/(img|medias|pictures)/[A-Za-z0-9_./-]+\.(jpg|jpeg|png|webp|JPG)$`)
+var cineodeCotecinePoster = regexp.MustCompile(`^https://static\.cotecine\.fr/tb/Affiches/180x240/([A-Za-z0-9_+-]|%20)+\.JPG$`)
 
 func ValidCineodeIdentity(kind, value string) bool {
 	switch kind {
