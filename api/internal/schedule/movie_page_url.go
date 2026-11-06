@@ -16,7 +16,22 @@ func ValidSourceMoviePageURL(provider Provider, movieID, raw string) bool {
 		return false
 	}
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "%\\?#") {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || strings.ContainsAny(raw, "%\\?") {
+		return false
+	}
+	if provider == ProviderCineville {
+		if u.Host != "www.cineville.fr" || u.Fragment != movieID {
+			return false
+		}
+		// These anchors are rendered from the source metadata's exact visa.
+		for _, route := range cinevilleRoutes {
+			if u.Path == "/programmes/"+route {
+				return true
+			}
+		}
+		return false
+	}
+	if u.Fragment != "" || strings.Contains(raw, "#") {
 		return false
 	}
 	if provider == ProviderMK2 {
@@ -57,6 +72,15 @@ func moviePageURL(theater TheaterRecord, movie MovieRecord) *string {
 		return nil
 	}
 	id := movie.ProviderID
+	if provider == ProviderCineville {
+		// The captured URL proves this visa has a native film anchor. Use the
+		// selected cinema's route rather than another cinema's captured page.
+		if route := CinevilleRoute(theater.ProviderID); route != "" && ValidSourceMoviePageURL(provider, id, movie.SourcePageURL) {
+			raw := "https://www.cineville.fr/programmes/" + route + "#" + id
+			return &raw
+		}
+		return nil
+	}
 	if ValidSourceMoviePageURL(provider, id, movie.SourcePageURL) {
 		return &movie.SourcePageURL
 	}

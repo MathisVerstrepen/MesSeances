@@ -424,12 +424,13 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 
 // movie_data is published either as a legacy array or a single metadata object.
 type movieMetadata struct {
-	Title    string  `json:"titre"`
-	Runtime  string  `json:"duree"`
-	Poster   string  `json:"affichette"`
-	Overview string  `json:"synopsis"`
-	Genre    string  `json:"genreprincipal"`
-	Release  *string `json:"datedesortie"`
+	Visa     json.RawMessage `json:"visa"`
+	Title    string          `json:"titre"`
+	Runtime  string          `json:"duree"`
+	Poster   string          `json:"affichette"`
+	Overview string          `json:"synopsis"`
+	Genre    string          `json:"genreprincipal"`
+	Release  *string         `json:"datedesortie"`
 }
 
 func parseMovieMetadata(raw []byte) ([]movieMetadata, error) {
@@ -487,7 +488,42 @@ func mergeMovie(first, next schedule.MovieRecord) schedule.MovieRecord {
 	if len(first.Genres) == 0 {
 		first.Genres = next.Genres
 	}
+	if next.SourcePageURL != "" && (first.SourcePageURL == "" || next.SourcePageURL < first.SourcePageURL) {
+		first.SourcePageURL = next.SourcePageURL
+	}
 	return first
+}
+
+func sourceMoviePageURL(f film, c cinema) string {
+	route := schedule.CinevilleRoute(string(c.ID))
+	if route == "" || route != c.Route {
+		return ""
+	}
+	rawMetadata := bytes.TrimSpace(f.Metadata)
+	if len(rawMetadata) == 0 {
+		return ""
+	}
+	entries, err := parseMovieMetadata(rawMetadata)
+	if err != nil || len(entries) == 0 {
+		return ""
+	}
+	var visa scalar
+	if json.Unmarshal(entries[0].Visa, &visa) != nil || visa != f.Visa {
+		return ""
+	}
+	// React turns numeric visas into DOM IDs through JavaScript's Number.
+	// String visas preserve int64 precision; unsafe numeric values do not.
+	if bytes.TrimSpace(entries[0].Visa)[0] != '"' {
+		n, err := strconv.ParseInt(string(visa), 10, 64)
+		if err != nil || n < -9007199254740991 || n > 9007199254740991 {
+			return ""
+		}
+	}
+	raw := "https://www.cineville.fr/programmes/" + route + "#" + string(visa)
+	if !schedule.ValidSourceMoviePageURL(schedule.ProviderCineville, string(f.Visa), raw) {
+		return ""
+	}
+	return raw
 }
 
 func parseStart(date, clock string, location *time.Location) (time.Time, error) {

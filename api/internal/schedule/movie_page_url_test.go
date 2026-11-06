@@ -97,6 +97,29 @@ func TestCapturedKinepolisMoviePage(t *testing.T) {
 	}
 }
 
+func TestCapturedCinevilleMoviePage(t *testing.T) {
+	const captured = "https://www.cineville.fr/programmes/bruz#168608"
+	for _, raw := range []string{captured, strings.Replace(captured, "168608", "168609", 1), strings.Replace(captured, "bruz", "www", 1), strings.Replace(captured, "www.cineville.fr", "evil.example", 1), strings.Replace(captured, "https://", "https://user@", 1), strings.Replace(captured, "168608", "%31%36%38%36%30%38", 1), captured + "?token=x", captured + "#extra"} {
+		if got := ValidSourceMoviePageURL(ProviderCineville, "168608", raw); got != (raw == captured) {
+			t.Fatalf("incorrect Cineville URL validation for %q", raw)
+		}
+	}
+	movie := MovieRecord{Provider: ProviderCineville, ProviderID: "168608", Title: "Edited title", SourcePageURL: captured}
+	for _, tc := range []struct{ theater, want string }{
+		{"4037", captured},
+		{"639", "https://www.cineville.fr/programmes/katorzaquimper#168608"},
+		{"unknown", ""},
+	} {
+		got := moviePageURL(TheaterRecord{Provider: ProviderCineville, ProviderID: tc.theater}, movie)
+		if tc.want == "" && got != nil || tc.want != "" && (got == nil || *got != tc.want) {
+			t.Fatalf("wrong cinema destination for %s: %v", tc.theater, got)
+		}
+	}
+	if !ValidSourceMoviePageURL(ProviderCineville, "-40370611261", "https://www.cineville.fr/programmes/bruz#-40370611261") {
+		t.Fatal("signed event visa rejected")
+	}
+}
+
 func TestMovieShowtimesMovieURLsUseEachTheatersSource(t *testing.T) {
 	data := combinedTestDataset()
 	// A single canonical film unites UGC and Kinepolis source identities.

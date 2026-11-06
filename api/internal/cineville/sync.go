@@ -122,8 +122,17 @@ func typedError(err error, op Operation) error {
 func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options SyncOptions) (schedule.Dataset, int, error) {
 	data := schedule.Dataset{Provider: schedule.ProviderCineville, SchemaVersion: schedule.SchemaVersion, Scope: schedule.ScopeAll, Timezone: schedule.Timezone, GeneratedAt: options.Now.UTC(), Window: schedule.Window{From: options.From, Through: options.From}}
 	movies := map[string]schedule.MovieRecord{}
+	missingAnchors := map[string]bool{}
 	// Normalize all metadata first so missing optional fields cannot cause session conflicts.
-	for _, p := range pages {
+	for i, p := range pages {
+		// progWithEvents includes films hidden behind the site's programme
+		// filters. A fragment can target only a card in its default prog list.
+		anchors := map[string]string{}
+		for _, f := range p.Program {
+			if raw := sourceMoviePageURL(f, catalog[i]); raw != "" {
+				anchors[string(f.Visa)] = raw
+			}
+		}
 		for _, films := range [][]film{p.Program, p.Events} {
 			for _, f := range films {
 				if err := ctx.Err(); err != nil {
@@ -149,9 +158,20 @@ func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options
 				if err != nil {
 					return schedule.Dataset{}, 0, payloadError(OperationCinema)
 				}
+				m.SourcePageURL = anchors[m.ProviderID]
+				if m.SourcePageURL == "" {
+					missingAnchors[m.ProviderID] = true
+				}
 				movies[m.ProviderID] = mergeMovie(movies[m.ProviderID], m)
 			}
 		}
+	}
+	// A movie record is shared across cinemas. If any cinema's default programme
+	// lacks its anchor, do not infer one from another cinema's richer programme.
+	for id := range missingAnchors {
+		m := movies[id]
+		m.SourcePageURL = ""
+		movies[id] = m
 	}
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
