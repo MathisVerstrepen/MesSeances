@@ -36,12 +36,12 @@ func TestCineodeSourcePoliciesAndPublicReads(t *testing.T) {
 	if err := ValidateDataset(d, true); err != nil {
 		t.Fatal(err)
 	}
-	for _, url := range []string{"https://fr.web.img6.acsta.net/img/aa/poster.jpg", "https://static.cotecine.fr/tb/Affiches/180x240/4332_638323.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/LE+BON+LA+BRUTE.JPG"} {
+	for _, url := range []string{"https://fr.web.img6.acsta.net/img/aa/poster.jpg", "https://fr.web.img6.acsta.net/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/4332_638323.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/LE+BON+LA+BRUTE.JPG"} {
 		if !ValidCineodePosterURL(url) {
 			t.Fatal("source poster rejected", url)
 		}
 	}
-	for _, suffix := range []string{"a.jpg", "a%2b.JPG", "a/b.JPG", "a.JPG?x=1", "a.JPG#x", "../a.JPG", "a.JPG/", "a.JPG%23"} {
+	for _, suffix := range []string{"a.jpg", "a%2b.JPG", "a/b.JPG", "a.JPG?x=1", "a.JPG#x", "../a.JPG", "a.JPG/", "a.JPG%23", "a%2520b.JPG", "a%2Fb.JPG", "a%5Cb.JPG", "a%00b.JPG", "a%0Ab.JPG", "a%20b.JPG?x=1", "a b.JPG", "%2E%2E.JPG"} {
 		if ValidCineodePosterURL("https://static.cotecine.fr/tb/Affiches/180x240/" + suffix) {
 			t.Fatal("unsafe poster accepted")
 		}
