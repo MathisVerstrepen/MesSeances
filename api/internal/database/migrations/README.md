@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [075_cineode_poster_urls.sql](075_cineode_poster_urls.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [076_source_movie_pages.sql](076_source_movie_pages.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -269,6 +269,7 @@ Primary key: `(generation_id, provider, provider_id)`. Unique: `(generation_id, 
 | `title` | `varchar(1024)` | Nonblank after trimming |
 | `runtime_minutes` | `integer` | Nonnegative |
 | `poster_url` | `varchar(4096)` | Nullable; no URL check here |
+| `source_page_url` | `varchar(4096)` | Nullable; captured HTTPS film-page URL without credentials, queries, fragments, whitespace, escapes or backslashes; provider host, route and source identity are validated by the application |
 | `source_overview` | `varchar(10000)` | Nullable; length at most 10,000 |
 | `source_release_date` | `date` | Nullable |
 | `source_genres` | `text[]` | Default `'{}'`; at most 32 elements |

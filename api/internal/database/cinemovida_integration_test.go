@@ -108,6 +108,8 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 
 func cinemovidaUnchangedConstraints(t *testing.T, ctx context.Context, pool *pgxpool.Pool, exclude []string) string {
 	t.Helper()
+	// Migration 076 adds a new CHECK without changing a pre-existing one.
+	exclude = append(append([]string(nil), exclude...), "movies.movies_source_page_url_check")
 	var result string
 	// Later additive tables have their own schema coverage; compare constraints
 	// on the tables that existed at the provider migration boundary.

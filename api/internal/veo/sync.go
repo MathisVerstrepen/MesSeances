@@ -9,6 +9,7 @@ import (
 
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 )
 
 type Getter interface {
@@ -45,6 +46,9 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (schedule.Dataset, SyncS
 	}
 	if err == nil {
 		err = ctx.Err()
+	}
+	if err == nil {
+		err = sourcepages.Enrich(ctx, g, &d)
 	}
 	if err == nil && schedule.ValidateDataset(d, true) != nil {
 		err = fmt.Errorf("%w: invalid Véo snapshot", schedule.ErrDatasetValidation)

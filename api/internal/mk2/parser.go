@@ -18,6 +18,7 @@ type cinema struct {
 	ComplexSlug string `json:"complexSlug"`
 }
 type film struct {
+	Slug        string `json:"slug"`
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Runtime     *int   `json:"runTime"`
@@ -99,6 +100,12 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 	if !schedule.ValidMK2Identity("movie", f.ID) {
 		return m, payloadError(OperationFilms)
 	}
+	if f.Slug != "" {
+		raw := "https://www.mk2.com/film/" + f.Slug
+		if schedule.ValidSourceMoviePageURL(schedule.ProviderMK2, f.ID, raw) {
+			m.SourcePageURL = raw
+		}
+	}
 	if f.Runtime != nil {
 		m.RuntimeMinutes = *f.Runtime
 		if _, ok := schedule.RuntimeDuration(m.RuntimeMinutes); !ok && m.RuntimeMinutes != 0 {
@@ -142,7 +149,7 @@ func mergeMovie(a, b schedule.MovieRecord) (schedule.MovieRecord, error) {
 	for _, pair := range []struct {
 		dst   *string
 		value string
-	}{{&a.PosterURL, b.PosterURL}, {&a.ReleaseDate, b.ReleaseDate}} {
+	}{{&a.PosterURL, b.PosterURL}, {&a.ReleaseDate, b.ReleaseDate}, {&a.SourcePageURL, b.SourcePageURL}} {
 		if *pair.dst != "" && pair.value != "" && *pair.dst != pair.value {
 			return a, payloadError(OperationFilms)
 		}

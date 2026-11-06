@@ -54,6 +54,21 @@ func TestMoviePageURL(t *testing.T) {
 	}
 }
 
+func TestCapturedMoviePageURLValidation(t *testing.T) {
+	const valid = "https://www.cgrcinemas.fr/films-a-l-affiche/123-source-title/"
+	for _, raw := range []string{valid, "http://www.cgrcinemas.fr/films-a-l-affiche/123-source-title/", strings.Replace(valid, "www.cgrcinemas.fr", "evil.example", 1), strings.Replace(valid, "123-", "1234-", 1), valid + "?secret=x", valid + "#x", strings.Replace(valid, "https://", "https://user@", 1), strings.Replace(valid, "source-title", "../title", 1), strings.Replace(valid, "123", "%31%32%33", 1)} {
+		want := raw == valid
+		if ValidSourceMoviePageURL(ProviderCGR, "123", raw) != want {
+			t.Fatalf("wrong validation: %q", raw)
+		}
+		movie := MovieRecord{Provider: ProviderCGR, ProviderID: "123", SourcePageURL: raw, Title: "Edited canonical title"}
+		got := moviePageURL(TheaterRecord{Provider: ProviderCGR}, movie)
+		if want && (got == nil || *got != valid) || !want && got != nil {
+			t.Fatalf("wrong URL projection for %q", raw)
+		}
+	}
+}
+
 func TestMovieShowtimesMovieURLsUseEachTheatersSource(t *testing.T) {
 	data := combinedTestDataset()
 	// A single canonical film unites UGC and Kinepolis source identities.

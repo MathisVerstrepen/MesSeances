@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -151,6 +152,9 @@ func allowedURL(u *url.URL) bool {
 	if !safeURL(u) || u.Host != "www.noecinemas.com" {
 		return false
 	}
+	if u.String() == APIBaseURL+"/sitemap-0.xml" {
+		return true
+	}
 	for _, op := range []Operation{OperationCinemas, OperationProgram, OperationSchedule, OperationMovies} {
 		if jsonOperationMatchesURL(op, u) {
 			return true
@@ -222,4 +226,8 @@ func scheduleURL(id, from, through string) string {
 	}{id, schedule.Timezone})
 	end, _ := time.Parse(time.DateOnly, through)
 	return APIBaseURL + "/api/gatsby-source-boxofficeapi/schedule?" + url.Values{"theaters": {string(theater)}, "includeAllMovies": {"true"}, "from": {from + "T03:00:00"}, "to": {end.AddDate(0, 0, 1).Format(time.DateOnly) + "T03:00:00"}}.Encode()
+}
+
+func (c *Client) MoviePageIndex(ctx context.Context) ([]byte, error) {
+	return sourcepages.Fetch(ctx, c.json, APIBaseURL+"/sitemap-0.xml")
 }

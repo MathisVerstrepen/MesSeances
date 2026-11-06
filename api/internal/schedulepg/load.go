@@ -253,7 +253,7 @@ ORDER BY t.provider, t.provider_id, t.id`, version)
 
 func loadMovieAggregate(ctx context.Context, tx pgx.Tx, version int64) (map[string]schedule.MovieRecord, error) {
 	movies := map[string]schedule.MovieRecord{}
-	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, source.public_movie_id
+	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, source.public_movie_id, COALESCE(m.source_page_url,'')
 FROM movies m
 JOIN public_movie_sources source ON source.source_provider=m.provider AND source.source_movie_id=m.provider_id
 WHERE m.generation_id=$1
@@ -266,7 +266,7 @@ ORDER BY m.provider, m.provider_id`, version)
 		var provider string
 		var sourceOverview, sourceReleaseDate string
 		var sourceGenres []string
-		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &movie.PublicMovieID); err != nil {
+		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &movie.PublicMovieID, &movie.SourcePageURL); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read movies failed")
 		}

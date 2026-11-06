@@ -1,6 +1,44 @@
 package schedule
 
-import "strings"
+import (
+	"net/url"
+	"regexp"
+	"strings"
+)
+
+var sourcePageSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+// ValidSourceMoviePageURL admits only film routes captured from the provider's
+// own metadata or sitemap. Boxoffice routes must contain the exact source ID.
+func ValidSourceMoviePageURL(provider Provider, movieID, raw string) bool {
+	if !validProviderIdentity(provider, "movie", movieID) || len(raw) > maxURLLength {
+		return false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(raw, "%\\?#") {
+		return false
+	}
+	if provider == ProviderMK2 {
+		return u.Host == "www.mk2.com" && strings.HasPrefix(u.Path, "/film/") && sourcePageSlug.MatchString(strings.TrimPrefix(u.Path, "/film/"))
+	}
+	var host, prefix string
+	switch provider {
+	case ProviderCGR:
+		host, prefix = "www.cgrcinemas.fr", "/films-a-l-affiche/"
+	case ProviderGrandEcran:
+		host, prefix = "www.grandecran.fr", "/movies/"
+	case ProviderNoeCinemas:
+		host, prefix = "www.noecinemas.com", "/films/"
+	case ProviderCinemovida:
+		host, prefix = "www.cine-movida.com", "/movies/"
+	case ProviderVeo:
+		host, prefix = "veocinemas.fr", "/movies/"
+	default:
+		return false
+	}
+	stem := prefix + movieID + "-"
+	return u.Host == host && strings.HasPrefix(u.Path, stem) && strings.HasSuffix(u.Path, "/") && sourcePageSlug.MatchString(strings.TrimSuffix(strings.TrimPrefix(u.Path, stem), "/"))
+}
 
 // moviePageURL uses the screening's source identity, never the canonical film
 // slug/title (which can combine several chains or be manually edited). Only
@@ -11,6 +49,9 @@ func moviePageURL(theater TheaterRecord, movie MovieRecord) *string {
 		return nil
 	}
 	id := movie.ProviderID
+	if ValidSourceMoviePageURL(provider, id, movie.SourcePageURL) {
+		return &movie.SourcePageURL
+	}
 	var raw string
 	switch provider {
 	case ProviderUGC:

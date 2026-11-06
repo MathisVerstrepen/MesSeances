@@ -93,6 +93,7 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
+	SourcePageURL         string           `json:"source_page_url,omitempty"`
 	Provider              Provider         `json:"provider,omitempty"`
 	ProviderID            string           `json:"provider_id"`
 	Slug                  string           `json:"slug"`

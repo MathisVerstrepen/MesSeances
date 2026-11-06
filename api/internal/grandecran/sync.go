@@ -10,6 +10,7 @@ import (
 
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -210,6 +211,9 @@ func syncSnapshot(ctx context.Context, g Getter, o SyncOptions) (schedule.Datase
 		return a.ID < b.ID
 	})
 	summary.Showtimes = len(data.Showtimes)
+	if err := sourcepages.Enrich(ctx, g, &data); err != nil {
+		return schedule.Dataset{}, summary, err
+	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
 		return schedule.Dataset{}, summary, fmt.Errorf("%w: invalid Grand Ecran snapshot", schedule.ErrDatasetValidation)
 	}
