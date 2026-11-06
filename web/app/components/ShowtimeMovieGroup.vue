@@ -38,17 +38,35 @@ const backdropUrl = computed(() => {
   return null
 })
 const backdropFailed = ref(false)
+const posterBackdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
+const usePosterBackdrop = computed(
+  () => !backdropUrl.value || backdropFailed.value,
+)
+const backgroundUrl = computed(() =>
+  usePosterBackdrop.value
+    ? posterBackdropFailed.value
+      ? null
+      : posterUrl.value
+    : backdropUrl.value,
+)
+
+function handleBackdropError() {
+  if (usePosterBackdrop.value) posterBackdropFailed.value = true
+  else backdropFailed.value = true
+}
+
 const selectedKeySet = computed(() => new Set(props.selectedKeys))
 
 watch([posterUrl, backdropUrl], () => {
   backdropFailed.value = false
+  posterBackdropFailed.value = false
 })
 
 onMounted(() =>
   nextTick(() => {
     if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0)
-      backdropFailed.value = true
+      handleBackdropError()
   }),
 )
 </script>
@@ -62,22 +80,24 @@ onMounted(() =>
     <header
       v-if="scope === 'single-theater'"
       class="relative isolate grid min-h-48 grid-cols-[96px_minmax(0,1fr)] items-end gap-5 overflow-hidden border-b-2 border-ink p-4 sm:min-h-56 sm:grid-cols-[120px_minmax(0,1fr)] sm:p-5"
-      :class="backdropUrl && !backdropFailed ? 'text-white' : 'bg-[#f1efe8] text-ink'"
+      :class="backgroundUrl ? 'text-white' : 'bg-[#f1efe8] text-ink'"
     >
       <img
-        v-if="backdropUrl && !backdropFailed"
+        v-if="backgroundUrl"
         ref="backdropImage"
-        :src="backdropUrl"
+        :key="backgroundUrl"
+        :src="backgroundUrl"
         alt=""
         aria-hidden="true"
-        :data-media-url="backdropUrl"
+        :data-media-url="backgroundUrl"
         :data-movie-slug="movie.movieSlug"
         data-media-kind="backdrop"
         class="absolute inset-0 -z-20 size-full object-cover"
-        @error="backdropFailed = true"
+        :class="usePosterBackdrop ? 'scale-110 blur-xl' : undefined"
+        @error="handleBackdropError"
       >
       <div
-        v-if="backdropUrl && !backdropFailed"
+        v-if="backgroundUrl"
         class="absolute inset-0 -z-10 bg-black/80"
         aria-hidden="true"
       />
@@ -114,7 +134,7 @@ onMounted(() =>
         <p
           v-if="movie.movieRuntimeMinutes > 0"
           class="mt-1 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"
-          :class="backdropUrl && !backdropFailed ? 'text-white' : undefined"
+          :class="backgroundUrl ? 'text-white' : undefined"
         >
           {{ movie.movieRuntimeMinutes }} min
         </p>
@@ -126,17 +146,19 @@ onMounted(() =>
       class="relative overflow-hidden border-b-2 border-ink bg-ink px-4 py-4 text-white sm:px-5 sm:py-5"
     >
       <img
-        v-if="backdropUrl && !backdropFailed"
+        v-if="backgroundUrl"
         ref="backdropImage"
-        :src="backdropUrl"
+        :key="backgroundUrl"
+        :src="backgroundUrl"
         alt=""
         width="960"
         height="240"
         loading="lazy"
         decoding="async"
         class="absolute inset-0 h-full w-full object-cover opacity-100"
+        :class="usePosterBackdrop ? 'scale-110 blur-xl' : undefined"
         aria-hidden="true"
-        @error="backdropFailed = true"
+        @error="handleBackdropError"
       >
       <div class="absolute inset-0 bg-black/80" aria-hidden="true" />
       <div class="relative flex items-center gap-4">
