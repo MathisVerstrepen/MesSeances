@@ -1,5 +1,5 @@
 import type { CatalogMovie, MovieSort } from '~/types/api'
-import { isCalendarDate } from './date.ts'
+import { addCalendarDays, isCalendarDate } from './date.ts'
 import { compileMovieTitleSearch } from './movieTitleSearch.ts'
 
 export const movieCatalogSortOptions = [
@@ -17,11 +17,18 @@ export const movieCatalogSortValues = movieCatalogSortOptions.map(
 
 export function isMoviePresale(movie: CatalogMovie, today: string): boolean {
   const releaseDate = movie.french_release_date
-  return Boolean(
-    releaseDate &&
-      isCalendarDate(releaseDate) &&
-      releaseDate > today &&
-      (movie.remaining_showtime_count ?? movie.showtime_count ?? 0) > 0,
+  if (!releaseDate || !isCalendarDate(releaseDate) || !isCalendarDate(today))
+    return false
+
+  // On Monday/Tuesday, the coming Wednesday is already normal programming.
+  const weekday = new Date(`${today}T12:00:00Z`).getUTCDay()
+  const programmeDate = addCalendarDays(
+    today,
+    weekday === 1 ? 2 : weekday === 2 ? 1 : 0,
+  )
+  return (
+    releaseDate > programmeDate &&
+    (movie.remaining_showtime_count ?? movie.showtime_count ?? 0) > 0
   )
 }
 

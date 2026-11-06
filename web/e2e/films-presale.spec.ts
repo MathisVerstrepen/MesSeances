@@ -1,30 +1,30 @@
 import { test, expect, openPage } from './fixtures'
 import { movie, generatedAt } from './data.mjs'
 
-test('film catalog distinguishes presales from released and unscheduled films', async ({
+test('film catalog excludes the coming Wednesday from Monday presales', async ({
   page,
 }, testInfo) => {
-  await page.clock.setFixedTime(new Date('2026-11-06T12:00:00Z'))
+  await page.clock.setFixedTime(new Date('2026-11-09T12:00:00Z'))
   const items = [
     {
       ...movie,
       slug: 'presale',
       title: 'Film en prévente',
-      french_release_date: '2026-11-11',
+      french_release_date: '2026-11-18',
       showtime_count: 8,
     },
     {
       ...movie,
       slug: 'released',
-      title: 'Film sorti',
-      french_release_date: '2026-11-06',
+      title: 'Sortie ce mercredi',
+      french_release_date: '2026-11-11',
       showtime_count: 4,
     },
     {
       ...movie,
       slug: 'unscheduled',
       title: 'Film sans séance',
-      french_release_date: '2026-11-11',
+      french_release_date: '2026-11-18',
       showtime_count: 0,
     },
   ]

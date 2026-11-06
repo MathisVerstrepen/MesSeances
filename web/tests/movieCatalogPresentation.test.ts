@@ -144,6 +144,36 @@ test('presales require a future French release and remaining screenings', () => 
   assert.equal(isMoviePresale(presale, '2026-11-11'), false)
 })
 
+test('Monday and Tuesday treat the coming Wednesday as normal programming', () => {
+  const openingWednesday = movie({
+    french_release_date: '2026-11-11',
+    showtime_count: 4,
+  })
+  assert.equal(isMoviePresale(openingWednesday, '2026-11-08'), true)
+  for (const today of [
+    '2026-11-09',
+    '2026-11-10',
+    '2026-11-11',
+    '2026-11-12',
+  ]) {
+    assert.equal(isMoviePresale(openingWednesday, today), false)
+  }
+  const followingWeek = {
+    ...openingWednesday,
+    french_release_date: '2026-11-18',
+  }
+  for (const today of ['2026-11-09', '2026-11-10', '2026-11-11']) {
+    assert.equal(isMoviePresale(followingWeek, today), true)
+  }
+  // Calendar arithmetic must also work across month/year boundaries.
+  const newYearRelease = {
+    ...openingWednesday,
+    french_release_date: '2025-01-01',
+  }
+  assert.equal(isMoviePresale(newYearRelease, '2024-12-30'), false)
+  assert.equal(isMoviePresale(newYearRelease, '2024-12-31'), false)
+})
+
 test('movie detail genre chips link to the filtered film catalog', () => {
   const genres = film.match(
     /<ul[^>]+aria-label="Genres"\s*>([\s\S]*?)<\/ul>/,
