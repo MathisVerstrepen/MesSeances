@@ -177,7 +177,7 @@ func TestHistoryCacheWorkerCancellationAndShutdownJoin(t *testing.T) {
 	}
 	done := make(chan struct{})
 	go func() {
-		shutdownWorkers(cancel, nil, nil, nil, nil, &polling)
+		shutdownWorkers(cancel, nil, nil, nil, nil, nil, &polling)
 		close(done)
 	}()
 	select {

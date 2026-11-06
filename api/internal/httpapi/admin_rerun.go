@@ -7,6 +7,18 @@ import (
 	"messeances/api/internal/enrichment"
 )
 
+type rerunResponse struct {
+	Job *enrichment.RerunStatus `json:"job"`
+}
+
+func (a *adminAPI) tmdbRerunStatus(w http.ResponseWriter, _ *http.Request) {
+	if a.tmdbReruns == nil {
+		writeError(w, http.StatusServiceUnavailable, "tmdb_rerun_unavailable", "Service de relance TMDB indisponible.")
+		return
+	}
+	writeJSON(w, http.StatusOK, rerunResponse{Job: a.tmdbReruns.Snapshot()})
+}
+
 func (a *adminAPI) rerunTMDBMatches(w http.ResponseWriter, r *http.Request) {
 	if !emptyAdminBody(w, r) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
@@ -16,7 +28,7 @@ func (a *adminAPI) rerunTMDBMatches(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "tmdb_rerun_unavailable", "Service de relance TMDB indisponible.")
 		return
 	}
-	summary, err := a.tmdbReruns.Rerun(r.Context())
+	status, err := a.tmdbReruns.Start()
 	if err != nil {
 		switch {
 		case errors.Is(err, enrichment.ErrRerunInProgress):
@@ -28,5 +40,5 @@ func (a *adminAPI) rerunTMDBMatches(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, summary)
+	writeJSON(w, http.StatusAccepted, rerunResponse{Job: &status})
 }

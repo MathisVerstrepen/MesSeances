@@ -237,7 +237,7 @@ func run(ctx context.Context) error {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			shutdownWorkers(stopWorkers, syncs.scheduler, syncs.manager, admin.geocodingManager, admin.metadataRefreshManager, &polling)
+			shutdownWorkers(stopWorkers, syncs.scheduler, syncs.manager, admin.geocodingManager, admin.metadataRefreshManager, admin.rerunManager, &polling)
 			admin.upcomingManager.Close()
 		})
 	}
@@ -362,6 +362,7 @@ type adminRuntime struct {
 	enrichmentProvider       enrichment.Provider
 	watchlistReleaseProvider accounts.WatchlistReleaseProvider
 	metadataRefreshManager   *enrichment.MetadataRefreshManager
+	rerunManager             *enrichment.RerunManager
 	geocodingManager         *geocoding.Manager
 }
 
@@ -381,12 +382,13 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		releaseProvider = client
 	}
 	gate := enrichment.NewTMDBRunGate()
-	options, metadataRefreshManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider, gate)
+	options, metadataRefreshManager, rerunManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider, gate)
 	if err != nil {
 		return adminRuntime{}, fmt.Errorf("TMDB metadata refresh configuration is invalid")
 	}
 	geocodingManager, err := newTheaterGeocodingManager(ctx, pool, time.Now)
 	if err != nil {
+		rerunManager.Close()
 		if metadataRefreshManager != nil {
 			metadataRefreshManager.Close()
 		}
@@ -403,6 +405,7 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 	if upcomingProvider != nil && cfg.Admin.Password != "" {
 		upcomingManager, err = enrichment.NewUpcomingManager(ctx, enrichment.NewUpcomingService(store, upcomingProvider, nil, gate), enrichment.NewPostgresUpcomingLocker(pool))
 		if err != nil {
+			rerunManager.Close()
 			metadataRefreshManager.Close()
 			geocodingManager.Close()
 			return adminRuntime{}, fmt.Errorf("upcoming configuration is invalid")
@@ -416,6 +419,7 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		enrichmentProvider:       provider,
 		watchlistReleaseProvider: releaseProvider,
 		metadataRefreshManager:   metadataRefreshManager,
+		rerunManager:             rerunManager,
 		geocodingManager:         geocodingManager,
 	}, nil
 }
@@ -594,7 +598,7 @@ type closeableWorker interface {
 	Close()
 }
 
-func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager, metadataRefreshManager closeableWorker, polling *sync.WaitGroup) {
+func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager, metadataRefreshManager, rerunManager closeableWorker, polling *sync.WaitGroup) {
 	stopWorkers()
 	if schedules != nil {
 		schedules.Close()
@@ -607,6 +611,9 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	}
 	if metadataRefreshManager != nil {
 		metadataRefreshManager.Close()
+	}
+	if rerunManager != nil {
+		rerunManager.Close()
 	}
 	polling.Wait()
 }
@@ -705,7 +712,7 @@ type adminTMDBProvider interface {
 	enrichment.AdminMoviePosterProvider
 }
 
-func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider adminTMDBProvider, gate *enrichment.TMDBRunGate) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
+func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider adminTMDBProvider, gate *enrichment.TMDBRunGate) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, *enrichment.RerunManager, error) {
 	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
@@ -717,15 +724,20 @@ func newAdminOptions(ctx context.Context, password, sessionSecret string, store 
 		if gate == nil {
 			gate = enrichment.NewTMDBRunGate()
 		}
-		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate)
 		manager, err := enrichment.NewMetadataRefreshManager(ctx, enrichment.NewMetadataRefreshService(store, provider, nil, gate), nil)
 		if err != nil {
-			return httpapi.AdminOptions{}, nil, err
+			return httpapi.AdminOptions{}, nil, nil, err
 		}
+		reruns, err := enrichment.NewRerunManager(ctx, enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate), nil)
+		if err != nil {
+			manager.Close()
+			return httpapi.AdminOptions{}, nil, nil, err
+		}
+		options.TMDBReruns = reruns
 		options.TMDBRefreshes = manager
-		return options, manager, nil
+		return options, manager, reruns, nil
 	}
-	return options, nil, nil
+	return options, nil, nil, nil
 }
 
 func newTheaterLocationController(pool *pgxpool.Pool, now func() time.Time) httpapi.TheaterLocationController {

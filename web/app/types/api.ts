@@ -642,6 +642,37 @@ export interface AdminTMDBMetadataRefreshResponse {
   job: AdminTMDBMetadataRefreshJob | null
 }
 
+export interface AdminTMDBRerunRunningJob {
+  state: 'running'
+  started_at: string
+  finished_at: null
+  summary: null
+}
+
+export interface AdminTMDBRerunSucceededJob {
+  state: 'succeeded'
+  started_at: string
+  finished_at: string
+  summary: AdminTMDBRerunSummary
+}
+
+export interface AdminTMDBRerunFailedJob {
+  state: 'failed'
+  started_at: string
+  finished_at: string
+  summary: null
+  error_code: 'rerun_failed'
+}
+
+export type AdminTMDBRerunJob =
+  | AdminTMDBRerunRunningJob
+  | AdminTMDBRerunSucceededJob
+  | AdminTMDBRerunFailedJob
+
+export interface AdminTMDBRerunResponse {
+  job: AdminTMDBRerunJob | null
+}
+
 export type UpcomingReviewReason =
   | 'limited_only'
   | 'non_theatrical_before_or_same_day'
