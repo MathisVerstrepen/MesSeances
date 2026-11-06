@@ -3,6 +3,8 @@ import type {
   AdminPendingMatchesFilter,
   AdminTMDBMetadataRefreshJob,
   AdminTMDBMetadataRefreshSummary,
+  AdminTMDBRerunJob,
+  AdminTMDBRerunSummary,
 } from '../types/api.ts'
 
 export interface AdminTMDBMetadataRefreshPresentation {
@@ -95,6 +97,43 @@ export function shouldRefreshAdminTMDBMatchLists(
 ): boolean {
   return (
     job?.state === 'succeeded' &&
+    job.started_at === observedRunningStartedAt &&
+    !refreshedStartedAts.has(job.started_at)
+  )
+}
+
+export interface AdminTMDBRerunPresentation {
+  running: boolean
+  summary: AdminTMDBRerunSummary | null
+  error: string
+}
+
+export function adminTMDBRerunPresentation(
+  job: AdminTMDBRerunJob | null,
+): AdminTMDBRerunPresentation {
+  if (job?.state === 'running')
+    return { running: true, summary: null, error: '' }
+  if (job?.state === 'succeeded')
+    return { running: false, summary: job.summary, error: '' }
+  return {
+    running: false,
+    summary: null,
+    error:
+      job?.state === 'failed'
+        ? 'La relance TMDB a échoué. Réessayez plus tard.'
+        : '',
+  }
+}
+
+export function shouldRefreshAdminTMDBRerunLists(
+  observedRunningStartedAt: string | null,
+  job: AdminTMDBRerunJob | null,
+  refreshedStartedAts: ReadonlySet<string>,
+): boolean {
+  // A failed batch can still have saved matches before it stopped.
+  return (
+    job != null &&
+    job.state !== 'running' &&
     job.started_at === observedRunningStartedAt &&
     !refreshedStartedAts.has(job.started_at)
   )

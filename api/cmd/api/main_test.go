@@ -291,8 +291,8 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminOptions, manager, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil, nil)
-	if err != nil || manager != nil {
+	adminOptions, manager, reruns, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil, nil)
+	if err != nil || manager != nil || reruns != nil {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
 	adminOptions.Now = time.Now
@@ -333,18 +333,19 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
-	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil, nil)
-	if err != nil || manager != nil {
+	options, manager, reruns, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil, nil)
+	if err != nil || manager != nil || reruns != nil {
 		t.Fatalf("without provider manager=%v err=%v", manager, err)
 	}
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.Movies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
 		t.Fatalf("options=%+v", options)
 	}
-	withProvider, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{}, nil)
-	if err != nil || manager == nil {
+	withProvider, manager, reruns, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{}, nil)
+	if err != nil || manager == nil || reruns == nil {
 		t.Fatalf("with provider manager=%v err=%v", manager, err)
 	}
 	defer manager.Close()
+	defer reruns.Close()
 	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil || withProvider.Movies == nil {
 		t.Fatalf("provider options=%+v", withProvider)
 	}
@@ -380,6 +381,9 @@ func TestUpcomingRuntimeAvailabilityWithoutProxiesIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer runtime.geocodingManager.Close()
+			if runtime.rerunManager != nil {
+				defer runtime.rerunManager.Close()
+			}
 			if runtime.metadataRefreshManager != nil {
 				defer runtime.metadataRefreshManager.Close()
 			}
@@ -609,12 +613,12 @@ func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testi
 		events = append(events, event)
 		mu.Unlock()
 	}
-	geocodingClosed := make(chan struct{})
+	workersClosed := make(chan struct{})
 	var polling sync.WaitGroup
 	polling.Add(1)
 	go func() {
 		defer polling.Done()
-		<-geocodingClosed
+		<-workersClosed
 		record("source")
 	}()
 
@@ -622,14 +626,15 @@ func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testi
 		func() { record("cancel") },
 		testCloseableWorker{close: func() { record("schedules") }},
 		testCloseableWorker{close: func() { record("sync-manager") }},
-		testCloseableWorker{close: func() { record("geocoding-manager"); close(geocodingClosed) }},
+		testCloseableWorker{close: func() { record("geocoding-manager") }},
 		testCloseableWorker{close: func() { record("metadata-refresh-manager") }},
+		testCloseableWorker{close: func() { record("rerun-manager"); close(workersClosed) }},
 		&polling,
 	)
 	mu.Lock()
 	got := strings.Join(events, ",")
 	mu.Unlock()
-	if got != "cancel,schedules,sync-manager,geocoding-manager,metadata-refresh-manager,source" {
+	if got != "cancel,schedules,sync-manager,geocoding-manager,metadata-refresh-manager,rerun-manager,source" {
 		t.Fatalf("cleanup order=%s", got)
 	}
 }
