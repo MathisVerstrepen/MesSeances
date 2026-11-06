@@ -26,9 +26,26 @@ const emit = defineEmits<{
 
 const advertisedStartTooltipId = useId()
 const backdropFailed = ref(false)
+const posterBackdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
 const posterUrl = computed(() => safePosterUrl(props.result.posterUrl))
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdropUrl))
+const usePosterBackdrop = computed(
+  () => !backdropUrl.value || backdropFailed.value,
+)
+const backgroundUrl = computed(() =>
+  usePosterBackdrop.value
+    ? posterBackdropFailed.value
+      ? null
+      : posterUrl.value
+    : backdropUrl.value,
+)
+
+function handleBackdropError() {
+  if (usePosterBackdrop.value) posterBackdropFailed.value = true
+  else backdropFailed.value = true
+}
+
 const hasDelayedStart = computed(
   () =>
     Date.parse(props.result.effectiveStartTime) !==
@@ -47,12 +64,13 @@ const selectionLabel = computed(
 
 watch([() => props.result.posterUrl, () => props.result.backdropUrl], () => {
   backdropFailed.value = false
+  posterBackdropFailed.value = false
 })
 
 onMounted(() =>
   nextTick(() => {
     if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0)
-      backdropFailed.value = true
+      handleBackdropError()
   }),
 )
 
@@ -82,22 +100,29 @@ function formatRoom(room: string) {
       :aria-pressed="selected"
       @click="emit('toggleSelection', result.key)"
     />
-    <img
-      v-if="backdropUrl && !backdropFailed"
-      ref="backdropImage"
-      :src="backdropUrl"
-      alt=""
-      width="640"
-      height="180"
-      loading="lazy"
-      decoding="async"
-      class="pointer-events-none absolute inset-y-0 right-0 h-full w-1/2 object-cover opacity-[0.06]"
+    <div
+      v-if="backgroundUrl"
+      class="pointer-events-none absolute inset-y-0 right-0 w-1/2 overflow-hidden"
       aria-hidden="true"
-      :data-media-url="scope === 'single-theater' ? backdropUrl : undefined"
-      :data-movie-slug="scope === 'single-theater' ? result.movieSlug : undefined"
-      :data-media-kind="scope === 'single-theater' ? 'backdrop' : undefined"
-      @error="backdropFailed = true"
     >
+      <img
+        ref="backdropImage"
+        :key="backgroundUrl"
+        :src="backgroundUrl"
+        alt=""
+        width="640"
+        height="180"
+        loading="lazy"
+        decoding="async"
+        class="h-full w-full object-cover opacity-[0.06]"
+        :class="usePosterBackdrop ? 'scale-110 blur-xl' : undefined"
+        aria-hidden="true"
+        :data-media-url="scope === 'single-theater' ? backgroundUrl : undefined"
+        :data-movie-slug="scope === 'single-theater' ? result.movieSlug : undefined"
+        :data-media-kind="scope === 'single-theater' ? 'backdrop' : undefined"
+        @error="handleBackdropError"
+      >
+    </div>
     <div
       class="pointer-events-none absolute inset-0"
       :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3]/90' : 'bg-surface/80'"
