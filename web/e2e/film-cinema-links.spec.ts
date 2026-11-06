@@ -15,6 +15,8 @@ test('film headings separate the chain film link from the cinema link', async ({
     'https://www.ugc.fr/film.html?id=17747',
   )
   await expect(logo.locator('img')).toHaveCount(1)
+  await expect(logo).toHaveAttribute('target', '_blank')
+  await expect(logo).toHaveAttribute('rel', 'noopener noreferrer')
   await expect(cinema).toHaveAttribute('href', `/cinema/${theater.slug}`)
   await expect(heading.locator('a a')).toHaveCount(0)
   const logoBounds = await logo.boundingBox()
@@ -25,6 +27,20 @@ test('film headings separate the chain film link from the cinema link', async ({
   await logo.focus()
   await logo.press('Tab')
   await expect(cinema).toBeFocused()
+  // Fulfil the destination locally so this verifies a real new tab without
+  // contacting the provider or relaxing the fixture's external-request guard.
+  await page.context().route('https://www.ugc.fr/film.html?id=17747', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<title>Film UGC</title>',
+    }),
+  )
+  const popupPromise = page.waitForEvent('popup')
+  await logo.click()
+  const popup = await popupPromise
+  await expect(popup).toHaveURL('https://www.ugc.fr/film.html?id=17747')
+  await expect(page).toHaveURL(new RegExp(`/film/${movie.slug}$`))
+  await popup.close()
   // Other fixture cinemas have no source film URL: the name remains navigable.
   const fallback = page.locator('#theater-fixture-second')
   await expect(fallback.getByRole('link')).toHaveCount(1)

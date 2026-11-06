@@ -73,6 +73,8 @@ const nameIncludesProvider = computed(() => {
     ><a
       v-if="movieUrl"
       :href="movieUrl"
+      target="_blank"
+      rel="noopener noreferrer"
       :aria-label="`Voir ${movieTitle || 'la fiche du film'} sur ${providerBrands[provider]}`"
       class="inline-flex min-h-11 shrink-0 items-center rounded-sm hover:opacity-75 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
       ><BrandLogo

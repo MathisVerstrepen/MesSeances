@@ -76,7 +76,7 @@ test('film heading links the logo and the cinema name independently', async () =
   })
   assert.match(
     html,
-    /<a href="https:\/\/www\.ugc\.fr\/film\.html\?id=17747" aria-label="Voir Le Corset sur UGC"[^>]*><img /,
+    /<a href="https:\/\/www\.ugc\.fr\/film\.html\?id=17747" target="_blank" rel="noopener noreferrer" aria-label="Voir Le Corset sur UGC"[^>]*><img /,
   )
   assert.match(html, /<a href="\/cinema\/ugc-46"[^>]*>Le Majestic<\/a>/)
   assert.equal((html.match(/<a /g) || []).length, 2)
