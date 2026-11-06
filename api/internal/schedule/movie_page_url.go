@@ -82,6 +82,15 @@ func moviePageURL(theater TheaterRecord, movie MovieRecord) *string {
 	case ProviderCinewest, ProviderVeo:
 		if code, ok := strings.CutPrefix(id, "ticketingcine-"); ok && megaramaGlobalIdentity.MatchString(code) {
 			raw = "https://www.ticketingcine.com/film/" + code + ".html"
+		} else if provider == ProviderCinewest && strings.HasPrefix(theater.ProviderID, "cineoffice-") {
+			// Cine Office's shared client routes /media/:id inside each
+			// cinema's film.html shell. The catalog ID is already validated
+			// and associated with this cinema during synchronization.
+			if mediaID, ok := strings.CutPrefix(id, "cineoffice-"); ok {
+				if root := CinewestWebsite(theater.ProviderID); root != "" {
+					raw = root + "film.html#/media/" + mediaID
+				}
+			}
 		}
 	}
 	if raw == "" {
