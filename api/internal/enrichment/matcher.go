@@ -363,15 +363,28 @@ func searchQueries(rawTitle, provider string) ([]string, map[string]struct{}) {
 	if canonical != "" && canonical != rawNormalized {
 		queries = append(queries, canonical)
 	}
-	exact := map[string]struct{}{rawNormalized: {}}
+	// Comparison aliases never change the persisted source fingerprint.
+	exact := map[string]struct{}{rawNormalized: {}, comparisonTitle(rawTitle): {}}
 	if canonical != "" {
 		exact[canonical] = struct{}{}
+		exact[comparisonTitle(canonical)] = struct{}{}
+	}
+	alias := comparisonTitle(canonical)
+	if alias != "" && alias != rawNormalized && alias != canonical {
+		queries = append(queries, alias)
 	}
 	return queries, exact
 }
 
 func CanonicalTitle(provider, value string) string {
-	title := NormalizeTitle(value)
+	for {
+		trimmed := trimSourceEventPrefix(provider, value)
+		if trimmed == value {
+			break
+		}
+		value = trimmed
+	}
+	title := NormalizeTitle(expandTitleLigatures(value))
 	for {
 		previous := title
 		switch provider {
@@ -445,18 +458,20 @@ func fourDigits(value string) bool {
 
 func candidateTitleMatches(value string, exactTitles map[string]struct{}) bool {
 	value = cleanSearchTitle(value)
-	normalized := NormalizeTitle(value)
-	if normalized == "" {
-		return false
+	for _, title := range []string{value, cleanCandidateTitle(value)} {
+		for _, normalized := range []string{NormalizeTitle(title), comparisonTitle(title)} {
+			if normalized == "" {
+				continue
+			}
+			if _, exact := exactTitles[normalized]; exact {
+				return true
+			}
+		}
 	}
-	if _, exact := exactTitles[normalized]; exact {
-		return true
-	}
-	_, exact := exactTitles[canonicalCandidateTitle(value)]
-	return exact
+	return false
 }
 
-func canonicalCandidateTitle(value string) string {
+func cleanCandidateTitle(value string) string {
 	title := strings.TrimSpace(value)
 	for {
 		previous := title
@@ -464,7 +479,7 @@ func canonicalCandidateTitle(value string) string {
 		title = trimCandidateSuffix(title, "(Opéra Bastille)")
 		title = trimCandidateSuffix(title, "[Opéra National de Paris]")
 		if title == previous {
-			return NormalizeTitle(title)
+			return title
 		}
 	}
 }
