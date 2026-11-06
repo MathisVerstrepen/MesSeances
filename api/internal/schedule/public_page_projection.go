@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"messeances/api/internal/trailer"
 	"net/url"
 	"sort"
 	"time"
@@ -34,6 +35,7 @@ type SitemapProjection struct {
 // These explicit content types deliberately cannot carry publication clocks or revisions.
 // Extend them when the canonical public page starts rendering another significant fact.
 type pageMovie struct {
+	Trailer                                                          *trailer.Media
 	Slug, Title                                                      string
 	OriginalTitle, OriginalLanguage                                  *string
 	RuntimeMinutes                                                   int
@@ -112,7 +114,7 @@ type cityPageContent struct {
 func projectMovie(item MovieCatalogItem, backdrop *string) pageMovie {
 	genres := append([]string{}, item.Genres...)
 	sort.Strings(genres)
-	return pageMovie{Slug: item.Slug, Title: item.Title, OriginalTitle: item.OriginalTitle, OriginalLanguage: item.OriginalLanguage, RuntimeMinutes: item.RuntimeMinutes, PosterURL: item.PosterURL, BackdropURL: backdrop, Overview: item.Overview, ReleaseDate: item.ReleaseDate, FrenchReleaseDate: item.FrenchReleaseDate, TMDBID: item.TMDBID, IMDBID: item.IMDBID, MetacriticID: item.MetacriticID, TrailerVF: item.TrailerVFYouTubeKey, TrailerVO: item.TrailerVOYouTubeKey, Genres: genres}
+	return pageMovie{Trailer: item.Trailer, Slug: item.Slug, Title: item.Title, OriginalTitle: item.OriginalTitle, OriginalLanguage: item.OriginalLanguage, RuntimeMinutes: item.RuntimeMinutes, PosterURL: item.PosterURL, BackdropURL: backdrop, Overview: item.Overview, ReleaseDate: item.ReleaseDate, FrenchReleaseDate: item.FrenchReleaseDate, TMDBID: item.TMDBID, IMDBID: item.IMDBID, MetacriticID: item.MetacriticID, TrailerVF: item.TrailerVFYouTubeKey, TrailerVO: item.TrailerVOYouTubeKey, Genres: genres}
 }
 
 func projectCard(item MovieCatalogItem) pageMovieCard {

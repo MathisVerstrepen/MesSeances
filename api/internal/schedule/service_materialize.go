@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/trailer"
 	"messeances/api/internal/wikidata"
 )
 
@@ -127,6 +128,11 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 			item.Genres = append([]string{}, record.Enrichment.Genres...)
 		}
 	}
+	if item.TrailerVFYouTubeKey != nil {
+		item.Trailer = trailer.YouTube(*item.TrailerVFYouTubeKey, "tmdb")
+	} else if item.TrailerVOYouTubeKey != nil {
+		item.Trailer = trailer.YouTube(*item.TrailerVOYouTubeKey, "tmdb")
+	}
 	return item
 }
 
@@ -166,11 +172,22 @@ func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 			item.IMDBID = &value
 		}
 	}
+	source := record.TrailerSource
+	if source == "" {
+		source = "tmdb"
+	}
+	if record.TrailerVFYouTubeKey == "" && record.TrailerVOYouTubeKey == "" {
+		item.Trailer = cloneTrailer(record.Trailer)
+	}
 	if record.TrailerVFYouTubeKey != "" {
+		item.Trailer = trailer.YouTube(record.TrailerVFYouTubeKey, source)
 		value := record.TrailerVFYouTubeKey
 		item.TrailerVFYouTubeKey = &value
 	}
 	if record.TrailerVOYouTubeKey != "" {
+		if item.Trailer == nil {
+			item.Trailer = trailer.YouTube(record.TrailerVOYouTubeKey, source)
+		}
 		value := record.TrailerVOYouTubeKey
 		item.TrailerVOYouTubeKey = &value
 	}

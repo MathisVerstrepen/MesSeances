@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/html"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/trailer"
 )
 
 var errPayload = errors.New("invalid Cineville payload")
@@ -392,6 +393,12 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 	}
 	if len(entries) > 0 {
 		v := entries[0]
+		m.SourceTrailer, m.TrailerObserved = trailer.Cineville(v.VideoID, v.ShowVideo)
+		var metadataVisa scalar
+		if json.Unmarshal(v.Visa, &metadataVisa) != nil || string(metadataVisa) != id {
+			m.SourceTrailer = nil
+			m.TrailerObserved = false
+		}
 		if m.Title == "" {
 			m.Title = strings.TrimSpace(v.Title)
 		}
@@ -424,13 +431,15 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 
 // movie_data is published either as a legacy array or a single metadata object.
 type movieMetadata struct {
-	Visa     json.RawMessage `json:"visa"`
-	Title    string          `json:"titre"`
-	Runtime  string          `json:"duree"`
-	Poster   string          `json:"affichette"`
-	Overview string          `json:"synopsis"`
-	Genre    string          `json:"genreprincipal"`
-	Release  *string         `json:"datedesortie"`
+	VideoID   json.RawMessage `json:"video_id"`
+	ShowVideo json.RawMessage `json:"show_video"`
+	Visa      json.RawMessage `json:"visa"`
+	Title     string          `json:"titre"`
+	Runtime   string          `json:"duree"`
+	Poster    string          `json:"affichette"`
+	Overview  string          `json:"synopsis"`
+	Genre     string          `json:"genreprincipal"`
+	Release   *string         `json:"datedesortie"`
 }
 
 func parseMovieMetadata(raw []byte) ([]movieMetadata, error) {
@@ -472,6 +481,12 @@ func parseMovieMetadata(raw []byte) ([]movieMetadata, error) {
 func mergeMovie(first, next schedule.MovieRecord) schedule.MovieRecord {
 	if first.ProviderID == "" {
 		return next
+	}
+	if next.TrailerObserved {
+		first.TrailerObserved = true
+		if first.SourceTrailer == nil || next.SourceTrailer != nil && next.SourceTrailer.URL < first.SourceTrailer.URL {
+			first.SourceTrailer = next.SourceTrailer
+		}
 	}
 	if first.RuntimeMinutes == 0 {
 		first.RuntimeMinutes = next.RuntimeMinutes

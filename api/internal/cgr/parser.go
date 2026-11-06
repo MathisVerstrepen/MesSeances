@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/trailer"
 )
 
 const cgrSlotPadding = 15 * time.Minute
@@ -32,6 +33,8 @@ type cinema struct {
 }
 
 type movie struct {
+	trailer           *trailer.Media
+	trailerObserved   bool
 	id, title, poster string
 	runtime           int
 	genres            []string
@@ -183,7 +186,8 @@ func parseMovies(body []byte) (map[string]movie, error) {
 			seenGenres[genre] = true
 			genres = append(genres, genre)
 		}
-		result[id] = movie{id: id, title: title, runtime: runtime, poster: safePosterURL(strings.TrimSpace(item.Poster)), genres: genres}
+		media, observed := trailer.CGR(item.Trailer)
+		result[id] = movie{trailer: media, trailerObserved: observed, id: id, title: title, runtime: runtime, poster: safePosterURL(strings.TrimSpace(item.Poster)), genres: genres}
 	}
 	return result, nil
 }
@@ -276,7 +280,7 @@ func parseShowtime(item showtimeResponse, theater cinema, movie movie, advertise
 	return schedule.ShowtimeRecord{
 		Provider: schedule.ProviderCGR, ID: "cgr-showing-" + providerShowingID, ProviderShowingID: providerShowingID,
 		ServiceDate: serviceDate, TheaterID: "cgr-" + theater.id,
-		Movie:     schedule.MovieRecord{Provider: schedule.ProviderCGR, ProviderID: movie.id, Slug: "cgr-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Genres: append([]string(nil), movie.genres...)},
+		Movie:     schedule.MovieRecord{SourceTrailer: movie.trailer, TrailerObserved: movie.trailerObserved, Provider: schedule.ProviderCGR, ProviderID: movie.id, Slug: "cgr-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Genres: append([]string(nil), movie.genres...)},
 		StartTime: start, EndTime: end, Language: language, ProviderVersion: providerVersion, Format: normalizeFormat(item.Tags), Room: room, BookingURL: bookingURL,
 	}, nil
 }

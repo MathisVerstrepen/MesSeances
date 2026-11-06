@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/trailer"
 	"messeances/api/internal/wikidata"
 )
 
@@ -324,6 +325,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
+		if movie.Trailer != nil && !trailer.Valid(movie.Trailer) {
+			return fmt.Errorf("invalid provider trailer")
+		}
 		if invalidMetacriticID(movie.TMDBID, movie.MetacriticID) {
 			return fmt.Errorf("invalid public movie Metacritic ID")
 		}
@@ -374,6 +378,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	}
 	canonicalSlugs := make(map[string]bool)
 	for _, movie := range data.PublicMovies {
+		if movie.Trailer != nil && !trailer.Valid(movie.Trailer) {
+			return fmt.Errorf("invalid provider trailer")
+		}
 		canonicalSlugs[publicMovieIDSlug(movie.ID)] = true
 	}
 	aliases := make(map[string]bool, len(data.MovieAliases))

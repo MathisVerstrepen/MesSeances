@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [077_cineville_movie_anchors.sql](077_cineville_movie_anchors.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [078_provider_trailers.sql](078_provider_trailers.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -673,3 +673,15 @@ All indexes below use PostgreSQL's default B-tree method. Primary-key and unique
 | `short_links_retention_idx` | `short_links` | `created_at` | Nonunique |
 
 The migrations define no views, materialized views, triggers, or custom enum types. Identity sequences support `local_movie_groups.id`, `public_movies.id`, `sync_runs.id`, `theater_geocoding_runs.id`, and `sync_schedules.id`. Temporary `public_movie_backfill_sources` and `public_movie_backfill_map` tables in migration 014 are dropped on commit and are not part of the durable schema.
+
+## Provider trailer fallback
+
+`movie_trailer_candidates` retains normalized evidence independently of schedule generations and TMDB metadata. Its primary key is `(provider, source_movie_id, url)`. Providers are limited to CGR, Cinéville and UGC, with their existing numeric source identity policies (including signed Cinéville visas). Columns are `media_type` (`mp4` or `youtube`), bounded validated public `url`, `available`, `first_seen_at` and `last_seen_at`. Only CGR/UGC AlloCiné MP4 paths and Cinéville canonical YouTube URLs are accepted. No credentials, raw bodies, or tracking parameters are stored. The partial available index covers `(provider, source_movie_id)`.
+
+CGR and Cinéville observations commit in the schedule publication transaction. A valid explicit absence withdraws previous evidence; malformed optional fields are ignored. Candidates have no generation FK and survive unrelated provider publications. Current source mappings determine the owning public movie, so corrections/merges never leave a copied fallback attached to an old identity.
+
+`movie_trailer_eligible_sources` joins current public sources, active public identities and successfully fetched French TMDB metadata. Both TMDB trailer selections must be empty. Either explicit admin trailer override, including null, blocks provider fallback. Candidates resolve deterministically in CGR, Cinéville, UGC order, then latest observation and URL. Existing TMDB/admin fields are never overwritten.
+
+`movie_trailer_lookups` records UGC-only lookup outcomes (`found`, `missing`, `failed`), `checked_at` and `retry_after`, keyed by `(provider, source_movie_id)`. Successful references retry after seven days, confirmed absence after one day, and failures after one hour. A session advisory lease permits one API replica to run a bounded cycle at a time. Lookups require future screenings and no available CGR/Cinéville candidate; eligibility is checked again after fetching. Candidate updates and enrichment-version advancement commit together under the existing schedule/public-movie publication transaction lock, without changing schedule generation. The worker expires evidence unseen for 30 days and advances enrichment revision when doing so. Public reads perform no provider/media requests.
+
+Migration 078 adds only these tables, index and view, without backfilling candidates or creating schedules. Earlier binaries reject its migration ledger; rollback requires a compatible corrective build rather than editing history.
