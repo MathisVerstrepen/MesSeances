@@ -4,6 +4,7 @@ import test from 'node:test'
 import type { CatalogMovie } from '../app/types/api.ts'
 import {
   filterAndSortCatalogMovies,
+  isMoviePresale,
   movieCatalogSortOptions,
   movieOriginalTitleSubtitle,
 } from '../app/utils/movieCatalogPresentation.ts'
@@ -102,6 +103,75 @@ test('shares canonical catalog sort ordering', () => {
       'showtimes_desc',
     ],
   )
+})
+
+test('presales require a future French release and remaining screenings', () => {
+  const today = '2026-11-06'
+  const presale = movie({
+    french_release_date: '2026-11-11',
+    release_date: '2026-10-01',
+    showtime_count: 4,
+  })
+  assert.equal(isMoviePresale(presale, today), true)
+  for (const french_release_date of [
+    null,
+    '',
+    '2026-02-30',
+    today,
+    '2026-11-05',
+  ]) {
+    assert.equal(
+      isMoviePresale({ ...presale, french_release_date }, today),
+      false,
+    )
+  }
+  assert.equal(
+    isMoviePresale({ ...presale, showtime_count: undefined }, today),
+    false,
+  )
+  assert.equal(isMoviePresale({ ...presale, showtime_count: 0 }, today), false)
+  assert.equal(
+    isMoviePresale({ ...presale, remaining_showtime_count: 0 }, today),
+    false,
+  )
+  assert.equal(
+    isMoviePresale(
+      { ...presale, remaining_showtime_count: 2, showtime_count: 0 },
+      today,
+    ),
+    true,
+  )
+  assert.equal(isMoviePresale(presale, '2026-11-11'), false)
+})
+
+test('Monday and Tuesday treat the coming Wednesday as normal programming', () => {
+  const openingWednesday = movie({
+    french_release_date: '2026-11-11',
+    showtime_count: 4,
+  })
+  assert.equal(isMoviePresale(openingWednesday, '2026-11-08'), true)
+  for (const today of [
+    '2026-11-09',
+    '2026-11-10',
+    '2026-11-11',
+    '2026-11-12',
+  ]) {
+    assert.equal(isMoviePresale(openingWednesday, today), false)
+  }
+  const followingWeek = {
+    ...openingWednesday,
+    french_release_date: '2026-11-18',
+  }
+  for (const today of ['2026-11-09', '2026-11-10', '2026-11-11']) {
+    assert.equal(isMoviePresale(followingWeek, today), true)
+  }
+  // Calendar arithmetic must also work across month/year boundaries.
+  const newYearRelease = {
+    ...openingWednesday,
+    french_release_date: '2025-01-01',
+  }
+  assert.equal(isMoviePresale(newYearRelease, '2024-12-30'), false)
+  assert.equal(isMoviePresale(newYearRelease, '2024-12-31'), false)
 })
 
 test('movie detail genre chips link to the filtered film catalog', () => {
