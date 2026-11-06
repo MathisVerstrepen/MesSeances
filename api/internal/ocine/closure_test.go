@@ -183,8 +183,6 @@ func TestCheckoutClosureDoesNotHideOtherFailures(t *testing.T) {
 		{name: "challenge", err: &RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 404}},
 		{name: "forbidden", err: &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 403}},
 		{name: "gone", err: &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 410}},
-		{name: "server", err: &RequestError{Kind: syncproxy.FailureServer, StatusCode: 503}},
-		{name: "transport", err: &RequestError{Kind: syncproxy.FailureTransport}},
 		{name: "redirect", err: &RequestError{Kind: syncproxy.FailureRedirect}},
 		{name: "canceled", err: &RequestError{Kind: syncproxy.FailureCanceled, cause: context.Canceled}},
 		{name: "malformed", body: []byte("<html>incomplete")},
@@ -216,5 +214,23 @@ func TestCheckoutClosureDoesNotHideOtherFailures(t *testing.T) {
 				t.Fatal("page 404 accepted as checkout closure", err)
 			}
 		})
+	}
+}
+
+func TestTransientCheckoutOutagePreservesCompleteGrid(t *testing.T) {
+	for _, kind := range []syncproxy.FailureKind{syncproxy.FailureTransport, syncproxy.FailureResponseRead, syncproxy.FailureServer} {
+		g := &closureGetter{fixtureGetter: closureFixture(), checkout: func(context.Context, string) ([]byte, error) { return nil, &RequestError{Kind: kind} }}
+		data, summary, err := Sync(t.Context(), g, fixtureOptions())
+		if err != nil || len(data.Showtimes) != 3 || summary.CheckoutTransientFailures != 3 || summary.EndsRecovered != 0 {
+			t.Fatal("optional outage discarded grid", summary, err)
+		}
+		for _, r := range data.Showtimes {
+			if !r.EndTime.Equal(r.StartTime) || r.BookingURL == "" {
+				t.Fatal("source facts lost")
+			}
+		}
+		if schedule.ValidateDataset(data, true) != nil {
+			t.Fatal("retained dataset invalid")
+		}
 	}
 }

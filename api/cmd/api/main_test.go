@@ -238,8 +238,9 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	cfg.Sync.KinepolisRequestInterval = 3 * time.Second
 	cfg.Sync.CinevilleRequestInterval = 3 * time.Second
 	cfg.Sync.OperationTimeout = 37 * time.Second
+	cfg.Sync.EnrichmentTimeout = 11 * time.Minute
 	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
-	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.NewMegarama == nil || options.NewCineville == nil || options.NewMK2 == nil || options.NewCinewest == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
+	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.NewMegarama == nil || options.NewCineville == nil || options.NewMK2 == nil || options.NewCinewest == nil || options.OperationTimeout != cfg.Sync.OperationTimeout || options.EnrichmentTimeout != cfg.Sync.EnrichmentTimeout {
 		t.Fatalf("options=%+v", options)
 	}
 	if client, err := options.NewPathe(); err != nil || client == nil {

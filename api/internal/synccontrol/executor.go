@@ -35,71 +35,76 @@ type SyncObserver interface {
 }
 
 type ProductionExecutorOptions struct {
-	Writer           schedule.SnapshotWriter
-	NewUGC           func() (ugc.Getter, error)
-	NewKinepolis     func() (kinepolis.Fetcher, error)
-	NewPathe         func() (pathe.Getter, error)
-	NewCGR           func() (cgr.Getter, error)
-	NewMegarama      func() (megarama.Getter, error)
-	NewCineville     func() (cineville.Fetcher, error)
-	NewMK2           func() (mk2.Fetcher, error)
-	NewCinewest      func() (cinewest.Fetcher, error)
-	NewGrandEcran    func() (grandecran.Getter, error)
-	NewNoeCinemas    func() (noecinemas.Getter, error)
-	NewVeo           func() (veo.Getter, error)
-	NewMajestic      func() (majestic.Getter, error)
-	NewCineode       func() (cineode.Getter, error)
-	NewCinemovida    func() (cinemovida.Getter, error)
-	NewOcine         func() (ocine.Getter, error)
-	Enrich           EnrichFunc
-	Now              func() time.Time
-	Logger           *slog.Logger
-	Observer         SyncObserver
-	OperationTimeout time.Duration
+	Writer            schedule.SnapshotWriter
+	NewUGC            func() (ugc.Getter, error)
+	NewKinepolis      func() (kinepolis.Fetcher, error)
+	NewPathe          func() (pathe.Getter, error)
+	NewCGR            func() (cgr.Getter, error)
+	NewMegarama       func() (megarama.Getter, error)
+	NewCineville      func() (cineville.Fetcher, error)
+	NewMK2            func() (mk2.Fetcher, error)
+	NewCinewest       func() (cinewest.Fetcher, error)
+	NewGrandEcran     func() (grandecran.Getter, error)
+	NewNoeCinemas     func() (noecinemas.Getter, error)
+	NewVeo            func() (veo.Getter, error)
+	NewMajestic       func() (majestic.Getter, error)
+	NewCineode        func() (cineode.Getter, error)
+	NewCinemovida     func() (cinemovida.Getter, error)
+	NewOcine          func() (ocine.Getter, error)
+	Enrich            EnrichFunc
+	Now               func() time.Time
+	Logger            *slog.Logger
+	Observer          SyncObserver
+	OperationTimeout  time.Duration
+	EnrichmentTimeout time.Duration
 }
 
 type ProductionExecutor struct {
-	writer           schedule.SnapshotWriter
-	newUGC           func() (ugc.Getter, error)
-	newKinepolis     func() (kinepolis.Fetcher, error)
-	newPathe         func() (pathe.Getter, error)
-	newCGR           func() (cgr.Getter, error)
-	newMegarama      func() (megarama.Getter, error)
-	newCineville     func() (cineville.Fetcher, error)
-	newMK2           func() (mk2.Fetcher, error)
-	newCinewest      func() (cinewest.Fetcher, error)
-	newGrandEcran    func() (grandecran.Getter, error)
-	newNoeCinemas    func() (noecinemas.Getter, error)
-	newVeo           func() (veo.Getter, error)
-	newMajestic      func() (majestic.Getter, error)
-	newCineode       func() (cineode.Getter, error)
-	newCinemovida    func() (cinemovida.Getter, error)
-	newOcine         func() (ocine.Getter, error)
-	enrich           EnrichFunc
-	now              func() time.Time
-	logger           *slog.Logger
-	observer         SyncObserver
-	operationTimeout time.Duration
-	syncUGC          func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
-	syncKinepolis    func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
-	syncPathe        func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
-	syncCGR          func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
-	syncMegarama     func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error)
-	syncCineville    func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error)
-	syncMK2          func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error)
-	syncCinewest     func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error)
-	syncGrandEcran   func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error)
-	syncNoeCinemas   func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error)
-	syncVeo          func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error)
-	syncMajestic     func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error)
-	syncCineode      func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error)
-	syncCinemovida   func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error)
-	syncOcine        func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error)
+	writer            schedule.SnapshotWriter
+	newUGC            func() (ugc.Getter, error)
+	newKinepolis      func() (kinepolis.Fetcher, error)
+	newPathe          func() (pathe.Getter, error)
+	newCGR            func() (cgr.Getter, error)
+	newMegarama       func() (megarama.Getter, error)
+	newCineville      func() (cineville.Fetcher, error)
+	newMK2            func() (mk2.Fetcher, error)
+	newCinewest       func() (cinewest.Fetcher, error)
+	newGrandEcran     func() (grandecran.Getter, error)
+	newNoeCinemas     func() (noecinemas.Getter, error)
+	newVeo            func() (veo.Getter, error)
+	newMajestic       func() (majestic.Getter, error)
+	newCineode        func() (cineode.Getter, error)
+	newCinemovida     func() (cinemovida.Getter, error)
+	newOcine          func() (ocine.Getter, error)
+	enrich            EnrichFunc
+	now               func() time.Time
+	logger            *slog.Logger
+	observer          SyncObserver
+	operationTimeout  time.Duration
+	enrichmentTimeout time.Duration
+	syncUGC           func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
+	syncKinepolis     func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
+	syncPathe         func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
+	syncCGR           func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
+	syncMegarama      func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error)
+	syncCineville     func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error)
+	syncMK2           func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error)
+	syncCinewest      func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error)
+	syncGrandEcran    func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error)
+	syncNoeCinemas    func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error)
+	syncVeo           func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error)
+	syncMajestic      func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error)
+	syncCineode       func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error)
+	syncCinemovida    func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error)
+	syncOcine         func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil && options.NewMajestic == nil && options.NewCineode == nil && options.NewCinemovida == nil && options.NewOcine == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || options.EnrichmentTimeout < 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil && options.NewMajestic == nil && options.NewCineode == nil && options.NewCinemovida == nil && options.NewOcine == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
+	}
+	if options.EnrichmentTimeout == 0 {
+		options.EnrichmentTimeout = options.OperationTimeout
 	}
 	return &ProductionExecutor{
 		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe, newCGR: options.NewCGR,
@@ -114,7 +119,7 @@ func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecut
 		newCineode: options.NewCineode, syncCineode: cineode.Sync,
 		newCinemovida: options.NewCinemovida, syncCinemovida: cinemovida.Sync,
 		newOcine: options.NewOcine, syncOcine: ocine.Sync,
-		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
+		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout, enrichmentTimeout: options.EnrichmentTimeout,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
 }
@@ -207,7 +212,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		fetchCtx, cancel := context.WithTimeout(ctx, 25*time.Minute)
 		data, summary, err = e.syncOcine(fetchCtx, client, ocine.SyncOptions{From: window.From, Now: e.now()})
 		cancel()
-		e.logger.Info("ocine_source_summary", "checkouts", summary.EndsAttempted, "ends", summary.EndsRecovered, "missing_rooms", summary.RoomsMissing)
+		e.logger.Info("ocine_source_summary", "checkouts", summary.EndsAttempted, "ends", summary.EndsRecovered, "missing_rooms", summary.RoomsMissing, "checkout_transient_failures", summary.CheckoutTransientFailures)
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetUGC:
 		if e.newUGC == nil {
@@ -453,7 +458,11 @@ func (e *ProductionExecutor) runEnrichment(ctx context.Context, provider Target,
 	if e.enrich == nil {
 		return EnrichmentOutcome{Status: EnrichmentSkipped}
 	}
-	enrichCtx, cancel := context.WithTimeout(ctx, e.operationTimeout)
+	timeout := e.enrichmentTimeout
+	if timeout <= 0 {
+		timeout = e.operationTimeout
+	}
+	enrichCtx, cancel := context.WithTimeout(ctx, timeout)
 	summary, err := e.enrich(enrichCtx, enrichmentMovies(provider, data))
 	cancel()
 	if summary == nil && err == nil {
@@ -463,7 +472,7 @@ func (e *ProductionExecutor) runEnrichment(ctx context.Context, provider Target,
 	if summary != nil {
 		outcome.Counts = &EnrichmentCounts{Reused: summary.Reused, Matched: summary.Matched, ReviewRequired: summary.ReviewRequired, Unmatched: summary.Unmatched, Failed: summary.Failed}
 	}
-	if err != nil {
+	if err != nil || summary != nil && summary.Failed > 0 {
 		outcome.Status = EnrichmentDegraded
 		counts := EnrichmentCounts{}
 		if outcome.Counts != nil {

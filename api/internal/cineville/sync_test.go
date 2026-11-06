@@ -920,7 +920,7 @@ func TestSyncContentTypeRecoveryFailsClosed(t *testing.T) {
 			}
 			wantRequests := 2
 			if test.kind == syncproxy.FailureContentType {
-				wantRequests = 4
+				wantRequests = 10
 			}
 			if client.RequestCount() != wantRequests || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) {
 				t.Fatal("partial dataset or unexpected retry")

@@ -49,12 +49,15 @@ type ResponsePolicy struct {
 // Request holds request-local data. Do snapshots body and headers before retrying.
 // An empty MediaTypes list retains the executor's JSON validation.
 type Request struct {
-	Method     string
-	URL        string
-	Body       []byte
-	Headers    http.Header
-	MediaTypes []string
-	NoRedirect bool
+	// RetryContentType is opt-in for endpoints known to intermittently return
+	// an incorrect representation. Challenge policies still run before this.
+	RetryContentType bool
+	Method           string
+	URL              string
+	Body             []byte
+	Headers          http.Header
+	MediaTypes       []string
+	NoRedirect       bool
 	// AllowRedirect permits a changed final URL, still subject to ValidURL.
 	AllowRedirect bool
 }
@@ -276,7 +279,7 @@ func (e *Executor) attempt(ctx context.Context, client *http.Client, input Reque
 		}
 	}
 	if err != nil || !validMedia {
-		return nil, &Failure{Kind: FailureContentType}, false
+		return nil, &Failure{Kind: FailureContentType}, input.RetryContentType
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, &Failure{Kind: FailureEmptyResponse}, false

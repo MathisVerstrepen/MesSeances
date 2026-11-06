@@ -541,7 +541,7 @@ func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionSto
 
 func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
 	return synccontrol.ProductionExecutorOptions{
-		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout,
+		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout, EnrichmentTimeout: cfg.Sync.EnrichmentTimeout,
 		NewUGC: func() (ugc.Getter, error) {
 			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
