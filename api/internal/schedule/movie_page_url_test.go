@@ -69,6 +69,20 @@ func TestCapturedMoviePageURLValidation(t *testing.T) {
 	}
 }
 
+func TestCapturedKinepolisMoviePage(t *testing.T) {
+	const valid = "https://kinepolis.fr/movies/detail/37692/HO00016712/0"
+	for _, raw := range []string{valid, strings.Replace(valid, "HO00016712", "HO00016885", 1), strings.Replace(valid, "37692", "037692", 1), strings.Replace(valid, "kinepolis.fr", "kinepolis.fr.evil.example", 1), strings.Replace(valid, "37692", "../37692", 1), valid + "?secret=x", valid + "#x", strings.Replace(valid, "https://", "https://user@", 1)} {
+		if ValidSourceMoviePageURL(ProviderKinepolis, "HO00016712", raw) != (raw == valid) {
+			t.Fatalf("wrong native URL validation: %q", raw)
+		}
+	}
+	movie := MovieRecord{Provider: ProviderKinepolis, ProviderID: "HO00016712", Title: "Edited title", SourcePageURL: valid}
+	got := moviePageURL(TheaterRecord{Provider: ProviderKinepolis, ID: "kinepolis-KLOM"}, movie)
+	if got == nil || *got != valid {
+		t.Fatal("captured Kinepolis URL not projected")
+	}
+}
+
 func TestMovieShowtimesMovieURLsUseEachTheatersSource(t *testing.T) {
 	data := combinedTestDataset()
 	// A single canonical film unites UGC and Kinepolis source identities.

@@ -7,6 +7,7 @@ import (
 )
 
 var sourcePageSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var kinepolisPageEvent = regexp.MustCompile(`^[0-9]{1,128}$`)
 
 // ValidSourceMoviePageURL admits only film routes captured from the provider's
 // own metadata or sitemap. Boxoffice routes must contain the exact source ID.
@@ -20,6 +21,13 @@ func ValidSourceMoviePageURL(provider Provider, movieID, raw string) bool {
 	}
 	if provider == ProviderMK2 {
 		return u.Host == "www.mk2.com" && strings.HasPrefix(u.Path, "/film/") && sourcePageSlug.MatchString(strings.TrimPrefix(u.Path, "/film/"))
+	}
+	if provider == ProviderKinepolis {
+		// The published getMovieDetailUrl helper uses corporate ID, exact HO
+		// identity and event code. The final title segment is optional on the
+		// verified detail route, so source/canonical title changes cannot break it.
+		parts := strings.Split(u.Path, "/")
+		return u.Host == "kinepolis.fr" && len(parts) == 6 && parts[1] == "movies" && parts[2] == "detail" && len(parts[3]) <= 128 && validPositiveDecimal(parts[3]) && parts[4] == movieID && kinepolisPageEvent.MatchString(parts[5])
 	}
 	var host, prefix string
 	switch provider {
