@@ -167,6 +167,7 @@ func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
 				mustCinevilleSQL(t, ctx, pool, `UPDATE theater_images SET file_key=NULL,width=NULL,height=NULL,size_bytes=NULL WHERE provider='cinewest'`)
 			}
 			omit := map[string][]string{
+				"movies":                      {"source_page_url"}, // Added by 076, verified separately.
 				"movieflow_schema_migrations": {"version", "name", "applied_at"},
 				"theaters":                    {"id", "slug", "provider_id"}, "screening_history_theaters": {"id", "slug", "provider_id"},
 				"theater_dates": {"theater_id"}, "theater_passes": {"theater_id"}, "showtimes": {"theater_id"}, "screening_history_showtimes": {"theater_id"},

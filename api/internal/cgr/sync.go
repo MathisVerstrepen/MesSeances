@@ -11,6 +11,7 @@ import (
 
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 )
 
 const (
@@ -244,6 +245,9 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 	}
 	if len(dataset.Showtimes) == 0 {
 		return schedule.Dataset{}, summary, datasetValidationError{message: "CGR sync produced no showtimes"}
+	}
+	if err := sourcepages.Enrich(ctx, getter, &dataset); err != nil {
+		return schedule.Dataset{}, summary, err
 	}
 	if err := schedule.ValidateDataset(dataset, true); err != nil {
 		return schedule.Dataset{}, summary, datasetValidationError{message: "validate synchronized CGR dataset: " + err.Error(), cause: err}

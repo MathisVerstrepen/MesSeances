@@ -85,6 +85,22 @@ func TestSyncCatalogJoinDynamicHorizonAndUnknownEnd(t *testing.T) {
 		}
 	}
 }
+
+func TestSyncRetainsSourceFilmSlugDespiteEditedTitle(t *testing.T) {
+	f, p, o := fixture(t)
+	p.Types[0].Groups[0].Film.Slug = "original-source-title"
+	f.films = encode(t, map[string]any{"data": []film{p.Types[0].Groups[0].Film}})
+	f.pages[p.Slug] = encode(t, p)
+	d, _, err := Sync(t.Context(), f, o)
+	if err != nil || len(d.Showtimes) == 0 || d.Showtimes[0].Movie.SourcePageURL != "https://www.mk2.com/film/original-source-title" {
+		t.Fatalf("URL not captured: %+v %v", d, err)
+	}
+	p.Types[0].Groups[0].Film.Slug = "../unsafe"
+	m, err := parseMovie(p.Types[0].Groups[0].Film)
+	if err != nil || m.SourcePageURL != "" {
+		t.Fatal("unsafe optional slug must remain unlinked")
+	}
+}
 func TestSyncFirstNonemptySynopsisWins(t *testing.T) {
 	for _, tc := range []struct {
 		name     string

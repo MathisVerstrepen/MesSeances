@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -270,4 +271,8 @@ func hasTraversal(path string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Client) MoviePageIndex(ctx context.Context) ([]byte, error) {
+	return sourcepages.Fetch(ctx, c.executor, APIBaseURL+"/sitemap-0.xml")
 }

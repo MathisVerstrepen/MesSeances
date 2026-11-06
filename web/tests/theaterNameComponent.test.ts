@@ -4,7 +4,7 @@ import { createRequire } from 'node:module'
 import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
-import { computed, createSSRApp, type Component } from 'vue'
+import { computed, createSSRApp, defineComponent, h, type Component } from 'vue'
 import ts from 'typescript'
 import type { Provider } from '../app/types/api.ts'
 
@@ -48,13 +48,47 @@ async function render(
     decorative?: boolean
     logoClass?: string
     variant?: 'inline' | 'hero'
+    cinemaUrl?: string
+    movieUrl?: string | null
+    movieTitle?: string
   } = {},
 ) {
   const app = createSSRApp(TheaterName!, { name, provider, ...options })
   app.component('BrandLogo', BrandLogo!)
   app.component('BrandedText', BrandedText!)
+  app.component(
+    'NuxtLink',
+    defineComponent({
+      props: { to: String },
+      setup(props, { slots }) {
+        return () => h('a', { href: props.to }, slots.default?.())
+      },
+    }),
+  )
   return renderToString(app)
 }
+
+test('film heading links the logo and the cinema name independently', async () => {
+  const html = await render('Le Majestic', 'ugc', {
+    cinemaUrl: '/cinema/ugc-46',
+    movieUrl: 'https://www.ugc.fr/film.html?id=17747',
+    movieTitle: 'Le Corset',
+  })
+  assert.match(
+    html,
+    /<a href="https:\/\/www\.ugc\.fr\/film\.html\?id=17747" target="_blank" rel="noopener noreferrer" aria-label="Voir Le Corset sur UGC"[^>]*><img /,
+  )
+  assert.match(html, /<a href="\/cinema\/ugc-46"[^>]*>Le Majestic<\/a>/)
+  assert.equal((html.match(/<a /g) || []).length, 2)
+  assert.doesNotMatch(html, /<a\b[^>]*>(?:(?!<\/a>).)*<a\b/s)
+
+  const fallback = await render('Le Majestic', 'ugc', {
+    cinemaUrl: '/cinema/ugc-46',
+    movieUrl: null,
+  })
+  assert.equal((fallback.match(/<a /g) || []).length, 1)
+  assert.match(fallback, /<a href="\/cinema\/ugc-46"[^>]*>Le Majestic<\/a>/)
+})
 
 test('Cinewest theater names get one provider logo and preserve actual source names', async () => {
   for (const name of [

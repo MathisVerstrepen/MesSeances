@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -240,4 +241,8 @@ func scheduleURL(id, from, through string) string {
 	}{id, schedule.Timezone})
 	end, _ := time.Parse(time.DateOnly, through)
 	return APIBaseURL + "/api/gatsby-source-boxofficeapi/schedule?" + url.Values{"theaters": {string(theater)}, "includeAllMovies": {"true"}, "from": {from + "T03:00:00"}, "to": {end.AddDate(0, 0, 1).Format(time.DateOnly) + "T03:00:00"}}.Encode()
+}
+
+func (c *Client) MoviePageIndex(ctx context.Context) ([]byte, error) {
+	return sourcepages.Fetch(ctx, c.json, APIBaseURL+"/sitemap-0.xml")
 }

@@ -27,6 +27,42 @@ type fakeGetter struct {
 	scheduleUnavailable   bool
 }
 
+type linkedGetter struct {
+	*fakeGetter
+	pageError error
+	pageCalls int
+}
+
+func (g *linkedGetter) MoviePageIndex(context.Context) ([]byte, error) {
+	g.pageCalls++
+	return []byte(`<urlset><url><loc>https://www.cgrcinemas.fr/films-a-l-affiche/1001-source-title/</loc></url></urlset>`), g.pageError
+}
+
+func TestSyncCapturesPublishedMoviePages(t *testing.T) {
+	getter := &linkedGetter{fakeGetter: &fakeGetter{}}
+	o := SyncOptions{From: "2026-08-25", Now: time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)}
+	d, _, err := Sync(t.Context(), getter, o)
+	if err != nil || getter.pageCalls != 1 {
+		t.Fatal("source index unavailable", err)
+	}
+	found := false
+	for _, r := range d.Showtimes {
+		if r.Movie.ProviderID == "1001" {
+			found = true
+			if r.Movie.SourcePageURL != "https://www.cgrcinemas.fr/films-a-l-affiche/1001-source-title/" {
+				t.Fatal("source URL not captured")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("fixture movie missing")
+	}
+	getter = &linkedGetter{fakeGetter: &fakeGetter{}, pageError: context.Canceled}
+	if d, _, err := Sync(t.Context(), getter, o); !errors.Is(err, context.Canceled) || len(d.Showtimes) != 0 {
+		t.Fatal("failed source lookup must not publish partial dataset", err)
+	}
+}
+
 type nationalGetter struct {
 	mu             sync.Mutex
 	requests       int

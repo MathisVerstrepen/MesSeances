@@ -8,6 +8,9 @@ const props = defineProps<{
   variant?: 'inline' | 'hero'
   decorative?: boolean
   logoClass?: string
+  cinemaUrl?: string
+  movieUrl?: string | null
+  movieTitle?: string
 }>()
 
 const providerBrands = {
@@ -64,6 +67,35 @@ const nameIncludesProvider = computed(() => {
     </span>
     <span class="block break-words [overflow-wrap:anywhere]">{{ name }}</span>
   </span>
+  <span
+    v-else-if="cinemaUrl"
+    class="inline-flex max-w-full items-center gap-1.5"
+    ><a
+      v-if="movieUrl"
+      :href="movieUrl"
+      target="_blank"
+      rel="noopener noreferrer"
+      :aria-label="`Voir ${movieTitle || 'la fiche du film'} sur ${providerBrands[provider]}`"
+      class="inline-flex min-h-11 shrink-0 items-center rounded-sm hover:opacity-75 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+      ><BrandLogo
+        :brand="providerBrands[provider]"
+        decorative
+        :class="logoClass"
+      /></a
+    ><BrandLogo
+      v-else
+      :brand="providerBrands[provider]"
+      :decorative="decorative || nameIncludesProvider"
+      :class="logoClass"
+    />
+    <NuxtLink
+      :to="cinemaUrl"
+      class="inline-flex min-h-11 min-w-0 items-center underline decoration-2 underline-offset-4 hover:text-primary"
+      >{{
+        name
+      }}</NuxtLink
+    ></span
+  >
   <span v-else :aria-hidden="decorative ? 'true' : undefined"
     ><BrandLogo
       :brand="providerBrands[provider]"

@@ -136,6 +136,9 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 		providerShowings[providerShowingKey] = true
 		runtime, validRuntime := RuntimeDuration(showing.Movie.RuntimeMinutes)
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
+		if showing.Movie.SourcePageURL != "" && !ValidSourceMoviePageURL(movieProvider, showing.Movie.ProviderID, showing.Movie.SourcePageURL) {
+			return fmt.Errorf("invalid source movie page")
+		}
 		unknownRuntime := (provider == ProviderCGR || provider == ProviderMegarama || provider == ProviderMajestic || provider == ProviderCineode || provider == ProviderCinemovida || provider == ProviderOcine || provider == ProviderCineville || provider == ProviderMK2 || provider == ProviderCinewest || provider == ProviderGrandEcran || provider == ProviderNoeCinemas || provider == ProviderVeo) && showing.Movie.RuntimeMinutes == 0
 		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime && !unknownRuntime {
 			return fmt.Errorf("invalid movie")
