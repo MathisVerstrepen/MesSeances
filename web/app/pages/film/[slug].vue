@@ -80,6 +80,7 @@ const pending = ref(true)
 const errorMessage = ref('')
 const notFound = ref(false)
 const backdropFailed = ref(false)
+const posterBackdropFailed = ref(false)
 const activeLanguage = ref<LanguageFilter>('ALL')
 const activeTechnology = ref<TechnologyFilter>('ALL')
 const sortByNextShowtime = ref(false)
@@ -204,9 +205,22 @@ const canBroadenSearch = computed(
 const backdropUrl = computed(() =>
   safeBackdropUrl(schedule.value?.backdrop_url),
 )
-const backdropAvailable = computed(
-  () => Boolean(backdropUrl.value) && !backdropFailed.value,
+const usePosterBackdrop = computed(
+  () => !backdropUrl.value || backdropFailed.value,
 )
+const heroBackdropUrl = computed(() =>
+  usePosterBackdrop.value
+    ? posterBackdropFailed.value
+      ? null
+      : safePosterUrl(schedule.value?.movie.poster_url)
+    : backdropUrl.value,
+)
+const backdropAvailable = computed(() => Boolean(heroBackdropUrl.value))
+
+function handleBackdropError() {
+  if (usePosterBackdrop.value) posterBackdropFailed.value = true
+  else backdropFailed.value = true
+}
 const releaseDateLabel = computed(() => {
   const value = schedule.value?.movie.release_date
   if (!value) return ''
@@ -876,6 +890,10 @@ watch(
     observeSynopsis()
   },
 )
+watch([backdropUrl, () => schedule.value?.movie.poster_url], () => {
+  backdropFailed.value = false
+  posterBackdropFailed.value = false
+})
 watch(slug, () => {
   nationwideOverride.value = false
   resetPagination()
@@ -1108,12 +1126,14 @@ if (
       >
         <img
           v-if="backdropAvailable"
-          :src="backdropUrl ?? undefined"
+          :key="heroBackdropUrl ?? undefined"
+          :src="heroBackdropUrl ?? undefined"
           alt=""
           aria-hidden="true"
           fetchpriority="high"
           class="absolute inset-0 -z-20 size-full object-cover"
-          @error="backdropFailed = true"
+          :class="usePosterBackdrop ? 'scale-110 blur-xl' : undefined"
+          @error="handleBackdropError"
         >
         <div
           v-if="backdropAvailable"
