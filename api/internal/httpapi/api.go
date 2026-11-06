@@ -75,7 +75,8 @@ type AdminOptions struct {
 }
 
 type TMDBRerunner interface {
-	Rerun(context.Context) (enrichment.RerunSummary, error)
+	Start() (enrichment.RerunStatus, error)
+	Snapshot() *enrichment.RerunStatus
 }
 
 type TMDBMetadataRefresher interface {
@@ -211,6 +212,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/theaters/{provider}/{providerTheaterID}/image/{revision}", api.admin.theaterImage)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
+			router.Get("/tmdb-matches/rerun", api.admin.tmdbRerunStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)

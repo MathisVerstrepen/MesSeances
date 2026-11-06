@@ -34,7 +34,7 @@ import type {
   AdminImportTheaterImageRequest,
   AdminRemoveTheaterImageRequest,
   AdminTMDBMetadataRefreshResponse,
-  AdminTMDBRerunSummary,
+  AdminTMDBRerunResponse,
   AdminUnmergeLocalMovieResponse,
   AdminUpcomingSyncResponse,
   AdminUpcomingMovie,
@@ -377,12 +377,20 @@ export function useMesSeancesApi() {
     },
     adminRerunTMDBMatches() {
       return withAdminRedirect(
-        apiFetch<AdminTMDBRerunSummary>(
+        apiFetch<AdminTMDBRerunResponse>(
           `${apiBase}/api/v1/admin/tmdb-matches/rerun`,
           {
             method: 'POST',
             credentials: 'include',
           },
+        ),
+      )
+    },
+    adminTMDBRerunStatus() {
+      return withAdminRedirect(
+        apiFetch<AdminTMDBRerunResponse>(
+          `${apiBase}/api/v1/admin/tmdb-matches/rerun`,
+          { credentials: 'include' },
         ),
       )
     },

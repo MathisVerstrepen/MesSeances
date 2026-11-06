@@ -63,14 +63,22 @@ func NewRerunService(store RerunStore, matcher ForceMatcher, gate *TMDBRunGate) 
 }
 
 func (s *RerunService) Rerun(ctx context.Context) (RerunSummary, error) {
-	if s == nil || s.store == nil || s.matcher == nil || s.gate == nil {
+	if !s.available() {
 		return RerunSummary{}, ErrRerunUnavailable
 	}
 	if !s.gate.tryAcquire() {
 		return RerunSummary{}, ErrRerunInProgress
 	}
 	defer s.gate.release()
+	return s.rerun(ctx)
+}
 
+func (s *RerunService) available() bool {
+	return s != nil && s.store != nil && s.matcher != nil && s.gate != nil
+}
+
+// rerun requires the caller to hold the shared TMDB gate.
+func (s *RerunService) rerun(ctx context.Context) (RerunSummary, error) {
 	movies, err := s.store.UnresolvedMovies(ctx)
 	if err != nil {
 		return RerunSummary{}, fmt.Errorf("read unresolved movies failed: %w", err)

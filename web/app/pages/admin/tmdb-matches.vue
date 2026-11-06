@@ -21,6 +21,7 @@ import type {
   AdminTMDBMetadataRefreshResponse,
   AdminTMDBMetadataRefreshSummary,
   AdminTMDBRerunSummary,
+  AdminTMDBRerunResponse,
   Provider,
 } from '~/types/api'
 import {
@@ -33,6 +34,8 @@ import {
   adminReplacementTMDBId,
   adminTMDBMatchedSearch,
   adminTMDBMetadataRefreshPresentation,
+  adminTMDBRerunPresentation,
+  shouldRefreshAdminTMDBRerunLists,
   adminTMDBMatchesTab,
   adminTMDBSearchURL,
   shouldRefreshAdminTMDBMatchLists,
@@ -48,6 +51,7 @@ definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
 const METADATA_REFRESH_POLL_DELAY = 2000
+const RERUN_POLL_DELAY = 2000
 const OWNED_QUERY_KEYS = [
   'tab',
   'q',
@@ -101,6 +105,8 @@ let selectionTrigger: HTMLElement | null = null
 const errorMessage = ref('')
 const groupingError = ref('')
 const rerunError = ref('')
+const rerunStatus = ref<AdminTMDBRerunResponse | null>(null)
+const rerunStatusPending = ref(false)
 const rerunSummary = ref<AdminTMDBRerunSummary | null>(null)
 const metadataRefreshError = ref('')
 const metadataRefreshSummary = ref<AdminTMDBMetadataRefreshSummary | null>(null)
@@ -141,6 +147,9 @@ let lastLoadRejectedPage = 0
 let lastLoadMatchedPage = 0
 let lastLoadMatchedSearch: string | undefined
 let lastLoadGroupsPage = 0
+let rerunPollTimer: ReturnType<typeof setTimeout> | undefined
+let observedRunningRerunStartedAt: string | null = null
+const refreshedRerunStartedAts = new Set<string>()
 let metadataRefreshPollTimer: ReturnType<typeof setTimeout> | undefined
 let matchedSearchTimer: ReturnType<typeof setTimeout> | undefined
 let observedRunningMetadataRefreshStartedAt: string | null = null
@@ -191,6 +200,8 @@ const metadataRefreshRunning = computed(
 const metadataRefreshLoading = computed(
   () => metadataRefreshPending.value || metadataRefreshRunning.value,
 )
+const rerunRunning = computed(() => rerunStatus.value?.job?.state === 'running')
+const rerunLoading = computed(() => rerunPending.value || rerunRunning.value)
 const anyMutation = computed(() =>
   Boolean(
     activeMutation.value ||
@@ -198,6 +209,8 @@ const anyMutation = computed(() =>
       addMembersPending.value ||
       unmergePending.value ||
       rerunPending.value ||
+      rerunRunning.value ||
+      rerunStatusPending.value ||
       metadataRefreshPending.value ||
       metadataRefreshStatusPending.value ||
       metadataRefreshRunning.value,
@@ -624,20 +637,94 @@ async function refreshMatchesAfterRerun() {
   ])
 }
 
+function clearRerunPolling() {
+  if (rerunPollTimer !== undefined) {
+    clearTimeout(rerunPollTimer)
+    rerunPollTimer = undefined
+  }
+}
+
+function scheduleRerunPolling() {
+  clearRerunPolling()
+  if (!isMounted || !rerunRunning.value) return
+  rerunPollTimer = setTimeout(() => {
+    rerunPollTimer = undefined
+    void loadTMDBRerunStatus()
+  }, RERUN_POLL_DELAY)
+}
+
+function applyTMDBRerunStatus(response: AdminTMDBRerunResponse) {
+  const job = response.job
+  const shouldRefresh = shouldRefreshAdminTMDBRerunLists(
+    observedRunningRerunStartedAt,
+    job,
+    refreshedRerunStartedAts,
+  )
+  const presentation = adminTMDBRerunPresentation(job)
+  rerunStatus.value = response
+  rerunSummary.value = presentation.summary
+  rerunError.value = presentation.error
+  observedRunningRerunStartedAt = presentation.running
+    ? (job?.started_at ?? null)
+    : null
+  if (shouldRefresh && job) {
+    refreshedRerunStartedAts.add(job.started_at)
+    void refreshMatchesAfterRerun()
+  }
+}
+
+async function loadTMDBRerunStatus(): Promise<AdminTMDBRerunResponse | null> {
+  if (rerunStatusPending.value) return null
+  clearRerunPolling()
+  rerunStatusPending.value = true
+  try {
+    const response = await api.adminTMDBRerunStatus()
+    if (!isMounted) return null
+    applyTMDBRerunStatus(response)
+    return response
+  } catch (error) {
+    if (isMounted) rerunError.value = getFrenchAdminApiError(error)
+    return null
+  } finally {
+    if (isMounted) {
+      rerunStatusPending.value = false
+      scheduleRerunPolling()
+    }
+  }
+}
+
 async function rerunTMDBMatches() {
   if (anyMutation.value) return
+  clearRerunPolling()
+  const previousJobStartedAt = rerunStatus.value?.job?.started_at
   rerunPending.value = true
   rerunError.value = ''
   rerunSummary.value = null
   try {
-    rerunSummary.value = await api.adminRerunTMDBMatches()
+    const response = await api.adminRerunTMDBMatches()
+    if (isMounted) applyTMDBRerunStatus(response)
   } catch (error) {
-    rerunError.value = getFrenchAdminApiError(error)
+    if (!isMounted) return
+    const message = getFrenchAdminApiError(error)
+    // Recover a running job even if the start response was lost.
+    const response = await loadTMDBRerunStatus()
+    if (!isMounted) return
+    const recoveredJob = response?.job
+    if (recoveredJob && recoveredJob.started_at !== previousJobStartedAt) {
+      if (
+        recoveredJob.state !== 'running' &&
+        !refreshedRerunStartedAts.has(recoveredJob.started_at)
+      ) {
+        refreshedRerunStartedAts.add(recoveredJob.started_at)
+        await refreshMatchesAfterRerun()
+      }
+      return
+    }
+    if (recoveredJob?.state !== 'running') rerunError.value = message
   } finally {
-    try {
-      await refreshMatchesAfterRerun()
-    } finally {
+    if (isMounted) {
       rerunPending.value = false
+      scheduleRerunPolling()
     }
   }
 }
@@ -1185,6 +1272,7 @@ onMounted(() => {
   void applyRoute()
   void refreshGroupCatalog()
   void loadTMDBMetadataRefreshStatus()
+  void loadTMDBRerunStatus()
   window.addEventListener('keydown', handleSelectionEscape)
 })
 onBeforeUnmount(() => {
@@ -1193,6 +1281,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleSelectionEscape)
   clearMatchedSearchTimer()
   clearMetadataRefreshPolling()
+  clearRerunPolling()
 })
 useHead({ title: 'Identités des films - MesSeances' })
 </script>
@@ -1345,14 +1434,14 @@ useHead({ title: 'Identités des films - MesSeances' })
               @click="rerunTMDBMatches"
             >
               <LoaderCircle
-                v-if="rerunPending"
+                v-if="rerunLoading"
                 :size="17"
                 class="animate-spin"
                 aria-hidden="true"
               />
               <RefreshCw v-else :size="17" aria-hidden="true" />
               {{
-                rerunPending ? 'Relance en cours…' : 'Relancer les films non résolus'
+                rerunLoading ? 'Relance en cours…' : 'Relancer les films non résolus'
               }}
             </button>
             <button
@@ -1391,7 +1480,7 @@ useHead({ title: 'Identités des films - MesSeances' })
         <template v-if="activeTab === 'unresolved'">
           <p class="sr-only" role="status" aria-live="polite">
             {{
-              rerunPending ? 'Relance TMDB en cours pour tous les films non résolus.' : ''
+              rerunLoading ? 'Relance TMDB en cours pour tous les films non résolus.' : ''
             }}
           </p>
           <div

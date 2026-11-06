@@ -10,6 +10,8 @@ import {
   adminReplacementTMDBId,
   adminTMDBMatchedSearch,
   adminTMDBMetadataRefreshPresentation,
+  adminTMDBRerunPresentation,
+  shouldRefreshAdminTMDBRerunLists,
   adminTMDBMatchesTab,
   adminTMDBSearchQuery,
   adminTMDBSearchURL,
@@ -475,4 +477,107 @@ test('keeps matched search route-owned, debounced, server-side, and cleaned up',
   )
   assert.match(page, /Aucun film associé ne correspond à cette recherche\./)
   assert.doesNotMatch(page, /\.filter\([\s\S]{0,120}matchedSearch/)
+})
+
+test('starts and polls unresolved reruns with admin credentials', async () => {
+  const calls: Array<{ url: string; options: AdminFetchOptions }> = []
+  const running = {
+    state: 'running',
+    started_at: '2026-11-06T12:00:00Z',
+    finished_at: null,
+    summary: null,
+  }
+  Object.assign(globalThis, {
+    useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080/' } }),
+    $fetch: (url: string, options: AdminFetchOptions) => {
+      calls.push({ url, options })
+      return Promise.resolve({ job: running })
+    },
+  })
+  const api = useMesSeancesApi()
+  assert.deepEqual(await api.adminRerunTMDBMatches(), { job: running })
+  assert.deepEqual(await api.adminTMDBRerunStatus(), { job: running })
+  assert.deepEqual(calls, [
+    {
+      url: 'http://localhost:8080/api/v1/admin/tmdb-matches/rerun',
+      options: { method: 'POST', credentials: 'include' },
+    },
+    {
+      url: 'http://localhost:8080/api/v1/admin/tmdb-matches/rerun',
+      options: { credentials: 'include' },
+    },
+  ])
+})
+
+test('presents rerun states and refreshes partial results once after success or failure', () => {
+  const started_at = '2026-11-06T12:00:00Z'
+  const running = {
+    state: 'running' as const,
+    started_at,
+    finished_at: null,
+    summary: null,
+  }
+  const summary = {
+    processed: 5,
+    matched: 2,
+    unmatched: 1,
+    review_required: 1,
+    reused: 0,
+    failed: 1,
+  }
+  const succeeded = {
+    state: 'succeeded' as const,
+    started_at,
+    finished_at: '2026-11-06T12:05:00Z',
+    summary,
+  }
+  const failed = {
+    state: 'failed' as const,
+    started_at,
+    finished_at: '2026-11-06T12:05:00Z',
+    summary: null,
+    error_code: 'rerun_failed' as const,
+  }
+  assert.deepEqual(adminTMDBRerunPresentation(null), {
+    running: false,
+    summary: null,
+    error: '',
+  })
+  assert.deepEqual(adminTMDBRerunPresentation(running), {
+    running: true,
+    summary: null,
+    error: '',
+  })
+  assert.deepEqual(adminTMDBRerunPresentation(succeeded), {
+    running: false,
+    summary,
+    error: '',
+  })
+  assert.deepEqual(adminTMDBRerunPresentation(failed), {
+    running: false,
+    summary: null,
+    error: 'La relance TMDB a échoué. Réessayez plus tard.',
+  })
+  assert.equal(
+    shouldRefreshAdminTMDBRerunLists(started_at, running, new Set()),
+    false,
+  )
+  assert.equal(
+    shouldRefreshAdminTMDBRerunLists(null, succeeded, new Set()),
+    false,
+  )
+  for (const terminal of [succeeded, failed]) {
+    assert.equal(
+      shouldRefreshAdminTMDBRerunLists(started_at, terminal, new Set()),
+      true,
+    )
+    assert.equal(
+      shouldRefreshAdminTMDBRerunLists(
+        started_at,
+        terminal,
+        new Set([started_at]),
+      ),
+      false,
+    )
+  }
 })
