@@ -45,6 +45,7 @@ import (
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
+	"messeances/api/internal/trailer"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
 	"messeances/api/internal/wikidata"
@@ -250,6 +251,19 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	var trailerFetcher trailer.Fetcher
+	if len(proxies) > 0 {
+		f, err := trailer.NewUGCFetcher(proxies, syncConfig.Sync.RequestTimeout)
+		if err != nil {
+			return fmt.Errorf("trailer transport configuration is invalid")
+		}
+		trailerFetcher = f
+	}
+	polling.Add(1)
+	go func() {
+		defer polling.Done()
+		trailer.Run(workerCtx, &trailer.Store{Pool: pool}, trailerFetcher, logger)
+	}()
 	historyCache := &httpapi.HistoryCache{}
 	historyUpdates := make(chan time.Time, 1)
 	polling.Add(5)
@@ -527,7 +541,7 @@ func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionSto
 
 func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
 	return synccontrol.ProductionExecutorOptions{
-		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout,
+		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout, EnrichmentTimeout: cfg.Sync.EnrichmentTimeout,
 		NewUGC: func() (ugc.Getter, error) {
 			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},

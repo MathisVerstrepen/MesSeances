@@ -22,6 +22,7 @@ const (
 	DefaultKinepolisRequestInterval = 2 * time.Second
 	DefaultCinevilleRequestInterval = 2 * time.Second
 	DefaultOperationTimeout         = 2 * time.Minute
+	DefaultEnrichmentTimeout        = 10 * time.Minute
 )
 
 type Config struct {
@@ -45,6 +46,7 @@ type Config struct {
 		KinepolisRequestInterval time.Duration
 		CinevilleRequestInterval time.Duration
 		OperationTimeout         time.Duration
+		EnrichmentTimeout        time.Duration
 	}
 }
 
@@ -110,6 +112,9 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		}
 		if err := loadOperationTimeout(&result, getenv); err != nil {
 			return Config{}, err
+		}
+		if err := parseDuration(getenv("SYNC_ENRICHMENT_TIMEOUT"), DefaultEnrichmentTimeout, &result.Sync.EnrichmentTimeout); err != nil || result.Sync.EnrichmentTimeout <= 0 {
+			return Config{}, configurationError()
 		}
 	default:
 		return Config{}, configurationError()

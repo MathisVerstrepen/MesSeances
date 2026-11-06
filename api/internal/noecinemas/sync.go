@@ -9,6 +9,7 @@ import (
 
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -40,6 +41,9 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (data schedul
 	}
 	if err == nil {
 		err = ctx.Err()
+	}
+	if err == nil {
+		err = sourcepages.Enrich(ctx, getter, &data)
 	}
 	if err == nil {
 		if schedule.ValidateDataset(data, true) != nil {

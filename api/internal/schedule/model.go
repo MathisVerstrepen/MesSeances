@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"math"
+	"messeances/api/internal/trailer"
 	"time"
 )
 
@@ -180,25 +181,26 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
-	OriginalTitle          *string   `json:"original_title"`
-	OriginalLanguage       *string   `json:"original_language"`
-	FrenchReleaseDate      *string   `json:"french_release_date"`
-	Slug                   string    `json:"slug"`
-	Title                  string    `json:"title"`
-	RuntimeMinutes         int       `json:"runtime_minutes"`
-	UpdatedAt              time.Time `json:"updated_at"`
-	ShowtimeCount          int       `json:"showtime_count,omitempty"`
-	RemainingShowtimeCount *int      `json:"remaining_showtime_count,omitempty"`
-	Next7DaysShowtimeCount *int      `json:"next_7_days_showtime_count,omitempty"`
-	PosterURL              *string   `json:"poster_url"`
-	TMDBID                 *int64    `json:"tmdb_id"`
-	IMDBID                 *string   `json:"imdb_id"`
-	MetacriticID           *string   `json:"metacritic_id"`
-	TrailerVFYouTubeKey    *string   `json:"trailer_vf_youtube_key"`
-	TrailerVOYouTubeKey    *string   `json:"trailer_vo_youtube_key"`
-	Overview               *string   `json:"overview"`
-	ReleaseDate            *string   `json:"release_date"`
-	Genres                 []string  `json:"genres"`
+	OriginalTitle          *string        `json:"original_title"`
+	OriginalLanguage       *string        `json:"original_language"`
+	FrenchReleaseDate      *string        `json:"french_release_date"`
+	Slug                   string         `json:"slug"`
+	Title                  string         `json:"title"`
+	RuntimeMinutes         int            `json:"runtime_minutes"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+	ShowtimeCount          int            `json:"showtime_count,omitempty"`
+	RemainingShowtimeCount *int           `json:"remaining_showtime_count,omitempty"`
+	Next7DaysShowtimeCount *int           `json:"next_7_days_showtime_count,omitempty"`
+	PosterURL              *string        `json:"poster_url"`
+	TMDBID                 *int64         `json:"tmdb_id"`
+	IMDBID                 *string        `json:"imdb_id"`
+	MetacriticID           *string        `json:"metacritic_id"`
+	Trailer                *trailer.Media `json:"trailer"`
+	TrailerVFYouTubeKey    *string        `json:"trailer_vf_youtube_key"`
+	TrailerVOYouTubeKey    *string        `json:"trailer_vo_youtube_key"`
+	Overview               *string        `json:"overview"`
+	ReleaseDate            *string        `json:"release_date"`
+	Genres                 []string       `json:"genres"`
 }
 
 type MovieCatalog struct {
@@ -221,6 +223,7 @@ type MovieScreeningWindow struct {
 }
 
 type MovieTheaterShowtimes struct {
+	MovieURL  *string    `json:"movie_url"`
 	Provider  Provider   `json:"provider"`
 	ID        string     `json:"id"`
 	Slug      string     `json:"slug"`

@@ -31,11 +31,12 @@ type SyncSummary struct {
 	Cinemas, Movies, Requests, Showtimes       int
 	GeneratedAt                                time.Time
 	EndsAttempted, EndsRecovered, RoomsMissing int
+	CheckoutTransientFailures                  int
 }
 
-// Sync publishes nothing until the complete fixed census and every unique
-// checkout has succeeded or closed near session start. Observed dates never
-// attest full activity coverage.
+// Sync requires the complete fixed census and validates every available checkout.
+// Transient checkout failures retain validated programme rows without end times.
+// Observed dates never attest full activity coverage.
 func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset, summary SyncSummary, resultErr error) {
 	defer func() { summary.Requests = g.RequestCount() }()
 	summary.GeneratedAt = o.Now.UTC()
@@ -130,8 +131,9 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 	}
 	summary.EndsAttempted = len(indices)
 	type checkout struct {
-		end  time.Time
-		room string
+		end       time.Time
+		room      string
+		transient bool
 	}
 	checkouts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: 2}, func(ctx context.Context, i int) (checkout, error) {
 		s := d.Showtimes[i]
@@ -147,15 +149,23 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 				// identity, URL and grid room, without inventing checkout metadata.
 				return checkout{end: s.StartTime}, nil
 			}
+			if errors.As(err, &requestErr) && (requestErr.Kind == syncproxy.FailureTransport || requestErr.Kind == syncproxy.FailureResponseRead || requestErr.Kind == syncproxy.FailureServer) {
+				// Checkout only enriches a fully validated programme row. A
+				// temporary outage preserves its advertised room and unknown end.
+				return checkout{end: s.StartTime, transient: true}, nil
+			}
 			return checkout{}, err
 		}
 		end, room, err := parseCheckout(body, s, strings.TrimPrefix(s.TheaterID, "ocine-"), loc)
-		return checkout{end, room}, err
+		return checkout{end: end, room: room}, err
 	})
 	if err != nil {
 		return result, summary, err
 	}
 	for i, c := range checkouts {
+		if c.transient {
+			summary.CheckoutTransientFailures++
+		}
 		s := &d.Showtimes[indices[i]]
 		s.EndTime = c.end
 		if c.end.After(s.StartTime) {

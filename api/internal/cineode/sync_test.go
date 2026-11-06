@@ -117,7 +117,12 @@ func TestPublishedPostersRuntimeAndMetadataMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, poster := range []string{"https://static.cotecine.fr/tb/Affiches/180x240/4332_638323.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/LE+BON+LA+BRUTE.JPG"} {
+	for _, poster := range []string{
+		"https://static.cotecine.fr/tb/Affiches/180x240/4332_638323.JPG",
+		"https://static.cotecine.fr/tb/Affiches/180x240/LE+BON+LA+BRUTE.JPG",
+		"https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG",
+		"https://fr.web.img6.acsta.net/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG",
+	} {
 		block := strings.Replace(film("4640"), "https://fr.web.img6.acsta.net/r_180_240/img/aa/poster.jpg", poster, 1)
 		block = strings.Replace(block, `<img class="hr_aff"`, `<p class="hr_dur">Durée : <strong>1h48</strong> - Sortie : 21 octobre</p><img class="hr_aff"`, 1)
 		p, err := parseProgramme(fixturePage("4640", block, "1 rue, 59000 Lille"), "4640", "2026-10-16", fixtureNow, loc)
@@ -348,5 +353,32 @@ func TestFourteenDayProgramme(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSyncPreservesPublishedPosterVariants(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{
+		{"https://fr.web.img6.acsta.net/r_180_240/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG", "https://fr.web.img6.acsta.net/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG"},
+		{"https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG"},
+	} {
+		g := newFixtureGetter()
+		g.change = func(_, route string, body []byte) ([]byte, error) {
+			if route == "seances" {
+				return []byte(strings.ReplaceAll(string(body), "https://fr.web.img6.acsta.net/r_180_240/img/aa/poster.jpg", tc.source)), nil
+			}
+			return body, nil
+		}
+		d, summary, err := Sync(t.Context(), g, SyncOptions{From: "2026-10-16", Now: fixtureNow})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Theaters) != 37 || summary.Showtimes != 4 {
+			t.Fatal("incomplete synchronization", summary)
+		}
+		for _, showing := range d.Showtimes {
+			if showing.Movie.PosterURL != tc.want {
+				t.Fatal("source poster changed")
+			}
+		}
 	}
 }

@@ -18,6 +18,7 @@ type cinema struct {
 	ComplexSlug string `json:"complexSlug"`
 }
 type film struct {
+	Slug        string `json:"slug"`
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Runtime     *int   `json:"runTime"`
@@ -99,6 +100,12 @@ func parseMovie(f film) (schedule.MovieRecord, error) {
 	if !schedule.ValidMK2Identity("movie", f.ID) {
 		return m, payloadError(OperationFilms)
 	}
+	if f.Slug != "" {
+		raw := "https://www.mk2.com/film/" + f.Slug
+		if schedule.ValidSourceMoviePageURL(schedule.ProviderMK2, f.ID, raw) {
+			m.SourcePageURL = raw
+		}
+	}
 	if f.Runtime != nil {
 		m.RuntimeMinutes = *f.Runtime
 		if _, ok := schedule.RuntimeDuration(m.RuntimeMinutes); !ok && m.RuntimeMinutes != 0 {
@@ -149,6 +156,11 @@ func mergeMovie(a, b schedule.MovieRecord) (schedule.MovieRecord, error) {
 		if *pair.dst == "" {
 			*pair.dst = pair.value
 		}
+	}
+	// The live catalog can repeat a film with multiple native slug aliases.
+	// Keep the first published route; slug aliases do not change film identity.
+	if a.SourcePageURL == "" {
+		a.SourcePageURL = b.SourcePageURL
 	}
 	if a.RuntimeMinutes != 0 && b.RuntimeMinutes != 0 && a.RuntimeMinutes != b.RuntimeMinutes {
 		return a, payloadError(OperationFilms)

@@ -133,6 +133,10 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{72, "072_majestic_session_booking.sql"},
 		{73, "073_account_activity_visits.sql"},
 		{74, "074_veo_saint_affrique_relay.sql"},
+		{75, "075_cineode_poster_urls.sql"},
+		{76, "076_source_movie_pages.sql"},
+		{77, "077_cineville_movie_anchors.sql"},
+		{78, "078_provider_trailers.sql"},
 	}
 
 	items, err := embeddedMigrations()

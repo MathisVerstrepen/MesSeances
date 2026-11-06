@@ -462,9 +462,28 @@ func (c *Client) configuration(ctx context.Context) (string, string, string, err
 	return response.Images.SecureBaseURL, "w500", "w780", nil
 }
 
+type transientRequestError struct{}
+
+func (*transientRequestError) Error() string { return "tmdb request failed" }
+
+// Retry only temporary I/O and server failures, preserving pacing and immediate
+// stop on authentication/rate-limit responses. No response body enters errors.
 func (c *Client) get(ctx context.Context, path string, query url.Values, destination any) error {
+	for attempt := 0; ; attempt++ {
+		err := c.getOnce(ctx, path, query, destination)
+		var transient *transientRequestError
+		if attempt == 2 || !errors.As(err, &transient) {
+			return err
+		}
+		if err := c.sleep(ctx, 250*time.Millisecond<<attempt); err != nil {
+			return fmt.Errorf("tmdb request canceled: %w", err)
+		}
+	}
+}
+
+func (c *Client) getOnce(ctx context.Context, path string, query url.Values, destination any) error {
 	if err := c.pace(ctx); err != nil {
-		return fmt.Errorf("tmdb request canceled")
+		return fmt.Errorf("tmdb request canceled: %w", err)
 	}
 	endpoint := *c.base
 	endpoint.Path = strings.TrimRight(endpoint.Path, "/") + path
@@ -477,11 +496,17 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, destina
 	request.Header.Set("Accept", "application/json")
 	response, err := c.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("tmdb request failed")
+		if ctx.Err() != nil {
+			return fmt.Errorf("tmdb request canceled: %w", ctx.Err())
+		}
+		return &transientRequestError{}
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
 		return ErrStop
+	}
+	if response.StatusCode == 500 || response.StatusCode == 502 || response.StatusCode == 503 || response.StatusCode == 504 {
+		return &transientRequestError{}
 	}
 	if response.StatusCode != http.StatusOK {
 		if response.StatusCode == http.StatusNotFound {
@@ -491,7 +516,13 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, destina
 	}
 	reader := io.LimitReader(response.Body, maxResponseBytes+1)
 	body, err := io.ReadAll(reader)
-	if err != nil || len(body) > maxResponseBytes {
+	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("tmdb request canceled: %w", ctx.Err())
+		}
+		return &transientRequestError{}
+	}
+	if len(body) > maxResponseBytes {
 		return fmt.Errorf("tmdb response is invalid")
 	}
 	if err := json.Unmarshal(body, destination); err != nil {

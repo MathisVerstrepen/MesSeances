@@ -1207,6 +1207,7 @@ if (
           <div class="flex flex-wrap items-start gap-3">
             <MovieTrailer
               :movie-title="schedule.movie.title"
+              :fallback="schedule.movie.trailer"
               :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
               :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
             />
@@ -1701,15 +1702,13 @@ if (
                   :id="`theater-${theater.id}`"
                   class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl"
                 >
-                  <NuxtLink
-                    :to="`/cinema/${encodeURIComponent(theater.slug)}`"
-                    class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary"
-                  >
-                    <TheaterName
-                      :name="theater.name"
-                      :provider="theater.provider"
-                    />
-                  </NuxtLink>
+                  <TheaterName
+                    :name="theater.name"
+                    :provider="theater.provider"
+                    :cinema-url="`/cinema/${encodeURIComponent(theater.slug)}`"
+                    :movie-url="theater.movie_url"
+                    :movie-title="schedule.movie.title"
+                  />
                 </h3>
                 <NuxtLink
                   :to="`/ville/${encodeURIComponent(theater.city_slug)}/cinemas`"

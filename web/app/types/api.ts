@@ -211,7 +211,15 @@ export interface Movie {
   updated_at: string
 }
 
+export interface ResolvedTrailer {
+  type: 'youtube' | 'mp4'
+  url: string
+  source: 'tmdb' | 'admin' | 'cgr' | 'cineville' | 'ugc'
+  language: string | null
+}
+
 export interface CatalogMovie extends Movie {
+  trailer?: ResolvedTrailer | null
   remaining_showtime_count?: number
   next_7_days_showtime_count?: number
   poster_url: string | null
@@ -1078,6 +1086,7 @@ export interface MovieShowtimesQuery {
 }
 
 export interface MovieShowtimesTheater {
+  movie_url?: string | null
   provider: Provider
   id: string
   slug: string

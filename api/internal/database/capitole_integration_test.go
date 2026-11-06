@@ -141,9 +141,9 @@ func capitoleFKFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tabl
 // ignoring new tables or any backfilled private rows.
 func assertCapitoleAdditiveBaselines(t *testing.T, ctx context.Context, pool *pgxpool.Pool, facts map[string]string) {
 	t.Helper()
-	for _, table := range []string{"account_watched_state", "account_watched_items", "account_activity_visits"} {
+	for _, table := range []string{"account_watched_state", "account_watched_items", "account_activity_visits", "movie_trailer_candidates", "movie_trailer_lookups"} {
 		if facts[table] != "[]" {
-			t.Fatalf("account migration did not create empty %s", table)
+			t.Fatalf("additive migration did not create empty %s", table)
 		}
 		delete(facts, table)
 	}
@@ -167,6 +167,7 @@ func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
 				mustCinevilleSQL(t, ctx, pool, `UPDATE theater_images SET file_key=NULL,width=NULL,height=NULL,size_bytes=NULL WHERE provider='cinewest'`)
 			}
 			omit := map[string][]string{
+				"movies":                      {"source_page_url"}, // Added by 076, verified separately.
 				"movieflow_schema_migrations": {"version", "name", "applied_at"},
 				"theaters":                    {"id", "slug", "provider_id"}, "screening_history_theaters": {"id", "slug", "provider_id"},
 				"theater_dates": {"theater_id"}, "theater_passes": {"theater_id"}, "showtimes": {"theater_id"}, "screening_history_showtimes": {"theater_id"},

@@ -54,5 +54,5 @@ func PreparePublication(data Dataset) (Publication, error) {
 }
 
 func samePublishedMovie(a, b MovieRecord) bool {
-	return a.Provider == b.Provider && a.ProviderID == b.ProviderID && a.Slug == b.Slug && a.Title == b.Title && a.RuntimeMinutes == b.RuntimeMinutes && a.PosterURL == b.PosterURL && a.Overview == b.Overview && a.ReleaseDate == b.ReleaseDate && strings.Join(a.Genres, "\x00") == strings.Join(b.Genres, "\x00")
+	return a.Provider == b.Provider && a.ProviderID == b.ProviderID && a.Slug == b.Slug && a.Title == b.Title && a.RuntimeMinutes == b.RuntimeMinutes && a.PosterURL == b.PosterURL && a.SourcePageURL == b.SourcePageURL && a.Overview == b.Overview && a.ReleaseDate == b.ReleaseDate && strings.Join(a.Genres, "\x00") == strings.Join(b.Genres, "\x00")
 }

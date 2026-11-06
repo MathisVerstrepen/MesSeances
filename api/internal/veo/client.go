@@ -18,6 +18,7 @@ import (
 	"golang.org/x/net/html/charset"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
 )
 
@@ -455,6 +456,9 @@ func allowedURL(u *url.URL) bool {
 	if !safeURL(u) {
 		return false
 	}
+	if u.String() == MainOrigin+"/sitemap-0.xml" {
+		return true
+	}
 	if u.String() == ProgramURL {
 		return true
 	}
@@ -530,4 +534,8 @@ func scheduleURL(origin, id, from, through string) string {
 	}{id, schedule.Timezone})
 	end, _ := time.Parse(time.DateOnly, through)
 	return origin + "/api/gatsby-source-boxofficeapi/schedule?" + url.Values{"theaters": {string(t)}, "includeAllMovies": {"true"}, "from": {from + "T03:00:00"}, "to": {end.AddDate(0, 0, 1).Format(time.DateOnly) + "T03:00:00"}}.Encode()
+}
+
+func (c *Client) MoviePageIndex(ctx context.Context) ([]byte, error) {
+	return sourcepages.Fetch(ctx, c.json, MainOrigin+"/sitemap-0.xml")
 }

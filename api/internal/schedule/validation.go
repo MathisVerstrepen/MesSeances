@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/trailer"
 	"messeances/api/internal/wikidata"
 )
 
@@ -136,6 +137,9 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 		providerShowings[providerShowingKey] = true
 		runtime, validRuntime := RuntimeDuration(showing.Movie.RuntimeMinutes)
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
+		if showing.Movie.SourcePageURL != "" && !ValidSourceMoviePageURL(movieProvider, showing.Movie.ProviderID, showing.Movie.SourcePageURL) {
+			return fmt.Errorf("invalid source movie page")
+		}
 		unknownRuntime := (provider == ProviderCGR || provider == ProviderMegarama || provider == ProviderMajestic || provider == ProviderCineode || provider == ProviderCinemovida || provider == ProviderOcine || provider == ProviderCineville || provider == ProviderMK2 || provider == ProviderCinewest || provider == ProviderGrandEcran || provider == ProviderNoeCinemas || provider == ProviderVeo) && showing.Movie.RuntimeMinutes == 0
 		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime && !unknownRuntime {
 			return fmt.Errorf("invalid movie")
@@ -321,6 +325,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
+		if movie.Trailer != nil && !trailer.Valid(movie.Trailer) {
+			return fmt.Errorf("invalid provider trailer")
+		}
 		if invalidMetacriticID(movie.TMDBID, movie.MetacriticID) {
 			return fmt.Errorf("invalid public movie Metacritic ID")
 		}
@@ -371,6 +378,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	}
 	canonicalSlugs := make(map[string]bool)
 	for _, movie := range data.PublicMovies {
+		if movie.Trailer != nil && !trailer.Valid(movie.Trailer) {
+			return fmt.Errorf("invalid provider trailer")
+		}
 		canonicalSlugs[publicMovieIDSlug(movie.ID)] = true
 	}
 	aliases := make(map[string]bool, len(data.MovieAliases))

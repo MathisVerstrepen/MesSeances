@@ -127,6 +127,8 @@ func TestClientDetailsTitleFallbackPreservesValidationAndErrors(t *testing.T) {
 			wantRequests := 1
 			if tc.id <= 0 {
 				wantRequests = 0
+			} else if tc.status == http.StatusInternalServerError {
+				wantRequests = 3
 			}
 			if err == nil || !reflect.DeepEqual(got, Details{}) || errors.Is(err, ErrStop) != tc.stop || strings.Contains(err.Error(), "synthetic-secret") || requests != wantRequests {
 				t.Fatalf("details=%+v requests=%d err=%v", got, requests, err)

@@ -10,6 +10,7 @@ import (
 
 	"messeances/api/internal/geocoding"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/trailer"
 )
 
 func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRevision, error) {
@@ -253,7 +254,7 @@ ORDER BY t.provider, t.provider_id, t.id`, version)
 
 func loadMovieAggregate(ctx context.Context, tx pgx.Tx, version int64) (map[string]schedule.MovieRecord, error) {
 	movies := map[string]schedule.MovieRecord{}
-	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, source.public_movie_id
+	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, source.public_movie_id, COALESCE(m.source_page_url,'')
 FROM movies m
 JOIN public_movie_sources source ON source.source_provider=m.provider AND source.source_movie_id=m.provider_id
 WHERE m.generation_id=$1
@@ -266,7 +267,7 @@ ORDER BY m.provider, m.provider_id`, version)
 		var provider string
 		var sourceOverview, sourceReleaseDate string
 		var sourceGenres []string
-		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &movie.PublicMovieID); err != nil {
+		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &movie.PublicMovieID, &movie.SourcePageURL); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read movies failed")
 		}
@@ -301,7 +302,7 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''), COALESCE(movie.original_language,''), COALESCE(movie.metacritic_id,''),
 	       COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,''),
 	       COALESCE(CASE WHEN override.trailer_vo_youtube_key_overridden THEN override.trailer_vo_youtube_key ELSE movie.trailer_vo_youtube_key END,''),
-	       movie.updated_at, COALESCE(tmdb.runtime_minutes, 0), COALESCE(movie.identity_anchor_tmdb_id,0), COALESCE(upcoming.french_release_date::text,''), upcoming.tmdb_id IS NOT NULL, COALESCE(upcoming.active,false), COALESCE(upcoming.decision='excluded',false)
+	       movie.updated_at, COALESCE(tmdb.runtime_minutes, 0), COALESCE(movie.identity_anchor_tmdb_id,0), COALESCE(upcoming.french_release_date::text,''), upcoming.tmdb_id IS NOT NULL, COALESCE(upcoming.active,false), COALESCE(upcoming.decision='excluded',false), CASE WHEN COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,'')<>'' THEN CASE WHEN coalesce(override.trailer_vf_youtube_key_overridden,false) THEN 'admin' ELSE 'tmdb' END WHEN coalesce(override.trailer_vo_youtube_key_overridden,false) THEN 'admin' ELSE 'tmdb' END
 FROM public_movies movie
 LEFT JOIN tmdb_upcoming_movies upcoming ON upcoming.public_movie_id=movie.id
 LEFT JOIN public_movie_metadata_overrides override ON override.public_movie_id=movie.id
@@ -313,7 +314,7 @@ ORDER BY movie.id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.OriginalTitle, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.OriginalLanguage, &movie.MetacriticID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.OriginalTitle, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.OriginalLanguage, &movie.MetacriticID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded, &movie.TrailerSource); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}
@@ -327,6 +328,13 @@ ORDER BY movie.id`)
 	}
 	rows.Close()
 
+	fallbacks, err := trailer.Fallbacks(ctx, tx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	for i := range movies {
+		movies[i].Trailer = fallbacks[movies[i].ID]
+	}
 	sources := []schedule.PublicMovieSourceRecord{}
 	rows, err = tx.Query(ctx, `SELECT source_provider, source_movie_id, public_movie_id, source_slug, title, runtime_minutes,
        COALESCE(poster_url,''), COALESCE(overview,''), COALESCE(release_date::text,''), genres

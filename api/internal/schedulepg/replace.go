@@ -12,6 +12,7 @@ import (
 
 	"messeances/api/internal/publicmoviepg"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/trailer"
 )
 
 type movieRow struct {
@@ -21,6 +22,7 @@ type movieRow struct {
 	title       string
 	runtime     int
 	poster      string
+	pageURL     string
 	overview    string
 	releaseDate string
 	genres      []string
@@ -29,7 +31,7 @@ type movieRow struct {
 func publicationMovieRows(movies []schedule.MovieRecord) []movieRow {
 	rows := make([]movieRow, 0, len(movies))
 	for _, movie := range movies {
-		rows = append(rows, movieRow{string(movie.Provider), movie.ProviderID, movie.Slug, movie.Title, movie.RuntimeMinutes, movie.PosterURL, movie.Overview, movie.ReleaseDate, append([]string{}, movie.Genres...)})
+		rows = append(rows, movieRow{string(movie.Provider), movie.ProviderID, movie.Slug, movie.Title, movie.RuntimeMinutes, movie.PosterURL, movie.SourcePageURL, movie.Overview, movie.ReleaseDate, append([]string{}, movie.Genres...)})
 	}
 	return rows
 }
@@ -48,6 +50,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}
 	datasets = append([]schedule.Dataset(nil), datasets...)
+	observations := []trailer.Observation{}
 	movieSets := make([][]movieRow, len(datasets))
 	providers := make(map[schedule.Provider]bool, len(datasets))
 	for i := range datasets {
@@ -64,6 +67,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 		}
 		providers[datasets[i].Provider] = true
 		movieSets[i] = publicationMovieRows(publication.Movies)
+		for _, m := range publication.Movies {
+			observations = append(observations, trailer.Observation{Provider: string(m.Provider), MovieID: m.ProviderID, Observed: m.TrailerObserved, Media: m.SourceTrailer})
+		}
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -122,7 +128,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			`INSERT INTO theaters SELECT id, provider_id, slug, name, address, city, postal_code, provider, $1 FROM theaters WHERE generation_id=$2`,
 			`INSERT INTO theater_dates SELECT theater_id, service_date, $1 FROM theater_dates WHERE generation_id=$2`,
 			`INSERT INTO theater_passes SELECT theater_id, pass_code, $1 FROM theater_passes WHERE generation_id=$2`,
-			`INSERT INTO movies SELECT provider_id, slug, title, runtime_minutes, poster_url, provider, source_overview, source_release_date, source_genres, $1 FROM movies WHERE generation_id=$2`,
+			`INSERT INTO movies (provider_id, slug, title, runtime_minutes, poster_url, provider, source_overview, source_release_date, source_genres, generation_id, source_page_url) SELECT provider_id, slug, title, runtime_minutes, poster_url, provider, source_overview, source_release_date, source_genres, $1, source_page_url FROM movies WHERE generation_id=$2`,
 			`INSERT INTO showtimes (id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, provider, generation_id, first_part_duration_minutes) SELECT id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, provider, $1, first_part_duration_minutes FROM showtimes WHERE generation_id=$2`,
 		}
 		for _, query := range copies {
@@ -175,16 +181,19 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			if movie.poster != "" {
 				poster = movie.poster
 			}
-			var overview, releaseDate any
+			var overview, releaseDate, pageURL any
+			if movie.pageURL != "" {
+				pageURL = movie.pageURL
+			}
 			if movie.overview != "" {
 				overview = movie.overview
 			}
 			if movie.releaseDate != "" {
 				releaseDate = movie.releaseDate
 			}
-			movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, movie.runtime, poster, movie.provider, overview, releaseDate, movie.genres, version})
+			movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, movie.runtime, poster, movie.provider, overview, releaseDate, movie.genres, version, pageURL})
 		}
-		if err := copyRows(ctx, tx, "movies", []string{"provider_id", "slug", "title", "runtime_minutes", "poster_url", "provider", "source_overview", "source_release_date", "source_genres", "generation_id"}, movieRows); err != nil {
+		if err := copyRows(ctx, tx, "movies", []string{"provider_id", "slug", "title", "runtime_minutes", "poster_url", "provider", "source_overview", "source_release_date", "source_genres", "generation_id", "source_page_url"}, movieRows); err != nil {
 			return schedule.PublicationResult{}, fmt.Errorf("insert movies failed")
 		}
 		showtimeRows := make([][]any, 0, len(data.Showtimes))
@@ -229,6 +238,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	}
 	if err := retainActivity(ctx, tx, version, datasets, receivedAt, familiar); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("retain cinema activity: %w", err)
+	}
+	if _, err := trailer.SaveObservations(ctx, tx, observations, receivedAt); err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("save provider trailers failed")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("commit schedule replacement failed")

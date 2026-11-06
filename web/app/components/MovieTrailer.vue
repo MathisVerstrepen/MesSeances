@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Play, X } from '@lucide/vue'
+import type { ResolvedTrailer } from '~/types/api'
 import {
   availableTrailerSelections,
   youtubeNoCookieTrailerEmbedUrl,
@@ -8,6 +9,7 @@ import {
 
 const props = defineProps<{
   movieTitle: string
+  fallback?: ResolvedTrailer | null
   vfYoutubeKey?: string | null
   voYoutubeKey?: string | null
 }>()
@@ -80,6 +82,11 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
 </script>
 
 <template>
+  <ProviderMovieTrailer
+    v-if="!primaryTrailer && fallback"
+    :movie-title="movieTitle"
+    :trailer="fallback"
+  />
   <div v-if="primaryTrailer" class="mt-5">
     <button
       type="button"

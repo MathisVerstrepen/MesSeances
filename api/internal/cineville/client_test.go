@@ -48,7 +48,7 @@ func TestClientResponseClassificationAndRedaction(t *testing.T) {
 		{429, "text/html", "synthetic-private", syncproxy.FailureChallenge, 1},
 		{503, "text/html", "synthetic-private", syncproxy.FailureServer, 4},
 		{404, "text/html", "synthetic-private", syncproxy.FailureStatus, 1},
-		{200, "text/html", "<html>normal page</html>", syncproxy.FailureContentType, 1},
+		{200, "text/html", "<html>normal page</html>", syncproxy.FailureContentType, 4},
 		{200, "application/json", "{", syncproxy.FailureInvalidJSON, 1},
 		{200, "application/json", "", syncproxy.FailureEmptyResponse, 1},
 		{200, "text/html", "<html>cf-chl challenge-platform</html>", syncproxy.FailureChallenge, 1},
@@ -178,5 +178,24 @@ func TestClientRejectsRedirectAndCanceledPacer(t *testing.T) {
 	})
 	if _, err := c.Fetch(ctx); !errors.Is(err, context.Canceled) || c.RequestCount() != 0 {
 		t.Fatal("request cancellation")
+	}
+}
+
+func TestUnexpectedCinemaContentTypeRecoversAcrossDistinctProxies(t *testing.T) {
+	calls := 0
+	client := testClient(t, func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			return response(200, "text/html", "<html>temporary representation</html>"), nil
+		}
+		return response(200, "application/json", `{"pageProps":{}}`), nil
+	})
+	body, err := client.FetchCinema(t.Context(), "build", "katorza")
+	if err != nil || string(body) != `{"pageProps":{}}` || calls != 2 {
+		t.Fatal("representation retry did not recover", calls, err)
+	}
+	// A later logical request can still use a proxy that transiently failed.
+	if _, err := client.FetchCinema(t.Context(), "build", "katorza"); err != nil {
+		t.Fatal(err)
 	}
 }

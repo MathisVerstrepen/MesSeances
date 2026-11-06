@@ -48,15 +48,22 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 			t.Fatal("unexpected cinema identity")
 		}
 	}
+	linked := 0
 	for _, showing := range dataset.Showtimes {
 		if !showing.EndTime.Equal(showing.StartTime) || showing.FirstPartDurationMinutes != 0 {
 			t.Fatal("source end must remain unknown")
+		}
+		if showing.Movie.SourcePageURL != "" {
+			linked++
 		}
 	}
 	if summary.Cinemas != len(dataset.Theaters) || summary.Showtimes != len(dataset.Showtimes) || summary.Movies == 0 || summary.Requests < len(dataset.Theaters)+1 {
 		t.Fatal("inconsistent acquisition summary")
 	}
-	t.Logf("cinemas=%d movies=%d showtimes=%d requests=%d", summary.Cinemas, summary.Movies, summary.Showtimes, summary.Requests)
+	if linked == 0 {
+		t.Fatal("no native film anchors captured")
+	}
+	t.Logf("cinemas=%d movies=%d showtimes=%d linked_showtimes=%d requests=%d", summary.Cinemas, summary.Movies, summary.Showtimes, linked, summary.Requests)
 }
 
 // Retain only the latest parsed catalog, including after a full acquisition restart.

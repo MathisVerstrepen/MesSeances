@@ -40,4 +40,14 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	if len(d.Theaters) == 0 || len(d.Showtimes) == 0 {
 		t.Fatal("empty snapshot")
 	}
+	linked := map[string]bool{}
+	for _, record := range d.Showtimes {
+		if record.Movie.SourcePageURL != "" {
+			linked[record.Movie.ProviderID] = true
+		}
+	}
+	if len(linked) == 0 {
+		t.Fatal("source movie page identities unavailable")
+	}
+	t.Logf("films with source pages=%d", len(linked))
 }

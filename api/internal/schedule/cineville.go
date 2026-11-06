@@ -11,6 +11,23 @@ const CinevillePosterPrefix = "https://storage.googleapis.com/cineville-files-pr
 
 var cinevillePosterFilename = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9_.-]*$`)
 
+var cinevilleRoutes = map[string]string{
+	"4670": "beaupreau", "4037": "bruz", "697": "concarneau",
+	"2704": "darcy", "2714": "dijon", "465": "dorlisheim",
+	"709": "henin", "685": "laroche", "707": "laval", "693": "lorient",
+	"691": "katorza", "4672": "morlaix", "4153": "pontlabbe",
+	"1874": "lespontsdece", "639": "katorzaquimper", "695": "quimper",
+	"4673": "club6", "689": "stnazaire", "687": "stsebastien",
+	"4682": "savenay", "4674": "tregueux", "681": "garenne",
+	"683": "parclann", "4099": "vernsurseiche",
+}
+
+// CinevilleRoute maps verified public cinema IDs to their programme routes.
+// Unknown cinemas remain unlinked until their route has been verified.
+func CinevilleRoute(theaterID string) string {
+	return cinevilleRoutes[theaterID]
+}
+
 // ValidCinevilleIdentity preserves exact signed int64 visas and cinema-scoped sessions.
 func ValidCinevilleIdentity(kind, value string) bool {
 	if kind == "showing" {

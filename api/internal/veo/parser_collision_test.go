@@ -86,7 +86,7 @@ func TestScheduleRoomCollisionsPreserveStableIdentities(t *testing.T) {
 }
 
 func TestScheduleRoomCollisionsFailClosed(t *testing.T) {
-	for _, kind := range []string{"same room", "same booking", "missing room", "time", "date", "movie", "version", "format", "invalid booking"} {
+	for _, kind := range []string{"same room", "missing room", "time", "date", "movie", "version", "format", "invalid booking"} {
 		t.Run(kind, func(t *testing.T) {
 			a := collisionSession(t, "same-id", "2026-11-20T20:00:00", "Salle 3", "77172")
 			b := collisionSession(t, "same-id", "2026-11-20T20:00:00", "Salle 5", "77173")
@@ -118,5 +118,23 @@ func TestScheduleRoomCollisionsFailClosed(t *testing.T) {
 				t.Fatal("malformed collision admitted", err)
 			}
 		})
+	}
+}
+
+func TestRepeatedBookingWithConflictingRoomsRetainsOneUnknownRoom(t *testing.T) {
+	a := collisionSession(t, "same-id", "2026-11-20T20:00:00", "Salle 3", "77172")
+	b := a
+	b.Screen = &struct {
+		Name string `json:"name"`
+	}{Name: "Salle 5"}
+	for _, rows := range [][]showtimeResponse{{a, b, a}, {b, a, b}} {
+		parsed, err := parseCollisionSchedule(t, map[string]map[string][]showtimeResponse{"300279": {"2026-11-20": rows}})
+		if err != nil || len(parsed) != 1 {
+			t.Fatal("native booking lost or duplicated", err)
+		}
+		r := parsed[0]
+		if r.Room != "" || r.ProviderShowingID != schedule.VeoShowingID("P0833", "same-id") || r.BookingURL != a.Data.Ticketing[0].URLs[0] || !r.EndTime.Equal(r.StartTime) {
+			t.Fatal("identity changed or conflicting room chosen")
+		}
 	}
 }

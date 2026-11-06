@@ -108,10 +108,12 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 
 func cinemovidaUnchangedConstraints(t *testing.T, ctx context.Context, pool *pgxpool.Pool, exclude []string) string {
 	t.Helper()
+	// Migration 076 adds a new CHECK without changing a pre-existing one.
+	exclude = append(append([]string(nil), exclude...), "movies.movies_source_page_url_check")
 	var result string
 	// Later additive tables have their own schema coverage; compare constraints
 	// on the tables that existed at the provider migration boundary.
-	if err := pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid),k.convalidated) ORDER BY c.relname,k.conname),'[]'::jsonb)::text FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname<>'account_activity_visits' AND NOT (c.relname||'.'||k.conname=ANY($1::text[])) AND NOT (c.relname=ANY($2::text[]))`, exclude, historyStatisticsTables).Scan(&result); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid),k.convalidated) ORDER BY c.relname,k.conname),'[]'::jsonb)::text FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname NOT IN ('account_activity_visits','movie_trailer_candidates','movie_trailer_lookups') AND NOT (c.relname||'.'||k.conname=ANY($1::text[])) AND NOT (c.relname=ANY($2::text[]))`, exclude, historyStatisticsTables).Scan(&result); err != nil {
 		t.Fatal(err)
 	}
 	return result

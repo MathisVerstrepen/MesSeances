@@ -104,7 +104,7 @@ func TestLoadAPIBaseParsesAndNormalizesTrustedProxyCIDRs(t *testing.T) {
 
 func TestLoadAPISyncTimingDefaultsAndBounds(t *testing.T) {
 	config, err := Load(APISync, environment(nil))
-	if err != nil || config.Sync.RequestTimeout != 20*time.Second || config.Sync.KinepolisRequestInterval != 2*time.Second || config.Sync.CinevilleRequestInterval != 2*time.Second || config.Sync.OperationTimeout != 2*time.Minute {
+	if err != nil || config.Sync.RequestTimeout != 20*time.Second || config.Sync.KinepolisRequestInterval != 2*time.Second || config.Sync.CinevilleRequestInterval != 2*time.Second || config.Sync.OperationTimeout != 2*time.Minute || config.Sync.EnrichmentTimeout != 10*time.Minute {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
 	for _, values := range []map[string]string{
@@ -114,6 +114,7 @@ func TestLoadAPISyncTimingDefaultsAndBounds(t *testing.T) {
 		{"SYNC_CINEVILLE_REQUEST_INTERVAL": "999ms"},
 		{"SYNC_CINEVILLE_REQUEST_INTERVAL": "secret-duration"},
 		{"SYNC_OPERATION_TIMEOUT": "0s"},
+		{"SYNC_ENRICHMENT_TIMEOUT": "0s"}, {"SYNC_ENRICHMENT_TIMEOUT": "-1s"}, {"SYNC_ENRICHMENT_TIMEOUT": "secret-duration"},
 		{"SYNC_OPERATION_TIMEOUT": "secret-duration"},
 	} {
 		if _, err := Load(APISync, environment(values)); err == nil {

@@ -114,7 +114,7 @@ func newClient(clients []*http.Client, interval time.Duration, sleep func(contex
 		copy.CheckRedirect = syncproxy.NewRedirectChecker(allowedURL)
 		wrapped[i] = &copy
 	}
-	e, err := syncproxy.NewExecutor(syncproxy.ExecutorConfig{Clients: wrapped, ProxyBacked: true, ValidURL: allowedURL, MaxResponseBytes: MaxBodySize, Headers: http.Header{"User-Agent": {"Mozilla/5.0"}, "Accept-Language": {"fr-FR,fr;q=0.9"}}, CancelReadOnContext: true, Retry: syncproxy.RetryPolicy{Sleep: sleep, PreserveFailureAfterWait: true}})
+	e, err := syncproxy.NewExecutor(syncproxy.ExecutorConfig{Clients: wrapped, ProxyBacked: true, ValidURL: allowedURL, MaxResponseBytes: MaxBodySize, Headers: http.Header{"User-Agent": {"Mozilla/5.0"}, "Accept-Language": {"fr-FR,fr;q=0.9"}}, CancelReadOnContext: true, Retry: syncproxy.RetryPolicy{Sleep: sleep, PreserveFailureAfterWait: true, RequestScopedFailures: true}})
 	if err != nil {
 		return nil, fmt.Errorf("invalid Cineville executor")
 	}
@@ -131,7 +131,7 @@ func (c *Client) FetchCinema(ctx context.Context, build, route string) ([]byte, 
 	return c.request(ctx, OperationCinema, "https://www.cineville.fr/_next/data/"+build+"/programmes/"+route+".json", []string{"application/json"})
 }
 func (c *Client) request(ctx context.Context, op Operation, target string, media []string) ([]byte, error) {
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: target, MediaTypes: media}, syncproxy.ResponsePolicy{
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: target, MediaTypes: media, RetryContentType: op == OperationCinema}, syncproxy.ResponsePolicy{
 		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
 			if status == 403 || status == 429 {
 				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false

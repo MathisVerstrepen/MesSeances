@@ -1,6 +1,9 @@
 package schedule
 
-import "time"
+import (
+	"messeances/api/internal/trailer"
+	"time"
+)
 
 const (
 	SchemaVersion = 1
@@ -29,6 +32,9 @@ type Dataset struct {
 }
 
 type PublicMovieRecord struct {
+	TrailerSource string
+	Trailer       *trailer.Media
+
 	IdentityAnchorTMDBID   int64
 	FrenchReleaseDate      string
 	HasUpcomingRelease     bool
@@ -93,6 +99,10 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
+	SourceTrailer   *trailer.Media `json:"-"`
+	TrailerObserved bool           `json:"-"`
+
+	SourcePageURL         string           `json:"source_page_url,omitempty"`
 	Provider              Provider         `json:"provider,omitempty"`
 	ProviderID            string           `json:"provider_id"`
 	Slug                  string           `json:"slug"`
@@ -151,6 +161,7 @@ func cloneDataset(in Dataset) Dataset {
 	}
 	out.Showtimes = append([]ShowtimeRecord(nil), in.Showtimes...)
 	for i := range out.Showtimes {
+		out.Showtimes[i].Movie.SourceTrailer = cloneTrailer(in.Showtimes[i].Movie.SourceTrailer)
 		out.Showtimes[i].Movie.Genres = append([]string(nil), in.Showtimes[i].Movie.Genres...)
 		if in.Showtimes[i].Movie.Enrichment != nil {
 			value := *in.Showtimes[i].Movie.Enrichment
@@ -160,6 +171,7 @@ func cloneDataset(in Dataset) Dataset {
 	}
 	out.PublicMovies = append([]PublicMovieRecord(nil), in.PublicMovies...)
 	for i := range out.PublicMovies {
+		out.PublicMovies[i].Trailer = cloneTrailer(in.PublicMovies[i].Trailer)
 		out.PublicMovies[i].Genres = append([]string(nil), in.PublicMovies[i].Genres...)
 	}
 	out.MovieSources = append([]PublicMovieSourceRecord(nil), in.MovieSources...)
@@ -176,4 +188,16 @@ func cloneFloat(value *float64) *float64 {
 	}
 	copy := *value
 	return &copy
+}
+
+func cloneTrailer(in *trailer.Media) *trailer.Media {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.Language != nil {
+		v := *in.Language
+		out.Language = &v
+	}
+	return &out
 }
