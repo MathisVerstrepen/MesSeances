@@ -712,3 +712,23 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		t.Fatalf("merged=%+v err=%v", merged, err)
 	}
 }
+
+func TestCatalogSlugAliasesDoNotConflictWithFilmIdentity(t *testing.T) {
+	f, p, o := fixture(t)
+	first := p.Types[0].Groups[0].Film
+	first.Slug = "native-first-alias"
+	other := first
+	other.Slug = "native-second-alias"
+	f.films = encode(t, map[string]any{"data": []film{first, other}})
+	p.Types[0].Groups[0].Film.Slug = "embedded-alias"
+	f.pages[p.Slug] = encode(t, p)
+	data, _, err := Sync(t.Context(), f, o)
+	if err != nil || len(data.Showtimes) != 1 || data.Showtimes[0].Movie.SourcePageURL != "https://www.mk2.com/film/native-first-alias" {
+		t.Fatal("valid aliases rejected", err)
+	}
+	other.Title = "Different film"
+	f.films = encode(t, map[string]any{"data": []film{first, other}})
+	if _, _, err := Sync(t.Context(), f, o); err == nil {
+		t.Fatal("metadata conflict hidden by alias handling")
+	}
+}

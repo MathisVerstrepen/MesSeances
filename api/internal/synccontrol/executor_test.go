@@ -778,6 +778,9 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 		{name: "complete", enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			return &enrichment.Summary{Matched: 2}, nil
 		}, status: "complete", counts: &EnrichmentCounts{Matched: 2}},
+		{name: "failed items without fatal error", enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
+			return &enrichment.Summary{Matched: 2, Failed: 1}, nil
+		}, status: "degraded", counts: &EnrichmentCounts{Matched: 2, Failed: 1}},
 		{name: "degraded", enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			return &enrichment.Summary{Failed: 1}, errors.New("secret")
 		}, status: "degraded", counts: &EnrichmentCounts{Failed: 1}},
@@ -912,5 +915,21 @@ func configureCinevilleTestExecutor(t *testing.T, executor *ProductionExecutor, 
 			t.Fatal("Cineville sync options")
 		}
 		return cinevilleDataset(t, window), cineville.SyncSummary{Requests: 25, Cinemas: 1, Movies: 1, Showtimes: 1}, nil
+	}
+}
+
+func TestEnrichmentUsesIndependentPassBudget(t *testing.T) {
+	var observed time.Duration
+	executor := &ProductionExecutor{operationTimeout: 2 * time.Second, enrichmentTimeout: 10 * time.Minute, logger: slog.New(slog.DiscardHandler), enrich: func(ctx context.Context, _ []enrichment.Movie) (*enrichment.Summary, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("unbounded enrichment")
+		}
+		observed = time.Until(deadline)
+		return &enrichment.Summary{Reused: 1}, nil
+	}}
+	outcome := executor.runEnrichment(t.Context(), TargetUGC, validDataset(t, schedule.ProviderUGC, Window{From: "2026-08-17"}))
+	if observed < 9*time.Minute || observed > 10*time.Minute || outcome.Status != EnrichmentComplete {
+		t.Fatal("publication budget constrained enrichment", observed, outcome)
 	}
 }

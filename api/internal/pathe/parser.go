@@ -3,6 +3,7 @@ package pathe
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -14,6 +15,8 @@ import (
 
 	"messeances/api/internal/schedule"
 )
+
+var errCatalogChanged = errors.New("program references unknown show")
 
 var (
 	slugPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
@@ -124,9 +127,6 @@ func parseProgram(body []byte, knownShows map[string]show, from time.Time, locat
 	}
 	result := make(map[string][]string, len(response.Shows))
 	for showSlug, item := range response.Shows {
-		if _, ok := knownShows[showSlug]; !ok {
-			return nil, fmt.Errorf("program references unknown show")
-		}
 		if item.Days == nil {
 			return nil, fmt.Errorf("cinema program is incomplete")
 		}
@@ -141,6 +141,11 @@ func parseProgram(body []byte, knownShows map[string]show, from time.Time, locat
 			}
 			seenDates[rawDate] = true
 			result[showSlug] = append(result[showSlug], rawDate)
+		}
+		if len(result[showSlug]) > 0 {
+			if _, ok := knownShows[showSlug]; !ok {
+				return nil, errCatalogChanged
+			}
 		}
 		sort.Strings(result[showSlug])
 		if len(result[showSlug]) == 0 {

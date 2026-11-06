@@ -277,6 +277,18 @@ func parseSchedule(b []byte, c cinema, p map[string][]string, movies map[string]
 						duplicate = true
 						continue
 					}
+					// A repeated native booking can disagree only on optional
+					// room metadata. Keep the session identity and leave room
+					// unknown rather than selecting an arbitrary published room.
+					if prior.BookingURL == row.BookingURL {
+						a, b := prior, row
+						a.Room, b.Room = "", ""
+						if reflect.DeepEqual(a, b) {
+							rows[index].Room = ""
+							duplicate = true
+							continue
+						}
+					}
 					// Only distinct, known rooms with distinct ticket sessions may
 					// share a room-blind source ID. Every other showing fact agrees.
 					if prior.Room == "" || row.Room == "" || prior.Room == row.Room || prior.BookingURL == row.BookingURL {

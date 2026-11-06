@@ -2,6 +2,7 @@ package pathe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -53,7 +54,20 @@ type showtimeJob struct {
 	dates          []string
 }
 
-func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dataset, SyncSummary, error) {
+// A catalog/program race gets one complete restart. Never omit future shows
+// whose metadata was absent from the earlier catalog response.
+func Sync(ctx context.Context, getter Getter, options SyncOptions) (data schedule.Dataset, summary SyncSummary, err error) {
+	defer func() { summary.Requests = getter.RequestCount() }()
+	for attempt := 0; attempt < 2; attempt++ {
+		data, summary, err = syncSnapshot(ctx, getter, options)
+		if err == nil || !errors.Is(err, errCatalogChanged) || ctx.Err() != nil {
+			return
+		}
+	}
+	return
+}
+
+func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dataset, SyncSummary, error) {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("load schedule timezone")

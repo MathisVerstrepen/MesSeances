@@ -116,9 +116,10 @@ type ticketingResponse struct {
 }
 
 type movieResponse struct {
-	ID      sourceID  `json:"id"`
-	Title   string    `json:"title"`
-	Runtime *int      `json:"runtime"`
-	Poster  string    `json:"poster"`
-	Genres  genreList `json:"genres"`
+	Trailer json.RawMessage `json:"trailer"`
+	ID      sourceID        `json:"id"`
+	Title   string          `json:"title"`
+	Runtime *int            `json:"runtime"`
+	Poster  string          `json:"poster"`
+	Genres  genreList       `json:"genres"`
 }

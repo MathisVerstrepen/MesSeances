@@ -149,13 +149,18 @@ func mergeMovie(a, b schedule.MovieRecord) (schedule.MovieRecord, error) {
 	for _, pair := range []struct {
 		dst   *string
 		value string
-	}{{&a.PosterURL, b.PosterURL}, {&a.ReleaseDate, b.ReleaseDate}, {&a.SourcePageURL, b.SourcePageURL}} {
+	}{{&a.PosterURL, b.PosterURL}, {&a.ReleaseDate, b.ReleaseDate}} {
 		if *pair.dst != "" && pair.value != "" && *pair.dst != pair.value {
 			return a, payloadError(OperationFilms)
 		}
 		if *pair.dst == "" {
 			*pair.dst = pair.value
 		}
+	}
+	// The live catalog can repeat a film with multiple native slug aliases.
+	// Keep the first published route; slug aliases do not change film identity.
+	if a.SourcePageURL == "" {
+		a.SourcePageURL = b.SourcePageURL
 	}
 	if a.RuntimeMinutes != 0 && b.RuntimeMinutes != 0 && a.RuntimeMinutes != b.RuntimeMinutes {
 		return a, payloadError(OperationFilms)

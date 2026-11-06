@@ -12,6 +12,7 @@ import (
 
 	"messeances/api/internal/publicmoviepg"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/trailer"
 )
 
 type movieRow struct {
@@ -49,6 +50,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}
 	datasets = append([]schedule.Dataset(nil), datasets...)
+	observations := []trailer.Observation{}
 	movieSets := make([][]movieRow, len(datasets))
 	providers := make(map[schedule.Provider]bool, len(datasets))
 	for i := range datasets {
@@ -65,6 +67,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 		}
 		providers[datasets[i].Provider] = true
 		movieSets[i] = publicationMovieRows(publication.Movies)
+		for _, m := range publication.Movies {
+			observations = append(observations, trailer.Observation{Provider: string(m.Provider), MovieID: m.ProviderID, Observed: m.TrailerObserved, Media: m.SourceTrailer})
+		}
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -233,6 +238,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	}
 	if err := retainActivity(ctx, tx, version, datasets, receivedAt, familiar); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("retain cinema activity: %w", err)
+	}
+	if _, err := trailer.SaveObservations(ctx, tx, observations, receivedAt); err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("save provider trailers failed")
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("commit schedule replacement failed")

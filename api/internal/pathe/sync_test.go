@@ -411,3 +411,36 @@ func TestSyncRejectsInvalidFromBeforeRequests(t *testing.T) {
 		t.Fatalf("requests=%d err=%v", getter.RequestCount(), err)
 	}
 }
+
+func TestCatalogRaceRestartsWholeAcquisitionOnce(t *testing.T) {
+	for _, recover := range []bool{true, false} {
+		responses := completeResponses(t)
+		calls := 0
+		getter := &fakeGetter{responses: responses}
+		getter.get = func(_ context.Context, op Operation, raw string) ([]byte, error) {
+			if op == OperationShows {
+				calls++
+				if calls == 1 || !recover {
+					var parsed showsResponse
+					if err := json.Unmarshal(responses[raw], &parsed); err != nil {
+						return nil, err
+					}
+					parsed.Shows = parsed.Shows[1:]
+					return json.Marshal(parsed)
+				}
+			}
+			return responses[raw], nil
+		}
+		data, summary, err := Sync(t.Context(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+		if calls != 2 {
+			t.Fatal("catalog refresh not bounded", calls)
+		}
+		if recover {
+			if err != nil || len(data.Showtimes) != 4 || summary.Requests != getter.RequestCount() {
+				t.Fatal("catalog race not recovered", err)
+			}
+		} else if !errors.Is(err, errCatalogChanged) || len(data.Showtimes) != 0 {
+			t.Fatal("persistent unknown show published", err)
+		}
+	}
+}

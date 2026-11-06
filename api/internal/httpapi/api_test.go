@@ -999,6 +999,9 @@ func TestMoviesTransport(t *testing.T) {
 	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || catalog.Items[0].IMDBID == nil || *catalog.Items[0].IMDBID != "tt1234567" || catalog.Items[0].TrailerVFYouTubeKey == nil || *catalog.Items[0].TrailerVFYouTubeKey != "FRoff123456" || catalog.Items[0].TrailerVOYouTubeKey == nil || *catalog.Items[0].TrailerVOYouTubeKey != "ENoff123456" || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
 	}
+	if catalog.Items[0].Trailer == nil || catalog.Items[0].Trailer.Source != "tmdb" || catalog.Items[0].Trailer.Type != "youtube" {
+		t.Fatal("resolved TMDB trailer absent")
+	}
 	if !strings.Contains(response.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
 		t.Fatalf("snapshot timestamp missing from catalog transport: %s", response.Body.String())
 	}
@@ -1006,7 +1009,7 @@ func TestMoviesTransport(t *testing.T) {
 		t.Fatal("nested movie contract unexpectedly enriched")
 	}
 	all := performRequest(t, handler, "/api/v1/movies?page_size=2")
-	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"imdb_id":null,"metacritic_id":null,"trailer_vf_youtube_key":null,"trailer_vo_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
+	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"imdb_id":null,"metacritic_id":null,"trailer":null,"trailer_vf_youtube_key":null,"trailer_vo_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
 	if !strings.Contains(all.Body.String(), `"available_genres":["Drame"]`) {

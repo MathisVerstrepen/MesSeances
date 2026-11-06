@@ -1207,6 +1207,7 @@ if (
           <div class="flex flex-wrap items-start gap-3">
             <MovieTrailer
               :movie-title="schedule.movie.title"
+              :fallback="schedule.movie.trailer"
               :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
               :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
             />
