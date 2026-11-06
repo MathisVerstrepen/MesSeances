@@ -35,6 +35,7 @@ import type {
   MovieDateMode,
 } from '~/utils/movieCatalogFilters'
 import {
+  isMoviePresale,
   movieCatalogSortOptions,
   movieCatalogSortValues,
 } from '~/utils/movieCatalogPresentation'
@@ -1357,6 +1358,7 @@ useHead(() => ({
               <MovieCatalogCard
                 :movie="movie"
                 :to="`/film/${encodeURIComponent(movie.slug)}`"
+                :presale="isMoviePresale(movie, todayDate)"
               />
             </li>
           </ul>

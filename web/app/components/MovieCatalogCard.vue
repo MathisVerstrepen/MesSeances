@@ -8,9 +8,11 @@ const props = withDefaults(
     movie: CatalogMovie
     to: RouteLocationRaw
     posterResetKey?: string | number
+    presale?: boolean
   }>(),
   {
     posterResetKey: undefined,
+    presale: false,
   },
 )
 </script>
@@ -36,6 +38,12 @@ const props = withDefaults(
         :fallback-icon-size="32"
       />
       <WatchedBadge :slug="movie.slug" />
+      <span
+        v-if="presale"
+        class="pointer-events-none absolute bottom-2 left-2 border-2 border-ink bg-[#ffcf3f] px-2 py-1 font-mono text-[10px] font-black uppercase tracking-[0.08em] text-ink shadow-[2px_2px_0_#27272a]"
+      >
+        Prévente
+      </span>
     </div>
     <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
       <h3

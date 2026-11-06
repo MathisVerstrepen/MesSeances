@@ -1,4 +1,5 @@
 import type { CatalogMovie, MovieSort } from '~/types/api'
+import { isCalendarDate } from './date.ts'
 import { compileMovieTitleSearch } from './movieTitleSearch.ts'
 
 export const movieCatalogSortOptions = [
@@ -13,6 +14,16 @@ export const movieCatalogSortOptions = [
 export const movieCatalogSortValues = movieCatalogSortOptions.map(
   (option) => option.value,
 )
+
+export function isMoviePresale(movie: CatalogMovie, today: string): boolean {
+  const releaseDate = movie.french_release_date
+  return Boolean(
+    releaseDate &&
+      isCalendarDate(releaseDate) &&
+      releaseDate > today &&
+      (movie.remaining_showtime_count ?? movie.showtime_count ?? 0) > 0,
+  )
+}
 
 export function movieOriginalTitleSubtitle(
   movie: Pick<CatalogMovie, 'title' | 'original_title'>,
