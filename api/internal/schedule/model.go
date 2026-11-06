@@ -221,6 +221,7 @@ type MovieScreeningWindow struct {
 }
 
 type MovieTheaterShowtimes struct {
+	MovieURL  *string    `json:"movie_url"`
 	Provider  Provider   `json:"provider"`
 	ID        string     `json:"id"`
 	Slug      string     `json:"slug"`

@@ -167,10 +167,14 @@ func (s *Service) movieShowtimes(view *SnapshotView, now time.Time, query MovieS
 		pageIDs[view.data.Theaters[position].ID] = true
 	}
 	grouped := make(map[string][]Showtime, len(candidates))
+	movieURLs := make(map[string]*string, len(candidates))
 	for _, position := range datePositions {
 		record := view.data.Showtimes[position]
 		if pageIDs[record.TheaterID] && matchesMovieShowtime(view, record, query) {
 			grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(view, record))
+			if movieURLs[record.TheaterID] == nil {
+				movieURLs[record.TheaterID] = moviePageURL(view.data.Theaters[view.theaterByID[record.TheaterID]], record.Movie)
+			}
 		}
 	}
 	for _, theaterPosition := range candidates {
@@ -185,7 +189,7 @@ func (s *Service) movieShowtimes(view *SnapshotView, now time.Time, query MovieS
 			}
 			return showtimes[i].ID < showtimes[j].ID
 		})
-		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, CitySlug: view.cityBuckets[view.theaterCity[theaterPosition]].slug, Showtimes: showtimes})
+		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{MovieURL: movieURLs[theater.ID], Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, CitySlug: view.cityBuckets[view.theaterCity[theaterPosition]].slug, Showtimes: showtimes})
 	}
 	return result, nil
 }

@@ -1078,6 +1078,7 @@ export interface MovieShowtimesQuery {
 }
 
 export interface MovieShowtimesTheater {
+  movie_url?: string | null
   provider: Provider
   id: string
   slug: string

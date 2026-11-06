@@ -753,6 +753,10 @@ export function movieSchedule(slug, query, mode = 'populated') {
       ? []
       : scopedVenues.map((venue) => ({
           ...venue,
+          movie_url:
+            venue.id === theater.id
+              ? 'https://www.ugc.fr/film.html?id=17747'
+              : null,
           showtimes: showtimes().showtimes.map((session) => ({
             ...session,
             id: `${session.id}-${venue.id}`,
