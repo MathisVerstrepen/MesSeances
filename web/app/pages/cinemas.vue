@@ -216,6 +216,7 @@ const listSections = computed(() =>
     const ids = new Set(section.rows.map((theater) => theater.id))
     return {
       key: section.key,
+      count: section.rows.length,
       groups: groupTheatersByCityIdentity(section.rows),
       nearbyRows: nearbyRows.value.filter((row) => ids.has(row.theater.id)),
     }
@@ -486,9 +487,9 @@ useHead(() => ({
         </p>
         <h1
           id="cinemas-title"
-          class="mt-5 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11vw,10rem)] font-black uppercase leading-[0.76] tracking-[-0.085em] [&>span:first-of-type]:text-transparent [&>span:first-of-type]:[-webkit-text-stroke:2px_#27272a]"
+          class="mt-5 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11vw,10rem)] font-black uppercase leading-[0.76] tracking-[-0.085em]"
         >
-          Mes<br><span>cinémas</span><span class="text-primary">.</span>
+          <span>cinémas</span><span class="text-primary">.</span>
         </h1>
         <div
           class="absolute right-[15%] bottom-[14%] hidden max-w-44 items-center gap-[0.65rem] border-2 border-ink bg-surface px-3 py-[0.65rem] font-mono text-[0.6rem] leading-[1.25] font-black uppercase tracking-[0.08em] shadow-[4px_4px_0_#27272a] lg:flex"
@@ -634,7 +635,7 @@ useHead(() => ({
           <div
             v-if="directoryTheaters.length > 0 && !directoryError"
             class="selection-toolbar flex-wrap items-center justify-between gap-3"
-            :class="settingsOpen ? 'flex' : 'mt-7 hidden border-y-2 border-ink py-4 lg:flex'"
+            :class="settingsOpen ? 'flex' : 'mt-7 hidden py-4 lg:flex'"
           >
             <div
               class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full"
@@ -751,23 +752,7 @@ useHead(() => ({
           </div>
         </Teleport>
 
-        <div
-          class="mb-7 mt-10 flex items-center justify-between gap-3 border-b-2 border-ink py-4"
-        >
-          <div
-            class="min-w-0 flex-1 sm:flex sm:items-end sm:justify-between sm:gap-6"
-          >
-            <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
-              {{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}
-            </h2>
-            <p
-              class="mt-2 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em] sm:mt-0"
-            >
-              {{ visibleTheaterCount }} cinéma{{
-                visibleTheaterCount > 1 ? 's' : ''
-              }}
-            </p>
-          </div>
+        <div class="mt-5 flex justify-end lg:hidden">
           <button
             type="button"
             class="editorial-button-outline size-11 shrink-0 p-0 lg:hidden"
@@ -855,7 +840,7 @@ useHead(() => ({
           </template>
         </EditorialStatePanel>
 
-        <div v-else>
+        <div v-else class="mt-7">
           <div v-if="viewMode === 'list'" class="space-y-10">
             <section
               v-for="section in listSections"
@@ -865,11 +850,16 @@ useHead(() => ({
             >
               <h3
                 :id="`cinema-section-${section.key}-title`"
-                class="editorial-heading mb-5"
+                class="editorial-heading mb-5 flex items-baseline justify-between gap-3"
               >
-                {{
+                <span>{{
                   section.key === 'selected' ? 'Cinémas sélectionnés' : 'Tous les cinémas'
-                }}
+                }}</span>
+                <span
+                  class="shrink-0 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]"
+                  >{{ section.count }}
+                  cinéma{{ section.count > 1 ? 's' : '' }}</span
+                >
               </h3>
               <div
                 v-if="isNearbyMode"
