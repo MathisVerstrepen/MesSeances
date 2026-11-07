@@ -1,5 +1,57 @@
 import { test, expect, openPage } from './fixtures'
 
+test('guide film mentions use catalogue pages and the scene selector keeps its own action', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', {
+    data: { imaxGuideMovies: true },
+  })
+  await openPage(page, '/guides/imax#projection')
+  await expect(
+    page
+      .locator('#projection')
+      .getByRole('link', { name: 'L’Odyssée', exact: true }),
+  ).toHaveAttribute('href', '/film/guide-odyssey')
+  const comparison = page.locator('#formats .imax-comparison')
+  await expect(
+    comparison.getByRole('link', {
+      name: 'Dune : Deuxième Partie ↗',
+      exact: true,
+    }),
+  ).toHaveAttribute('href', '/film/guide-dune-2')
+  await comparison
+    .getByRole('button', { name: /Projet Dernière Chance/ })
+    .click()
+  await expect(
+    comparison.getByRole('link', {
+      name: 'Projet Dernière Chance ↗',
+      exact: true,
+    }),
+  ).toHaveAttribute('href', '/film/guide-hail-mary')
+  await page
+    .getByText('Peut-on voir de l’IMAX 70 mm en France ?', { exact: true })
+    .click()
+  await expect(
+    page
+      .locator('#questions')
+      .getByRole('link', { name: 'L’Odyssée', exact: true }),
+  ).toHaveAttribute('href', '/film/guide-odyssey')
+  await page
+    .getByText('Comment le réseau français s’est-il développé ?', {
+      exact: true,
+    })
+    .click()
+  await expect(
+    page.locator('#salles').getByRole('link', { name: 'Avatar', exact: true }),
+  ).toHaveAttribute('href', '/film/guide-avatar')
+  await expect(
+    page
+      .locator('#sources')
+      .getByRole('link', { name: 'Dune : Deuxième Partie', exact: true }),
+  ).toHaveAttribute('href', '/film/guide-dune-2')
+})
+
 test('guide serves readable content and metadata without depending on a cinema response', async ({
   page,
   request,

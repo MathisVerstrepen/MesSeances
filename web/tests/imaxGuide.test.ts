@@ -8,7 +8,36 @@ import {
   imaxRatios,
   imaxFeaturedCinemas,
   imaxVenueSources,
+  imaxGuideMovies,
+  guideMovieTarget,
 } from '../app/utils/imaxGuide.ts'
+
+test('guide film links match the exact film identity and use the current public slug', () => {
+  const odyssey = imaxGuideMovies.find(
+    (movie) => movie.id === 'odyssee-voilier',
+  )!
+  assert.equal(
+    guideMovieTarget(
+      [
+        { slug: 'another-odyssey', tmdb_id: 62 },
+        { slug: 'public-film', tmdb_id: odyssey.tmdbId },
+      ],
+      odyssey,
+    ),
+    '/film/public-film',
+  )
+  assert.equal(
+    guideMovieTarget([{ slug: 'another-odyssey', tmdb_id: 62 }], odyssey),
+    '/films?search=Odyss%C3%A9e',
+  )
+  assert.equal(
+    guideMovieTarget(
+      [{ slug: 'film/écran', tmdb_id: odyssey.tmdbId }],
+      odyssey,
+    ),
+    '/film/film%2F%C3%A9cran',
+  )
+})
 
 test('ratio comparison calculates image area at equal width, without confusing it with resolution', () => {
   assert.deepEqual(

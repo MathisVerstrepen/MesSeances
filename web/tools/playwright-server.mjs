@@ -646,6 +646,36 @@ const mock = createServer((request, response) => {
       }, 700)
       return
     }
+    if (path === '/api/v1/movies' && scenario.imaxGuideMovies)
+      return json(response, {
+        items: [
+          {
+            ...movie,
+            slug: 'guide-odyssey',
+            title: 'L’Odyssée',
+            tmdb_id: 1368337,
+          },
+          {
+            ...movie,
+            slug: 'guide-dune-2',
+            title: 'Dune : Deuxième Partie',
+            tmdb_id: 693134,
+          },
+          {
+            ...movie,
+            slug: 'guide-hail-mary',
+            title: 'Projet Dernière Chance',
+            tmdb_id: 687163,
+          },
+          { ...movie, slug: 'guide-avatar', title: 'Avatar', tmdb_id: 19995 },
+        ],
+        available_genres: [],
+        page: 1,
+        page_size: 100,
+        total: 4,
+        generated_at: generatedAt,
+        catalog_revision: 'imax-guide-films',
+      })
     if (path === '/api/v1/movies')
       return json(response, {
         items: scenario.discovery ? discoveryMovies : [movie],

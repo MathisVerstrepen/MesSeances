@@ -1,6 +1,23 @@
-import type { Theater } from '../types/api'
+import type { CatalogMovie, Theater } from '../types/api'
 
 export const imaxDirectoryTarget = '/cinemas?technologies=IMAX'
+
+export const imaxGuideMovies = [
+  { id: 'odyssee-voilier', tmdbId: 1368337, search: 'Odyssée' },
+  { id: 'dune', tmdbId: 693134, search: 'Dune' },
+  { id: 'project-hail-mary', tmdbId: 687163, search: 'Dernière Chance' },
+  { id: 'avatar', tmdbId: 19995, search: 'Avatar' },
+] as const
+
+export function guideMovieTarget(
+  movies: Pick<CatalogMovie, 'slug' | 'tmdb_id'>[],
+  reference: (typeof imaxGuideMovies)[number],
+): string {
+  const movie = movies.find((item) => item.tmdb_id === reference.tmdbId)
+  return movie?.slug
+    ? `/film/${encodeURIComponent(movie.slug)}`
+    : `/films?search=${encodeURIComponent(reference.search)}`
+}
 
 export const imaxRatios = [
   {

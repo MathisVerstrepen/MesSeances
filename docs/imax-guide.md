@@ -120,3 +120,9 @@ The introduction also includes a user-supplied auditorium photograph from
 `/home/mathis/Downloads/7utcbthcq2r81.jpg`. Local `salle-imax-640.webp` and
 `salle-imax-1200.webp` preserve its full framing. The theatre is not identified,
 so its location and projection specifications are not inferred from the photo.
+
+Film mentions resolve catalogue results by TMDB identity, including ended films,
+and use the current public movie slug. They fall back to a film search when a
+matching record is unavailable. Keep `imaxGuideMovies` in sync with the titles
+discussed in the guide. Scene selection remains a button action, with a separate
+link to the selected film in the comparison caption.

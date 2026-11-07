@@ -2,6 +2,8 @@
 import { Check } from '@lucide/vue'
 import { imaxExtraImage, imaxRatios } from '~/utils/imaxGuide'
 
+defineProps<{ movieTargets?: Record<string, string> }>()
+
 const selectedId = ref<(typeof imaxRatios)[number]['id']>('digital')
 const formatOptions = [...imaxRatios].reverse()
 const formatNames = {
@@ -202,8 +204,15 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
           <p class="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">
             {{ selected.description }}
           </p>
-          <p class="mt-2 text-[11px] text-muted">
-            Simulation de cadrage, à largeur égale.
+          <p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-muted">
+            <span>Simulation de cadrage, à largeur égale.</span>
+            <NuxtLink
+              v-if="movieTargets?.[scene.id]"
+              :to="movieTargets[scene.id]"
+              class="underline decoration-ink/30 underline-offset-4 hover:text-accent"
+              >{{ scene.label }}
+              ↗</NuxtLink
+            >
           </p>
         </div>
         <p

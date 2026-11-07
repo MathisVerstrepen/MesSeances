@@ -12,6 +12,8 @@ import type { Theater } from '~/types/api'
 import imaxLogo from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import {
   guideCinemaTarget,
+  guideMovieTarget,
+  imaxGuideMovies,
   imaxDirectoryTarget,
   imaxLandmarks,
   imaxFeaturedCinemas,
@@ -32,6 +34,41 @@ const { data: directory } = await useAsyncData(
     }
   },
 )
+const { data: movieTargets } = await useAsyncData(
+  'imax-guide-movies',
+  async () => {
+    const entries = await Promise.all(
+      imaxGuideMovies.map(async (reference) => {
+        try {
+          const response = await api.movies({
+            search: reference.search,
+            include_ended: true,
+            page_size: 100,
+          })
+          return [
+            reference.id,
+            guideMovieTarget(response.items, reference),
+          ] as const
+        } catch {
+          return [reference.id, guideMovieTarget([], reference)] as const
+        }
+      }),
+    )
+    return Object.fromEntries(entries)
+  },
+)
+function movieTarget(id: (typeof imaxGuideMovies)[number]['id']) {
+  return (
+    movieTargets.value?.[id] ??
+    guideMovieTarget([], imaxGuideMovies.find((movie) => movie.id === id)!)
+  )
+}
+function movieTextParts(text: string) {
+  return text.split(/(L’Odyssée)/u).map((part) => ({
+    text: part,
+    to: part === 'L’Odyssée' ? movieTarget('odyssee-voilier') : undefined,
+  }))
+}
 const theaters = computed(() => directory.value?.theaters ?? [])
 const featuredCinemas = computed(() =>
   imaxFeaturedCinemas.map((cinema) => ({
@@ -530,7 +567,9 @@ useHead({
             la hauteur de l’image. À largeur égale, plus ce chiffre est petit,
             plus le cadre est haut.
           </p>
-          <div class="mt-7"><GuidesImaxFrameComparison /></div>
+          <div class="mt-7">
+            <GuidesImaxFrameComparison :movie-targets="movieTargets ?? {}" />
+          </div>
           <div class="mt-8">
             <GuidesImaxRatioDiagram
               :full-format-cinema="landmarkTarget('odysseum')"
@@ -548,19 +587,27 @@ useHead({
             Laser, double laser, 70 mm…
           </h2>
           <p class="guide-intro">
-            Le laser fournit la lumière à un projecteur numérique. Le 70 mm
-            désigne la pellicule utilisée pour la projection. Voici ce que
-            chaque système peut afficher.
+            Pour montrer ces différents cadres, les salles IMAX n’utilisent pas
+            toutes le même équipement. Certaines projettent un fichier numérique
+            avec une lumière laser ou des lampes au xénon. D’autres font défiler
+            une copie du film sur pellicule 70 mm. Le système installé détermine
+            notamment la définition de l’image et les formats que la salle peut
+            afficher.
           </p>
           <div class="mt-7"><GuidesImaxProjectionExplorer /></div>
           <div class="mt-8">
             <h3 class="font-black">Le 15/70, sans jargon</h3>
             <p class="mt-3 text-sm leading-relaxed">
-              Le « 70 » indique la largeur de la pellicule en millimètres. Le «
-              15 » correspond au nombre de perforations par image. Le film
-              défile horizontalement dans le projecteur. Sur cette bande de
-              <em>L’Odyssée</em>, on distingue les photogrammes et les
-              perforations le long des deux bords.
+              La pellicule IMAX contient une succession de grandes images
+              photographiques, appelées photogrammes. La bande mesure 70 mm de
+              large et chaque image s’étend sur 15 perforations, les petits
+              trous qui guident le film dans le projecteur. C’est ce qui donne
+              le nom « 15/70 ». Contrairement au 70 mm classique, la bande
+              défile horizontalement. Cette pellicule de
+              <NuxtLink :to="movieTarget('odyssee-voilier')" class="guide-link"
+                ><em>L’Odyssée</em></NuxtLink
+              >
+              permet de voir les images et les perforations sur les deux bords.
             </p>
             <figure class="mt-5 border-2 border-ink bg-[#eee9dd] p-3 sm:p-4">
               <img
@@ -861,10 +908,14 @@ useHead({
               <p>
                 Après les installations de découverte scientifique, l’IMAX
                 arrive dans les multiplexes à Montpellier en 1998. Disney
-                Village suit en 2005. Le succès d’Avatar en 2009 accompagne
-                l’accélération des ouvertures dans les années 2010, puis la
-                diversification des exploitants. L’arrivée de l’IMAX 70 mm à
-                Montpellier en 2026 marque une nouvelle étape.
+                Village suit en 2005. Le succès d’<NuxtLink
+                  :to="movieTarget('avatar')"
+                  class="guide-link"
+                  ><em>Avatar</em></NuxtLink
+                >
+                en 2009 accompagne l’accélération des ouvertures dans les années
+                2010, puis la diversification des exploitants. L’arrivée de
+                l’IMAX 70 mm à Montpellier en 2026 marque une nouvelle étape.
               </p>
             </div>
           </details>
@@ -886,7 +937,22 @@ useHead({
               class="guide-details"
             >
               <summary>{{ faq.question }}</summary>
-              <div><p>{{ faq.answer }}</p></div>
+              <div>
+                <p>
+                  <template
+                    v-for="(part, index) in movieTextParts(faq.answer)"
+                    :key="index"
+                    ><NuxtLink
+                      v-if="part.to"
+                      :to="part.to"
+                      class="guide-link"
+                      >{{
+                        part.text
+                      }}</NuxtLink
+                    ><template v-else>{{ part.text }}</template></template
+                  >
+                </p>
+              </div>
             </details>
           </div>
         </section>
@@ -921,9 +987,17 @@ useHead({
           <p
             class="mt-5 border-t border-ink/20 pt-3 text-xs leading-relaxed text-muted"
           >
-            Visuels : scans de photogrammes de <em>Dune : Deuxième Partie</em>,
-            <em>Project Hail Mary</em>
-            et <em>L’Odyssée</em>, fournis pour ce guide. Affiches :
+            Visuels : scans de photogrammes de
+            <NuxtLink :to="movieTarget('dune')" class="guide-link"
+              ><em>Dune : Deuxième Partie</em></NuxtLink
+            >,
+            <NuxtLink :to="movieTarget('project-hail-mary')" class="guide-link"
+              ><em>Projet Dernière Chance</em></NuxtLink
+            >
+            et
+            <NuxtLink :to="movieTarget('odyssee-voilier')" class="guide-link"
+              ><em>L’Odyssée</em></NuxtLink
+            >, fournis pour ce guide. Affiches :
             <a href="https://www.themoviedb.org/" class="guide-link"
               >The Movie Database (TMDB)</a
             >. Les images restent la propriété de leurs ayants droit. Les images
