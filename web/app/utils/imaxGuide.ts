@@ -79,68 +79,6 @@ export const imaxLandmarks = {
   geode: { name: 'La Géode', search: 'Géode', aliases: ['Pathé La Géode'] },
 } satisfies Record<string, GuideCinema>
 
-export interface ImaxFeaturedCinema {
-  key: keyof typeof imaxLandmarks
-  city: string
-  projection: string
-  ratio?: string
-  sourceId: string
-}
-
-// Only publish capabilities explicitly stated by the linked primary source.
-// No flat-screen ratio is inferred from an IMAX or Laser label.
-export const imaxFeaturedCinemas: readonly ImaxFeaturedCinema[] = [
-  {
-    key: 'lomme',
-    city: 'Lille · Lomme',
-    projection: 'IMAX Laser',
-    sourceId: 'lomme',
-  },
-  {
-    key: 'cannes',
-    city: 'Cannes',
-    projection: 'IMAX Laser 4K',
-    sourceId: 'cineum',
-  },
-  { key: 'dole', city: 'Dole', projection: 'IMAX Laser', sourceId: 'dole' },
-  {
-    key: 'geode',
-    city: 'Paris · La Villette',
-    projection: 'IMAX Laser 4K',
-    ratio: 'Dôme hémisphérique',
-    sourceId: 'geode',
-  },
-]
-
-export const imaxVenueSources = [
-  {
-    id: 'lomme',
-    name: 'IMAX · Kinepolis Lomme',
-    detail: 'La fiche officielle confirme la projection IMAX with Laser.',
-    url: 'https://www.imax.com/theatre/kinepolis-lomme-and-imax',
-  },
-  {
-    id: 'cineum',
-    name: 'Cineum Cannes · Nos salles',
-    detail:
-      'L’exploitant annonce une projection IMAX Laser 4K. Le ratio maximal n’est pas précisé.',
-    url: 'https://www.cineum.fr/nos-salles/',
-  },
-  {
-    id: 'dole',
-    name: 'IMAX · Majestic Dole Rive Gauche',
-    detail: 'La fiche officielle confirme la projection IMAX with Laser.',
-    url: 'https://www.imax.com/theatre/majestic-dole-rive-gauche-and-imax',
-  },
-  {
-    id: 'geode',
-    name: 'Apsys · Réouverture de La Géode',
-    detail:
-      '18 décembre 2024 · Écran hémisphérique et projection IMAX Laser 4K.',
-    url: 'https://www.apsysgroup.com/la-geode-pathe-rouvre-ses-portes-aujourdhui-au-parc-de-la-villette/',
-  },
-] as const
-
 export function guideCinemaTarget(
   theaters: readonly Theater[],
   cinema: GuideCinema,

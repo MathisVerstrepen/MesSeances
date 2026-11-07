@@ -2,8 +2,9 @@
 import {
   ArrowDown,
   ArrowRight,
-  Check,
+  Armchair,
   Film,
+  Glasses,
   MapPin,
   Maximize,
   Volume2,
@@ -16,8 +17,6 @@ import {
   imaxGuideMovies,
   imaxDirectoryTarget,
   imaxLandmarks,
-  imaxFeaturedCinemas,
-  imaxVenueSources,
 } from '~/utils/imaxGuide'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { serializeJsonLd } from '~/utils/jsonLd'
@@ -63,20 +62,18 @@ function movieTarget(id: (typeof imaxGuideMovies)[number]['id']) {
     guideMovieTarget([], imaxGuideMovies.find((movie) => movie.id === id)!)
   )
 }
-function movieTextParts(text: string) {
-  return text.split(/(L’Odyssée)/u).map((part) => ({
+function guideTextParts(text: string) {
+  return text.split(/(L’Odyssée|Montpellier)/u).map((part) => ({
     text: part,
-    to: part === 'L’Odyssée' ? movieTarget('odyssee-voilier') : undefined,
+    to:
+      part === 'Montpellier'
+        ? '/ville/montpellier/cinemas'
+        : part === 'L’Odyssée'
+          ? movieTarget('odyssee-voilier')
+          : undefined,
   }))
 }
 const theaters = computed(() => directory.value?.theaters ?? [])
-const featuredCinemas = computed(() =>
-  imaxFeaturedCinemas.map((cinema) => ({
-    ...cinema,
-    name: imaxLandmarks[cinema.key].name,
-    to: guideCinemaTarget(theaters.value, imaxLandmarks[cinema.key]),
-  })),
-)
 function landmarkTarget(key: keyof typeof imaxLandmarks) {
   return guideCinemaTarget(theaters.value, imaxLandmarks[key])
 }
@@ -196,7 +193,6 @@ const faqs = [
   },
 ]
 const sources = [
-  ...imaxVenueSources,
   {
     id: 'cnc',
     name: 'CNC · IMAX, l’odyssée française d’un format devenu une référence',
@@ -235,6 +231,41 @@ const sources = [
     name: 'Dolby · Dolby Vision et Dolby Atmos au cinéma',
     detail: 'Les technologies d’image et de son qui équipent Dolby Cinema.',
     url: 'https://news.dolby.com/en-WW/236229-dolby-expanding-the-best-way-to-experience-movies-by-making-dolby-vision-and-dolby-atmos-available-to-all-premium-theater-exhibitors/',
+  },
+  {
+    id: 'laser-france',
+    name: 'IMAX · Déploiement du laser en France',
+    detail:
+      '15 mai 2024 · Accord avec Megarama pour de nouvelles installations IMAX Laser 4K dans les multiplexes français.',
+    url: 'https://imaxcorporation.gcs-web.com/node/25076/pdf',
+  },
+  {
+    id: 'dome-france',
+    name: 'Universcience · IMAX Laser sur dôme',
+    detail:
+      '21 janvier 2025 · Projection laser 4K sur écran hémisphérique, avec des présentations à 180° et en 1,90:1.',
+    url: 'https://www.cite-sciences.fr/fileadmin/fileadmin_CSI/fichiers/vous-etes/professionnel/presse-media/cp/CP_Geode.pdf',
+  },
+  {
+    id: 'prix-roubaix',
+    name: 'Ville de Roubaix · Tarifs du Megarama',
+    detail:
+      '2 août 2025 · Plein tarif 8,50 € et supplément IMAX 4 €, soit 12,50 €. Un exemple utilisé pour le repère de budget.',
+    url: 'https://www.roubaixxl.fr/cinema-megarama-roubaix/',
+  },
+  {
+    id: 'prix-cannes',
+    name: 'AlloCiné · Tarifs du Cineum Cannes',
+    detail:
+      'Consulté le 7 novembre 2026 · Plein tarif 13,50 € et supplément IMAX 6 €, soit 19,50 € hors 3D.',
+    url: 'https://www.allocine.fr/salle/cinema-S4383/tarifs/',
+  },
+  {
+    id: 'prix-villette',
+    name: 'Orange · Tarifs du Pathé La Villette',
+    detail:
+      'Consulté le 7 novembre 2026 · Tarif normal 17,20 € et supplément IMAX 8 €, soit 25,20 € en 2D. Le budget du guide est un ordre de grandeur, pas un tarif national.',
+    url: 'https://divertissements.orange.fr/salles/pathe-la-villette-imax-4dx-CNT0000009iVcg/informations.html',
   },
 ]
 const config = useRuntimeConfig()
@@ -633,29 +664,192 @@ useHead({
               </figcaption>
             </figure>
           </div>
-          <details class="guide-details mt-7">
-            <summary>Et les caméras, le DMR et les chiffres « 18K » ?</summary>
-            <div class="space-y-4">
-              <p>
-                Un film IMAX peut être tourné sur pellicule ou avec des caméras
-                numériques certifiées. D’autres films sont adaptés après le
-                tournage pour une sortie IMAX. Le format du tournage et celui de
-                la projection sont deux choses différentes.
-              </p>
-              <p>
-                Le DMR est une remasterisation de l’image pour la projection
-                IMAX. Il peut ajuster le bruit, le grain et le rendu. Il ne crée
-                pas les éléments qui n’ont jamais été filmés et son résultat
-                dépend du travail sur chaque œuvre.
-              </p>
-              <p>
-                La pellicule n’a pas une grille fixe de pixels. Dire qu’elle «
-                vaut 18K » simplifie beaucoup de choses. Préférez les
-                informations concrètes : support, version du film, format
-                projeté et qualité de la salle.
-              </p>
-            </div>
-          </details>
+          <div class="mt-7 space-y-2">
+            <details class="guide-details">
+              <summary>
+                Quelles caméras utilise-t-on pour filmer en IMAX ?
+              </summary>
+              <div
+                class="grid items-start gap-6 min-[900px]:grid-cols-[1.2fr_0.8fr]"
+              >
+                <div class="space-y-5">
+                  <div>
+                    <h4 class="font-bold">Les caméras IMAX sur pellicule</h4>
+                    <p class="mt-2">
+                      Elles enregistrent de grands photogrammes sur un négatif
+                      de 65 mm, avec un défilement horizontal de 15 perforations
+                      par image. La copie projetée en salle utilise, elle, une
+                      bande de 70 mm. On peut donc parler de tournage IMAX 65 mm
+                      et de projection IMAX 70 mm pour un même film.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 class="font-bold">Les caméras numériques certifiées</h4>
+                    <p class="mt-2">
+                      Le programme « Filmed for IMAX » inclut aussi des caméras
+                      numériques sélectionnées par IMAX. Il accompagne les
+                      équipes du tournage jusqu’à la préparation de la version
+                      destinée aux salles IMAX. La mention « filmé pour IMAX »
+                      ne signifie donc pas nécessairement que le film a été
+                      tourné sur pellicule.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 class="font-bold">
+                      La caméra ne décide pas de toute la séance
+                    </h4>
+                    <p class="mt-2">
+                      Le réalisateur choisit le cadrage de ses scènes. Un film
+                      peut mélanger plusieurs caméras et plusieurs ratios.
+                      Ensuite, le format visible dépend de la version distribuée
+                      et de la salle : une caméra certifiée ne garantit ni un
+                      film entier en 1,43:1, ni une projection sur pellicule.
+                    </p>
+                  </div>
+                  <p class="text-xs text-muted">
+                    Pour aller plus loin :
+                    <a
+                      href="https://www.imax.com/filmed-for-imax"
+                      class="guide-link"
+                      >IMAX · Filmed for IMAX ↗</a
+                    >
+                    et
+                    <a
+                      href="https://www.imax.com/the-imax-experience"
+                      class="guide-link"
+                      >les caméras IMAX ↗</a
+                    >.
+                  </p>
+                </div>
+                <figure>
+                  <img
+                    src="/images/guides/camera-imax-1200.webp"
+                    srcset="
+                      /images/guides/camera-imax-640.webp   640w,
+                      /images/guides/camera-imax-1200.webp 1200w
+                    "
+                    sizes="(max-width: 899px) 90vw, 35vw"
+                    width="1920"
+                    height="1080"
+                    alt="Caméra IMAX argentique sur un plateau de tournage, avec son objectif, son viseur et son magasin de pellicule."
+                    class="h-auto w-full"
+                    loading="lazy"
+                    decoding="async"
+                  >
+                  <figcaption class="mt-2 text-xs leading-relaxed text-muted">
+                    Une caméra IMAX sur pellicule.
+                  </figcaption>
+                </figure>
+              </div>
+            </details>
+            <details class="guide-details">
+              <summary>Que fait la remasterisation IMAX DMR ?</summary>
+              <div class="space-y-5">
+                <div>
+                  <h4 class="font-bold">
+                    Préparer le film pour un très grand écran
+                  </h4>
+                  <p class="mt-2">
+                    Le DMR, pour Digital Media Remastering, intervient après le
+                    tournage. À partir du master du film, les équipes IMAX
+                    travaillent avec les cinéastes pour préparer une version
+                    adaptée à leur présentation en salle. Un film peut ainsi
+                    sortir en IMAX sans avoir été tourné avec des caméras IMAX.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">Un travail sur le rendu de l’image</h4>
+                  <p class="mt-2">
+                    Sur un écran géant, le grain, le bruit numérique et les
+                    défauts de l’image deviennent plus visibles. Les outils DMR
+                    permettent d’en ajuster le rendu et le niveau, en accord
+                    avec les choix du film. Des projections de contrôle servent
+                    à évaluer le résultat. L’intensité du traitement et le rendu
+                    final varient selon chaque œuvre.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">Le DMR ne garantit pas plus d’image</h4>
+                  <p class="mt-2">
+                    La mention DMR ne garantit pas une image étendue. Pour
+                    révéler davantage de décor en haut et en bas, il faut une
+                    source et une version prévues pour ce cadrage. Le DMR ne
+                    peut pas restituer fidèlement ce qui n’a pas été capté à cet
+                    endroit. Il ne change pas non plus, à lui seul, le support
+                    de projection ou l’équipement de la salle.
+                  </p>
+                </div>
+                <p class="text-xs text-muted">
+                  Pour aller plus loin :
+                  <a
+                    href="https://www.imax.com/the-imax-experience"
+                    class="guide-link"
+                    >IMAX · Le procédé DMR ↗</a
+                  >.
+                </p>
+              </div>
+            </details>
+            <details class="guide-details">
+              <summary>
+                Pourquoi parle-t-on de « 18K » pour la pellicule IMAX ?
+              </summary>
+              <div class="space-y-5">
+                <div>
+                  <h4 class="font-bold">
+                    Un chiffre pour donner une idée du niveau de détail
+                  </h4>
+                  <p class="mt-2">
+                    En numérique, le « K » décrit approximativement le nombre de
+                    milliers de pixels sur la largeur de l’image. IMAX emploie
+                    l’expression « jusqu’à 18K » pour présenter le potentiel de
+                    détail de son grand format sur pellicule. C’est une
+                    équivalence annoncée, pas la définition d’une matrice de
+                    projection comme le 4K numérique.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">
+                    La pellicule n’a pas une grille de pixels
+                  </h4>
+                  <p class="mt-2">
+                    Son pouvoir de résolution décrit sa capacité à distinguer
+                    des détails très proches. Il dépend notamment de l’émulsion,
+                    de l’exposition, de l’objectif et du contraste de la scène.
+                    Il n’existe donc pas un nombre de pixels unique qui
+                    résumerait toutes les images enregistrées sur ce support.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">
+                    Du négatif à l’écran, toute la chaîne compte
+                  </h4>
+                  <p class="mt-2">
+                    Le tirage de la copie, les éventuelles étapes numériques,
+                    l’optique du projecteur et sa mise au point influencent les
+                    détails finalement visibles. Numériser une pellicule à très
+                    haute résolution ne garantit pas que chaque pixel
+                    corresponde à un détail distinct. Le chiffre « 18K » ne
+                    permet donc pas, à lui seul, de classer une séance sur
+                    pellicule face à une séance laser 4K.
+                  </p>
+                </div>
+                <p class="text-xs text-muted">
+                  Pour aller plus loin :
+                  <a
+                    href="https://www.imax.com/pr/regal-cinemas-and-imax-expand-partnership-four-new-marquee"
+                    class="guide-link"
+                    >IMAX · La revendication « jusqu’à 18K » ↗</a
+                  >
+                  et
+                  <a
+                    href="https://www.kodak.com/content/products-brochures/Film/kodak-essential-reference-guide-for-filmmakers.pdf"
+                    class="guide-link"
+                    >Kodak · Résolution et netteté de la pellicule ↗</a
+                  >.
+                </p>
+              </div>
+            </details>
+          </div>
         </section>
 
         <section
@@ -667,44 +861,188 @@ useHead({
           <h2 id="experience-title" class="guide-title">
             Le son, la salle et la 3D.
           </h2>
-          <div class="mt-7 grid gap-7 sm:grid-cols-2">
-            <div>
-              <h3 class="font-black">Un son qui vous entoure</h3>
-              <p class="mt-3 text-sm leading-relaxed">
-                Certaines installations IMAX proposent 12 canaux, avec des
-                enceintes latérales et en hauteur. Un « canal » est une piste
-                dirigée vers une zone d’enceintes. Le mixage et le réglage de la
-                salle comptent autant que leur nombre.
-              </p>
-              <p class="mt-3 text-sm leading-relaxed">
-                Le Dolby Atmos fonctionne autrement : il place les sons dans
-                l’espace et les répartit entre les enceintes de la salle. Dans
-                les deux cas, la qualité d’écoute dépend du mixage et du réglage
-                des équipements.
+          <p class="guide-intro">
+            L’image ne fait pas tout. Le son, votre place dans la salle et le
+            choix entre 2D et 3D changent aussi l’expérience.
+          </p>
+          <div class="mt-7 grid items-start gap-6 md:grid-cols-3 md:gap-8">
+            <div
+              class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+            >
+              <Volume2
+                :size="20"
+                class="mt-0.5 text-accent"
+                aria-hidden="true"
+              />
+              <h3 class="font-bold">Un son pensé pour la salle</h3>
+              <p class="col-start-2 text-sm leading-relaxed text-muted">
+                Des voix claires, des effets répartis autour de vous et des
+                basses que l’on ressent. Le mixage et les réglages comptent
+                autant que le nombre d’enceintes.
               </p>
             </div>
-            <div>
-              <h3 class="font-black">La 3D est une option de séance</h3>
-              <p class="mt-3 text-sm leading-relaxed">
-                L’IMAX peut être en 2D ou en 3D. La 3D envoie une image
-                différente à chaque œil. Les lunettes séparent les deux images.
-                Elle ne change pas, à elle seule, le ratio du film.
+            <div
+              class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+            >
+              <Armchair
+                :size="20"
+                class="mt-0.5 text-accent"
+                aria-hidden="true"
+              />
+              <h3 class="font-bold">Votre place change la perception</h3>
+              <p class="col-start-2 text-sm leading-relaxed text-muted">
+                Plus près, l’image occupe davantage votre champ de vision. Plus
+                loin, vous voyez plus facilement l’ensemble de l’écran.
               </p>
-              <p class="mt-3 text-sm leading-relaxed">
-                La luminosité, les lunettes et votre sensibilité personnelle
-                influencent le confort. Si vous préférez la 2D, vérifiez la
-                mention sur la séance avant de réserver.
+            </div>
+            <div
+              class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+            >
+              <Glasses
+                :size="20"
+                class="mt-0.5 text-accent"
+                aria-hidden="true"
+              />
+              <h3 class="font-bold">La 3D apporte du relief</h3>
+              <p class="col-start-2 text-sm leading-relaxed text-muted">
+                L’IMAX existe en 2D et en 3D. En 3D, les lunettes permettent à
+                chaque œil de recevoir une image différente. Le choix dépend de
+                la séance et de vos préférences.
               </p>
             </div>
           </div>
-          <div class="mt-7 flex gap-4 border-2 border-ink bg-highlight/25 p-5">
-            <Volume2 :size="24" class="shrink-0" aria-hidden="true" />
-            <p class="text-sm leading-relaxed">
-              <strong>Pour votre confort :</strong>
-              le son et le grand champ de vision peuvent paraître intenses. Une
-              place plus reculée permet de voir l’ensemble de l’écran sans
-              tourner la tête.
-            </p>
+          <div class="mt-6 space-y-2">
+            <details class="guide-details">
+              <summary>Comment fonctionne le son IMAX ?</summary>
+              <div class="flow-root">
+                <figure
+                  class="mb-5 min-[900px]:float-right min-[900px]:ml-6 min-[900px]:w-[38%]"
+                >
+                  <img
+                    src="/images/guides/enceinte-imax-1200.webp"
+                    srcset="
+                      /images/guides/enceinte-imax-640.webp   640w,
+                      /images/guides/enceinte-imax-1200.webp 1200w
+                    "
+                    sizes="(max-width: 899px) 90vw, 35vw"
+                    width="1500"
+                    height="1000"
+                    alt="Une grande enceinte IMAX suspendue, avec ses haut-parleurs et son pavillon visibles."
+                    class="h-auto w-full"
+                    loading="lazy"
+                    decoding="async"
+                  >
+                  <figcaption class="mt-2 text-xs leading-relaxed text-muted">
+                    Une enceinte IMAX.
+                  </figcaption>
+                </figure>
+                <div class="space-y-5">
+                  <div>
+                    <h4 class="font-bold">Des canaux pour répartir les sons</h4>
+                    <p class="mt-2">
+                      Un canal est une piste audio envoyée vers une enceinte ou
+                      un groupe d’enceintes. Le nombre de canaux dépend de
+                      l’installation. Certaines salles IMAX proposent un système
+                      à 12 canaux, avec des enceintes supplémentaires sur les
+                      côtés et en hauteur pour répartir les effets dans la
+                      salle.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 class="font-bold">
+                      Le mixage et les réglages font partie du résultat
+                    </h4>
+                    <p class="mt-2">
+                      Le mixage détermine la place des voix, de la musique et
+                      des effets dans ces canaux. Le positionnement des
+                      enceintes et le réglage de la salle permettent ensuite de
+                      restituer cet équilibre. Le nombre de canaux, à lui seul,
+                      ne décrit donc ni la précision du son ni sa qualité
+                      d’écoute.
+                    </p>
+                  </div>
+                  <div>
+                    <h4 class="font-bold">
+                      Quelle différence avec Dolby Atmos ?
+                    </h4>
+                    <p class="mt-2">
+                      Dolby Atmos associe des canaux à des objets sonores : des
+                      sons accompagnés d’informations sur leur position et leur
+                      déplacement. Le processeur de la salle les répartit entre
+                      les enceintes disponibles, y compris au plafond. L’IMAX et
+                      l’Atmos organisent ainsi le son différemment. Dans les
+                      deux cas, le mixage du film et l’installation restent
+                      essentiels.
+                    </p>
+                  </div>
+                  <p class="text-xs text-muted">
+                    Pour aller plus loin :
+                    <a
+                      href="https://www.imax.com/news/imax-laser-here"
+                      class="guide-link"
+                      >IMAX · Le son à 12 canaux ↗</a
+                    >
+                    et
+                    <a
+                      href="https://professional.dolby.com/en-in/cinema/dolby-atmos-cinema-sound/"
+                      class="guide-link"
+                      >Dolby · Atmos au cinéma ↗</a
+                    >.
+                  </p>
+                </div>
+              </div>
+            </details>
+            <details class="guide-details">
+              <summary>Comment fonctionne la 3D IMAX ?</summary>
+              <div class="space-y-5">
+                <div>
+                  <h4 class="font-bold">Une vue différente pour chaque œil</h4>
+                  <p class="mt-2">
+                    La version 3D contient deux vues légèrement différentes
+                    d’une même scène. Les lunettes permettent à chaque œil de
+                    recevoir la vue qui lui est destinée. Le cerveau les combine
+                    et perçoit ainsi de la profondeur dans l’image.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">
+                    Des lunettes adaptées à la projection
+                  </h4>
+                  <p class="mt-2">
+                    Les installations IMAX n’utilisent pas toutes le même
+                    système de séparation des images. Les lunettes ne sont donc
+                    pas nécessairement interchangeables entre salles. Utilisez
+                    celles indiquées par le cinéma pour votre séance. Comme
+                    elles filtrent une partie de la lumière, la luminosité de la
+                    projection compte particulièrement en 3D.
+                  </p>
+                </div>
+                <div>
+                  <h4 class="font-bold">
+                    Le relief, le cadre et votre confort
+                  </h4>
+                  <p class="mt-2">
+                    La 3D ne change pas, à elle seule, la hauteur de l’image. Le
+                    ratio reste lié à la version du film et à la salle. Le
+                    confort dépend aussi du rendu de la projection, des lunettes
+                    et de votre sensibilité. Si vous préférez la 2D, choisissez
+                    une séance annoncée en 2D.
+                  </p>
+                </div>
+                <p class="text-xs text-muted">
+                  Pour aller plus loin :
+                  <a href="https://imaxvictoria.com/faq/" class="guide-link"
+                    >IMAX Victoria · Projection laser et lunettes 3D ↗</a
+                  >
+                  et
+                  <a
+                    href="https://www.si.edu/Content/SE/Educator%20Guides/Dinosaurs%203D%20-%20Giants%20of%20the%20Patagonia.pdf"
+                    class="guide-link"
+                    >Smithsonian · Le principe de la 3D IMAX ↗</a
+                  >.
+                </p>
+              </div>
+            </details>
           </div>
         </section>
 
@@ -715,67 +1053,79 @@ useHead({
         >
           <p class="guide-eyebrow">05 / AVANT DE RÉSERVER</p>
           <h2 id="choisir-title" class="guide-title">
-            Votre séance, en quatre vérifications.
+            Bien choisir votre séance IMAX.
           </h2>
-          <ol class="mt-7 grid gap-4 sm:grid-cols-2">
-            <li class="border-2 border-ink bg-surface p-5">
-              <span class="font-mono text-sm font-bold text-accent"
-                >01 — LE FILM</span
+          <ol class="mt-7 divide-y divide-ink/15">
+            <li
+              class="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 py-4 first:pt-0 md:grid-cols-[2rem_minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-x-5"
+            >
+              <span
+                class="font-mono text-sm font-bold text-accent"
+                aria-hidden="true"
+                >01</span
               >
-              <h3 class="mt-3 font-black">Qu’apporte cette version ?</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Cherchez une annonce de cadre étendu et de séquences IMAX. Le
-                film peut aussi garder son cadre classique et bénéficier du son
-                et de la projection de la salle.
+              <h3 class="font-bold">
+                Le film propose-t-il une image étendue&nbsp;?
+              </h3>
+              <p
+                class="col-start-2 mt-1 text-sm leading-relaxed text-muted md:col-start-3 md:row-start-1 md:mt-0"
+              >
+                Certaines versions IMAX ouvrent le cadre sur tout le film ou
+                quelques scènes. D’autres conservent leur format classique.
               </p>
             </li>
-            <li class="border-2 border-ink bg-surface p-5">
-              <span class="font-mono text-sm font-bold text-accent"
-                >02 — LA PROJECTION</span
+            <li
+              class="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 py-4 md:grid-cols-[2rem_minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-x-5"
+            >
+              <span
+                class="font-mono text-sm font-bold text-accent"
+                aria-hidden="true"
+                >02</span
               >
-              <h3 class="mt-3 font-black">Quelle mention sur le billet ?</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                IMAX, IMAX Laser ou IMAX 70 mm ? Puis 2D ou 3D, VF ou VOST ? En
-                cas de doute sur le 1,43 ou la pellicule, demandez au cinéma.
+              <h3 class="font-bold">Quelle projection est annoncée&nbsp;?</h3>
+              <p
+                class="col-start-2 mt-1 text-sm leading-relaxed text-muted md:col-start-3 md:row-start-1 md:mt-0"
+              >
+                IMAX Laser ou IMAX 70 mm, puis 2D ou 3D et VF ou VOST. Pour le
+                1,43:1, vérifiez que la séance et la salle sont compatibles.
               </p>
             </li>
-            <li class="border-2 border-ink bg-surface p-5">
-              <span class="font-mono text-sm font-bold text-accent"
-                >03 — LE PRIX</span
+            <li
+              class="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 py-4 md:grid-cols-[2rem_minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-x-5"
+            >
+              <span
+                class="font-mono text-sm font-bold text-accent"
+                aria-hidden="true"
+                >03</span
               >
-              <h3 class="mt-3 font-black">Quel total, supplément compris ?</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Le supplément dépend du cinéma, de la séance et de votre tarif
-                ou abonnement. Avant de payer, vérifiez le montant final avec
-                les éventuelles lunettes et options.
+              <h3 class="font-bold">Quel est le prix final&nbsp;?</h3>
+              <p
+                class="col-start-2 mt-1 text-sm leading-relaxed text-muted md:col-start-3 md:row-start-1 md:mt-0"
+              >
+                À titre indicatif, prévoyez
+                <strong class="text-ink"
+                  >environ 13 à 26 € au plein tarif en IMAX 2D</strong
+                >, supplément compris. Les réductions, abonnements, lunettes et
+                séances spéciales peuvent changer le total.
               </p>
             </li>
-            <li class="border-2 border-ink bg-surface p-5">
-              <span class="font-mono text-sm font-bold text-accent"
-                >04 — LA PLACE</span
+            <li
+              class="grid grid-cols-[2rem_minmax(0,1fr)] items-start gap-x-3 py-4 last:pb-0 md:grid-cols-[2rem_minmax(0,0.8fr)_minmax(0,1.2fr)] md:gap-x-5"
+            >
+              <span
+                class="font-mono text-sm font-bold text-accent"
+                aria-hidden="true"
+                >04</span
               >
-              <h3 class="mt-3 font-black">Immersion ou recul ?</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Pour une première séance, choisissez une place au centre, vers
-                le milieu de la salle ou légèrement derrière. Plus vous êtes
-                près de l’écran, plus l’image remplit votre champ de vision. En
-                reculant, vous voyez plus facilement l’ensemble de l’image.
+              <h3 class="font-bold">Quelle place vous convient&nbsp;?</h3>
+              <p
+                class="col-start-2 mt-1 text-sm leading-relaxed text-muted md:col-start-3 md:row-start-1 md:mt-0"
+              >
+                Une place centrale, vers le milieu ou légèrement en retrait,
+                offre un bon point de départ pour une première séance.
               </p>
             </li>
           </ol>
-          <p class="mt-6 flex items-start gap-3 text-sm leading-relaxed">
-            <Check
-              :size="20"
-              class="mt-0.5 shrink-0 text-accent"
-              aria-hidden="true"
-            /><span
-              ><strong>Est-ce que le supplément vaut le coup ?</strong>
-              Il peut se justifier si le film exploite le format et si vous
-              appréciez les grands écrans et le son immersif. Le confort, la
-              langue, l’horaire et le budget restent de bons critères de
-              choix.</span
-            >
-          </p>
         </section>
 
         <section
@@ -785,108 +1135,111 @@ useHead({
         >
           <p class="guide-eyebrow">06 / TROUVER SA SALLE</p>
           <h2 id="salles-title" class="guide-title">
-            Où voir de l’IMAX en France ?
+            Où voir de l’IMAX en France&nbsp;?
           </h2>
           <p class="guide-intro">
-            Voici quelques salles pour découvrir les différentes expériences
-            IMAX en France. Retrouvez l’ensemble des cinémas dans l’annuaire.
+            Le Pathé Odysseum, à
+            <NuxtLink to="/ville/montpellier/cinemas" class="guide-link"
+              >Montpellier</NuxtLink
+            >, permet de découvrir le grand cadre IMAX et la projection sur
+            pellicule. Retrouvez aussi tous les cinémas équipés dans l’annuaire.
           </p>
-          <div class="mt-7 border-2 border-ink bg-surface">
-            <div class="border-b-2 border-ink bg-highlight p-5 sm:p-7">
-              <p class="guide-eyebrow">PATHÉ ODYSSEUM · MONTPELLIER</p>
+          <article class="mt-7" aria-labelledby="odysseum-title">
+            <img
+              src="/images/guides/pathe-odysseum-1600.webp"
+              srcset="
+                /images/guides/pathe-odysseum-800.webp   800w,
+                /images/guides/pathe-odysseum-1600.webp 1600w,
+                /images/guides/pathe-odysseum-2103.webp 2103w
+              "
+              sizes="(max-width: 1023px) 95vw, 80vw"
+              width="2103"
+              height="512"
+              alt="Façade panoramique du Pathé Odysseum à Montpellier, avec son entrée et ses enseignes IMAX."
+              class="h-auto w-full"
+              loading="lazy"
+              decoding="async"
+            >
+            <div class="mt-5">
+              <p
+                class="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent"
+              >
+                <NuxtLink
+                  :to="landmarkTarget('odysseum')"
+                  class="underline decoration-accent/40 underline-offset-4 hover:text-ink"
+                  >Pathé Odysseum</NuxtLink
+                >
+                <span aria-hidden="true">·</span>
+                <NuxtLink
+                  to="/ville/montpellier/cinemas"
+                  class="underline decoration-accent/40 underline-offset-4 hover:text-ink"
+                  >Montpellier</NuxtLink
+                >
+              </p>
               <h3
-                class="mt-3 text-2xl font-black leading-tight tracking-tight sm:text-3xl"
+                id="odysseum-title"
+                class="mt-3 max-w-4xl text-xl font-black leading-tight tracking-tight sm:text-2xl"
               >
                 Le seul cinéma de France à proposer l’IMAX 70 mm en 1,43:1.
               </h3>
-            </div>
-            <div class="p-5 sm:p-7">
-              <dl
-                class="grid gap-5 border-b border-line pb-5 sm:grid-cols-2"
-                aria-label="Équipement du Pathé Odysseum"
-              >
-                <div>
-                  <dt class="font-mono text-[10px] uppercase text-muted">
-                    Format d’image
-                  </dt>
-                  <dd class="mt-2 text-4xl font-black tracking-tight">
-                    1,43:1
-                  </dd>
-                </div>
-                <div>
-                  <dt class="font-mono text-[10px] uppercase text-muted">
-                    Projection sur pellicule
-                  </dt>
-                  <dd class="mt-2 text-4xl font-black tracking-tight">
-                    IMAX 70 mm
-                  </dd>
-                </div>
-              </dl>
-              <p class="mt-5 leading-relaxed">
-                Au
-                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
-                  >Pathé Odysseum</NuxtLink
-                >, les films compatibles profitent de toute la hauteur du cadre
-                IMAX 1,43. La salle dispose aussi d’une projection IMAX Laser.
-              </p>
-              <p class="mt-3 text-sm leading-relaxed">
-                Pour découvrir la pellicule, choisissez une séance portant la
-                mention « IMAX 70 mm ».
+              <p class="mt-3 max-w-3xl text-sm leading-relaxed text-muted">
+                Les films compatibles y profitent de toute la hauteur du grand
+                cadre IMAX, sur pellicule ou en projection laser. Pour la
+                pellicule, la séance doit porter la mention
+                <span class="whitespace-nowrap">« IMAX 70 mm »</span>.
               </p>
               <NuxtLink
                 :to="landmarkTarget('odysseum')"
-                class="editorial-button mt-5"
+                class="editorial-button mt-4 shadow-none hover:bg-accent"
               >
                 Voir les séances au Pathé Odysseum
-                <ArrowRight :size="16" aria-hidden="true" />
+                <ArrowRight :size="16" class="shrink-0" aria-hidden="true" />
               </NuxtLink>
             </div>
-          </div>
-          <ul
-            class="mt-6 grid gap-4 sm:grid-cols-2"
-            aria-label="Sélection de cinémas IMAX"
+          </article>
+          <section class="mt-9" aria-labelledby="autres-imax-title">
+            <h3 id="autres-imax-title" class="text-lg font-black sm:text-xl">
+              Les autres expériences IMAX en France
+            </h3>
+            <div class="mt-5 grid items-start gap-6 md:grid-cols-2 md:gap-8">
+              <div>
+                <h4 class="font-bold">L’IMAX Laser en multiplexe</h4>
+                <p class="mt-2 text-sm leading-relaxed text-muted">
+                  Le laser 4K s’est développé dans les multiplexes français.
+                  Pour les films compatibles, il permet un cadre étendu en
+                  1,90:1. La taille de l’écran, la disposition des gradins et
+                  les séances proposées en 2D ou en 3D varient d’une salle à
+                  l’autre.
+                </p>
+              </div>
+              <div>
+                <h4 class="font-bold">L’IMAX sur un dôme</h4>
+                <p class="mt-2 text-sm leading-relaxed text-muted">
+                  L’IMAX existe aussi sur écran hémisphérique, avec une
+                  projection laser 4K disponible en France. L’image se déploie
+                  sur la courbure d’un dôme. Les programmes immersifs adaptés à
+                  cette forme d’écran offrent une expérience différente du grand
+                  écran rectangulaire des multiplexes.
+                </p>
+              </div>
+            </div>
+          </section>
+          <div
+            class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-ink/15 pt-5"
           >
-            <li
-              v-for="cinema in featuredCinemas"
-              :key="cinema.key"
-              class="flex flex-col border-2 border-ink bg-surface p-5"
+            <NuxtLink
+              :to="imaxDirectoryTarget"
+              class="editorial-button-outline hover:bg-subtle"
             >
-              <p
-                class="font-mono text-[10px] uppercase tracking-wide text-muted"
-              >
-                {{ cinema.city }}
-              </p>
-              <h3 class="mt-2 font-black">
-                <NuxtLink :to="cinema.to" class="guide-link">{{
-                  cinema.name
-                }}</NuxtLink>
-              </h3>
-              <dl class="mt-4 grid gap-3 text-sm">
-                <div>
-                  <dt class="font-mono text-[10px] uppercase text-muted">
-                    Projection
-                  </dt>
-                  <dd class="mt-1 font-bold">{{ cinema.projection }}</dd>
-                </div>
-                <div v-if="cinema.ratio">
-                  <dt class="font-mono text-[10px] uppercase text-muted">
-                    {{ cinema.key === 'geode' ? 'Écran' : 'Cadre maximal' }}
-                  </dt>
-                  <dd class="mt-1 font-bold">{{ cinema.ratio }}</dd>
-                </div>
-              </dl>
-            </li>
-          </ul>
-          <div class="mt-6 flex flex-wrap gap-3">
-            <NuxtLink :to="imaxDirectoryTarget" class="editorial-button"
-              >Voir tous les cinémas IMAX
-              <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
-            >
+              Voir tous les cinémas IMAX
+              <ArrowRight :size="16" aria-hidden="true" />
+            </NuxtLink>
             <NuxtLink
               :to="`${imaxDirectoryTarget}&view=map`"
-              class="editorial-button-outline"
-              >Voir la carte <MapPin :size="16" aria-hidden="true" /></NuxtLink
+              class="inline-flex min-h-11 items-center gap-2 text-sm font-bold underline decoration-ink/30 underline-offset-4 hover:text-accent"
             >
+              Voir la carte <MapPin :size="16" aria-hidden="true" />
+            </NuxtLink>
           </div>
           <p v-if="directory?.unavailable" class="mt-4 text-sm text-muted">
             L’annuaire est momentanément indisponible. Les liens de recherche
@@ -907,15 +1260,22 @@ useHead({
             <div>
               <p>
                 Après les installations de découverte scientifique, l’IMAX
-                arrive dans les multiplexes à Montpellier en 1998. Disney
-                Village suit en 2005. Le succès d’<NuxtLink
+                arrive dans les multiplexes à
+                <NuxtLink to="/ville/montpellier/cinemas" class="guide-link"
+                  >Montpellier</NuxtLink
+                >
+                en 1998. Disney Village suit en 2005. Le succès d’<NuxtLink
                   :to="movieTarget('avatar')"
                   class="guide-link"
                   ><em>Avatar</em></NuxtLink
                 >
                 en 2009 accompagne l’accélération des ouvertures dans les années
                 2010, puis la diversification des exploitants. L’arrivée de
-                l’IMAX 70 mm à Montpellier en 2026 marque une nouvelle étape.
+                l’IMAX 70 mm à
+                <NuxtLink to="/ville/montpellier/cinemas" class="guide-link"
+                  >Montpellier</NuxtLink
+                >
+                en 2026 marque une nouvelle étape.
               </p>
             </div>
           </details>
@@ -940,7 +1300,7 @@ useHead({
               <div>
                 <p>
                   <template
-                    v-for="(part, index) in movieTextParts(faq.answer)"
+                    v-for="(part, index) in guideTextParts(faq.answer)"
                     :key="index"
                     ><NuxtLink
                       v-if="part.to"

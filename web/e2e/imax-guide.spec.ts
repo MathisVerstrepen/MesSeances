@@ -266,39 +266,97 @@ test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', a
     .click()
   await expect(technical).toHaveCount(0)
   await expect(result).toContainText('2K')
+  const topics = [
+    'Quelles caméras utilise-t-on pour filmer en IMAX ?',
+    'Que fait la remasterisation IMAX DMR ?',
+    'Pourquoi parle-t-on de « 18K » pour la pellicule IMAX ?',
+  ]
+  const disclosures = page.locator('#projection details')
+  await expect(disclosures).toHaveCount(3)
+  for (const title of topics) {
+    const disclosure = disclosures.filter({
+      has: page.locator('summary', { hasText: title }),
+    })
+    await expect(disclosure).not.toHaveAttribute('open')
+    await disclosure.locator('summary').click()
+    await expect(disclosure).toHaveAttribute('open')
+  }
+  await expect(page.locator('#projection details[open]')).toHaveCount(3)
+  const cameras = disclosures.filter({
+    has: page.locator('summary', { hasText: topics[0] }),
+  })
+  const photo = cameras.getByRole('img')
+  await photo.scrollIntoViewIfNeeded()
+  await expect(photo).toHaveAttribute(
+    'src',
+    '/images/guides/camera-imax-1200.webp',
+  )
+  await expect(photo).toHaveJSProperty('complete', true)
+  expect(
+    await photo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  await cameras.screenshot({
+    path: info.outputPath('imax-cameras.png'),
+    style:
+      '#app-header, .guide-mobile-contents { visibility: hidden !important; }',
+  })
+  await cameras.locator('summary').focus()
+  await page.keyboard.press('Enter')
+  await expect(cameras).not.toHaveAttribute('open')
+  await expect(page.locator('#projection details[open]')).toHaveCount(2)
 })
 
-test('guide shows only sourced venue capabilities and sends the full cinema list to the IMAX directory', async ({
+test('guide highlights Odysseum and sends the full cinema list to the IMAX directory', async ({
   page,
   request,
-}) => {
+}, info) => {
   await request.post('/__playwright/scenario', {
     data: { historicalTechnologies: true },
   })
   await openPage(page, '/guides/imax#salles')
   const venues = page.locator('#salles')
-  const selection = venues.getByRole('list', {
-    name: 'Sélection de cinémas IMAX',
-  })
-  await expect(selection.getByRole('listitem')).toHaveCount(4)
+  await expect(
+    venues.getByRole('list', { name: 'Sélection de cinémas IMAX' }),
+  ).toHaveCount(0)
   await expect(venues.getByRole('searchbox')).toHaveCount(0)
-  const cannes = selection.getByRole('listitem').filter({
-    has: page.getByRole('link', { name: 'Cineum Cannes', exact: true }),
+  const spotlight = venues.locator('article')
+  await expect(spotlight.getByRole('heading', { level: 3 })).toHaveCount(1)
+  await expect(spotlight.getByRole('heading', { level: 3 })).toContainText(
+    'Le seul cinéma de France à proposer l’IMAX 70 mm en 1,43:1.',
+  )
+  await expect(
+    venues.getByRole('link', { name: 'Montpellier', exact: true }).first(),
+  ).toHaveAttribute('href', '/ville/montpellier/cinemas')
+  await expect(
+    spotlight.getByRole('link', { name: 'Montpellier', exact: true }),
+  ).toHaveAttribute('href', '/ville/montpellier/cinemas')
+  const otherFormats = venues.getByRole('region', {
+    name: 'Les autres expériences IMAX en France',
+    exact: true,
   })
-  await expect(cannes).toContainText('IMAX Laser 4K')
-  await expect(cannes).not.toContainText('Cadre maximal')
-  const dome = selection
-    .getByRole('listitem')
-    .filter({ has: page.getByRole('link', { name: 'La Géode', exact: true }) })
-  await expect(dome).toContainText('Dôme hémisphérique')
-  await expect(dome.getByRole('link')).toHaveAttribute(
-    'href',
-    '/cinemas?technologies=IMAX&q=G%C3%A9ode',
-  )
-  await expect(page.locator('#source-cineum a')).toHaveAttribute(
-    'href',
-    'https://www.cineum.fr/nos-salles/',
-  )
+  await expect(otherFormats.getByRole('heading', { level: 4 })).toHaveCount(2)
+  await expect(otherFormats).toContainText('L’IMAX Laser en multiplexe')
+  await expect(otherFormats).toContainText('L’IMAX sur un dôme')
+  await expect(otherFormats.getByRole('list')).toHaveCount(0)
+  await expect(
+    venues.getByRole('link', {
+      name: 'Voir les séances au Pathé Odysseum',
+      exact: true,
+    }),
+  ).toHaveAttribute('href', '/cinemas?technologies=IMAX&q=Odysseum')
+  const panorama = venues.getByRole('img', {
+    name: /Façade panoramique du Pathé Odysseum/,
+  })
+  await panorama.scrollIntoViewIfNeeded()
+  await expect(panorama).toHaveJSProperty('complete', true)
+  expect(
+    await panorama.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  await venues.screenshot({
+    path: info.outputPath('imax-odysseum.png'),
+    style:
+      'header, nav, .guide-mobile-contents { visibility: hidden !important; }',
+  })
   await expect(
     venues.getByRole('link', { name: 'Voir la carte', exact: true }),
   ).toHaveAttribute('href', '/cinemas?technologies=IMAX&view=map')

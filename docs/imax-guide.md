@@ -51,18 +51,28 @@ IMAX directory filtering, fallback links, metadata, sitemap and footer entry.
 
 ## Reading flow and venue specifications
 
-Booking advice precedes the cinema selection. The article presents Montpellier
-and four featured venues; the complete list and map link to the existing IMAX
-filtered directory. It does not duplicate the full directory or its search UI.
-Catalog reads still resolve public cinema links and report the registered count.
+Booking advice precedes a single spotlight on Pathé Odysseum in Montpellier.
+A panoramic exterior photograph leads the borderless presentation, without a
+sage background. The full list and map link to the existing IMAX-filtered
+directory. The four formerly featured venue cards and their unused specification
+and source data have been removed. Catalogue reads still resolve the Odysseum
+link and provide a named IMAX search fallback when unavailable.
 
-`imaxFeaturedCinemas` lists only sourced capabilities, with `sourceId` pointing
-to `imaxVenueSources`. Lomme and Dole's official IMAX listings confirm Laser;
-Cineum's own rooms page confirms Laser 4K; Apsys documents La Géode's Laser 4K
-dome. No flat-screen ratio is inferred for those venues. Montpellier's 1.43
-Laser and 70 mm references remain the IMAX location list and CNC article.
-Specifications were checked on 7 November 2026. Provider pages were fetched
-through the configured proxy file; no proxy details or raw responses are saved.
+The spotlight groups its heading, explanation and booking action beneath the
+panorama. A separate subsection explains multiplex Laser 4K / 1.90 presentations
+and hemispherical IMAX Dome presentations without listing venues. References are
+IMAX's 15 May 2024 French laser deployment announcement and Universcience's
+21 January 2025 dome press release. Nationwide directory and map actions follow
+these explanations. Montpellier mentions in the article and FAQ link to
+`/ville/montpellier/cinemas`, separately from the cinema's own booking link.
+
+Montpellier's 1.43 Laser and 70 mm references remain the IMAX location list and
+CNC article. Specifications were checked on 7 November 2026.
+
+The panorama was supplied as
+`/home/mathis/Downloads/651a485f-e04e-45cd-8108-aeb27d6dc5f8.png`.
+Local `pathe-odysseum-800.webp`, `pathe-odysseum-1600.webp` and
+`pathe-odysseum-2103.webp` preserve its full 2103 × 512 composition.
 
 The compact mobile contents stays below the measured site header. It closes
 on section selection or Escape, restores focus on Escape, and follows the
@@ -126,3 +136,25 @@ and use the current public movie slug. They fall back to a film search when a
 matching record is unavailable. Keep `imaxGuideMovies` in sync with the titles
 discussed in the guide. Scene selection remains a button action, with a separate
 link to the selected film in the comparison caption.
+
+The camera, DMR and 18K explanations are three independent native disclosures.
+They distinguish capture, remastering and projected detail, with primary-source
+reading links inside each disclosure. The camera photograph was supplied as
+`/home/mathis/Downloads/Imax-silmmaking-in-depth.003.webp`. Local
+`camera-imax-640.webp` and `camera-imax-1200.webp` preserve its framing. No camera
+model, photographer or production is inferred from the photograph.
+
+The sound disclosure includes the user-supplied `/home/mathis/Downloads/imax-speaker-dt.jpg`.
+Local `enceinte-imax-640.webp` and `enceinte-imax-1200.webp` preserve its framing.
+The caption identifies an IMAX speaker without inferring its model or location.
+
+## Price reference
+
+The booking checklist gives an approximate €13–26 budget for an IMAX 2D adult
+full-price ticket including the IMAX supplement. It is an illustrative budget,
+not a national minimum, maximum or measured average. Source examples in the
+article bibliography are Roubaix (€8.50 + €4 = €12.50, municipal article dated
+2 August 2025), Cannes (€13.50 + €6 = €19.50, AlloCiné) and La Villette
+(€17.20 + €8 = €25.20, Orange). Listings were checked on 7 November 2026.
+The rounded range does not cover every discount, subscription, 3D or special
+presentation. Refresh these examples whenever the price guidance is reviewed.
