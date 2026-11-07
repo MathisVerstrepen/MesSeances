@@ -22,7 +22,7 @@ test('empty homepage selection leads to the directory and updates on return', as
   await choose.click()
   await expect(page).toHaveURL(/\/cinemas$/)
   const checkbox = page
-    .getByRole('region', { name: 'Tous les cinémas', exact: true })
+    .getByRole('region', { name: /^Tous les cinémas\b/ })
     .getByRole('checkbox', {
       name: `Sélectionner ${theater.name}`,
       exact: true,
