@@ -13,10 +13,11 @@ const frames = [
 <template>
   <figure>
     <h3 class="text-lg font-black sm:text-xl">
-      Trois cadres, une même largeur.
+      D’où vient l’image supplémentaire ?
     </h3>
     <p class="mt-2 text-sm leading-relaxed text-muted">
-      Plus le chiffre est petit, plus l’image est haute.
+      Quand le film le prévoit, les formats IMAX révèlent plus d’image en haut
+      et en bas.
     </p>
 
     <div
@@ -26,7 +27,7 @@ const frames = [
         <div
           class="relative aspect-[1.43] border-2 border-ink bg-[#e8eee4]"
           role="img"
-          aria-label="Trois rectangles de même largeur et de même centre. Le cadre 1,43:1 est le plus haut, le 1,90:1 est intermédiaire et le 2,39:1 est le moins haut."
+          aria-label="Trois cadres centrés de même largeur. La zone centrale représente le Scope en 2,39:1. Le 1,90:1 ajoute de la hauteur au-dessus et en dessous, et le 1,43:1 en ajoute davantage."
         >
           <div
             v-for="frame in frames"
@@ -49,9 +50,9 @@ const frames = [
             class="absolute inset-x-0 top-1/2 -translate-y-1/2 px-4 text-center text-sm font-bold text-white sm:text-base"
             aria-hidden="true"
           >
-            La même largeur.
+            L’image au format Scope
             <span class="mt-1 block text-xs font-normal text-white/80"
-              >L’image s’ouvre en haut et en bas.</span
+              >Les zones claires montrent l’image supplémentaire.</span
             >
           </span>
         </div>
@@ -66,9 +67,6 @@ const frames = [
       </div>
 
       <div>
-        <p class="mb-5 text-xs text-muted">
-          Surface d’image comparée au Scope, à largeur égale
-        </p>
         <div class="grid gap-7">
           <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4">
             <div>
@@ -76,8 +74,8 @@ const frames = [
                 <span class="font-mono text-sm font-bold">2,39:1</span>
                 <span class="font-bold">Cinéma Scope</span>
               </h4>
-              <p class="mt-1 text-sm text-muted">
-                Le cadre large de référence.
+              <p class="mt-1 text-sm leading-relaxed text-muted">
+                Un cadre panoramique, très courant au cinéma.
               </p>
             </div>
             <span class="pt-1 text-xs text-muted">Référence</span>
@@ -88,8 +86,10 @@ const frames = [
                 <span class="font-mono text-sm font-bold">1,90:1</span>
                 <span class="font-bold">IMAX étendu</span>
               </h4>
-              <p class="mt-1 text-sm text-muted">
-                Le plus courant en multiplexe.
+              <p class="mt-1 text-sm leading-relaxed text-muted">
+                Le format IMAX courant en multiplexe. Pour les scènes
+                compatibles, l’image s’ouvre en haut et en bas par rapport au
+                Scope.
               </p>
             </div>
             <p class="text-right">
@@ -107,12 +107,11 @@ const frames = [
                 <span class="font-mono text-sm font-bold">1,43:1</span>
                 <span class="font-bold">IMAX plein format</span>
               </h4>
-              <p class="mt-1 text-sm text-muted">Le cadre IMAX le plus haut.</p>
-              <NuxtLink
-                :to="fullFormatCinema"
-                class="mt-2 inline-block text-xs underline decoration-ink/30 underline-offset-4 hover:text-accent"
-                >Pathé Odysseum, Montpellier</NuxtLink
-              >
+              <p class="mt-1 text-sm leading-relaxed text-muted">
+                Le cadre historique de l’IMAX, proche du carré. Il révèle encore
+                plus de hauteur, avec une version du film et une salle
+                compatibles.
+              </p>
             </div>
             <p class="text-right">
               <strong
