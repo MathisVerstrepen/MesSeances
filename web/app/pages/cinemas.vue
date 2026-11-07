@@ -35,6 +35,8 @@ import {
   filterCinemaDirectory,
 } from '~/utils/cinemaDirectoryChains'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { cinemaDirectoryTechnologies } from '~/utils/cinemaDirectoryTechnologies'
+import type { FormatBrand } from '~/utils/formats'
 import {
   buildOpenStreetMapPositionUrl,
   formatPositionAccuracy,
@@ -90,6 +92,10 @@ const routeState = computed(() => parseCinemaDirectoryQuery(route.query))
 const viewMode = computed(() => routeState.value.view)
 const locationMode = computed(() => routeState.value.location)
 const selectedChains = computed(() => routeState.value.chains)
+const selectedTechnologies = computed(() => routeState.value.technologies)
+const technologyOptions = computed(() =>
+  cinemaDirectoryTechnologies(directoryTheaters.value),
+)
 const chainOptions = computed(() =>
   cinemaDirectoryChains(directoryTheaters.value),
 )
@@ -103,19 +109,33 @@ const preferencesReady = ref(false)
 let isUnmounted = false
 let isMounted = false
 const settingsOpen = ref(false)
+const isDesktop = ref(false)
+const activeFilterCount = computed(
+  () => selectedChains.value.length + selectedTechnologies.value.length,
+)
 const settingsDialog = ref<HTMLDialogElement | null>(null)
 const settingsCloseButton = ref<HTMLButtonElement | null>(null)
 let settingsTrigger: HTMLElement | null = null
 let desktopMediaQuery: MediaQueryList | null = null
 let bodyOverflowBeforeLock: string | null = null
+let previousRootStyles: { overflow: string; scrollbarGutter: string } | null =
+  null
 
 async function openSettings(event: MouseEvent) {
-  if (desktopMediaQuery?.matches || settingsOpen.value || isUnmounted) return
+  if (settingsOpen.value || isUnmounted) return
   settingsTrigger =
     event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   settingsOpen.value = true
   await nextTick()
   if (!settingsOpen.value || isUnmounted) return
+  const root = document.documentElement
+  previousRootStyles = {
+    overflow: root.style.overflow,
+    scrollbarGutter: root.style.scrollbarGutter,
+  }
+  if (window.innerWidth > root.clientWidth)
+    root.style.scrollbarGutter = 'stable'
+  root.style.overflow = 'hidden'
   settingsDialog.value?.showModal()
   bodyOverflowBeforeLock = document.body.style.overflow
   document.body.style.overflow = 'hidden'
@@ -130,25 +150,30 @@ function closeSettings({ restoreFocus = true } = {}) {
     document.body.style.overflow = bodyOverflowBeforeLock
     bodyOverflowBeforeLock = null
   }
-  if (restoreFocus && settingsTrigger?.isConnected)
-    nextTick(() => settingsTrigger?.focus({ preventScroll: true }))
+  if (previousRootStyles) {
+    Object.assign(document.documentElement.style, previousRootStyles)
+    previousRootStyles = null
+  }
+  if (restoreFocus)
+    nextTick(() => {
+      const trigger =
+        settingsTrigger?.isConnected && settingsTrigger.getClientRects().length
+          ? settingsTrigger
+          : [
+              ...document.querySelectorAll<HTMLElement>(
+                'button[aria-controls="cinema-settings"]',
+              ),
+            ].find((element) => element.getClientRects().length > 0)
+      trigger?.focus({ preventScroll: true })
+    })
 }
 
 function handleSettingsBackdrop(event: MouseEvent) {
-  const dialog = settingsDialog.value
-  if (!dialog || event.target !== dialog) return
-  const bounds = dialog.getBoundingClientRect()
-  if (
-    event.clientX < bounds.left ||
-    event.clientX > bounds.right ||
-    event.clientY < bounds.top ||
-    event.clientY > bounds.bottom
-  )
-    closeSettings()
+  if (event.target === settingsDialog.value) closeSettings()
 }
 
 function handleSettingsViewport(event: MediaQueryListEvent) {
-  if (event.matches) closeSettings({ restoreFocus: false })
+  isDesktop.value = event.matches
 }
 
 function handleSettingsKeydown(event: KeyboardEvent) {
@@ -193,6 +218,7 @@ const searchResults = computed(() =>
     directoryTheaters.value,
     search.value,
     selectedChains.value,
+    selectedTechnologies.value,
   ),
 )
 const displayedTheaters = searchResults
@@ -225,7 +251,9 @@ const listSections = computed(() =>
 const visibleTheaterCount = computed(() => displayedTheaters.value.length)
 
 function setDisplayMode(
-  changes: Partial<Pick<CinemaDirectoryState, 'view' | 'location' | 'chains'>>,
+  changes: Partial<
+    Pick<CinemaDirectoryState, 'view' | 'location' | 'chains' | 'technologies'>
+  >,
 ) {
   const query = cinemaDirectoryQuery(route.query, {
     search: search.value,
@@ -238,9 +266,13 @@ function setChains(chains: Provider[]) {
   setDisplayMode({ chains })
 }
 
+function setTechnologies(technologies: FormatBrand[]) {
+  setDisplayMode({ technologies })
+}
+
 function resetFilters() {
   search.value = ''
-  setDisplayMode({ chains: [] })
+  setDisplayMode({ chains: [], technologies: [] })
 }
 
 function useCurrentPosition() {
@@ -399,6 +431,7 @@ onMounted(async () => {
   isMounted = true
   location.setNearbyMode(locationMode.value === 'nearby')
   desktopMediaQuery = window.matchMedia('(min-width: 1024px)')
+  isDesktop.value = desktopMediaQuery.matches
   desktopMediaQuery.addEventListener('change', handleSettingsViewport)
   const query = hydrateRoute()
   if (!queriesEqual(route.query, query)) await router.replace({ query })
@@ -631,50 +664,65 @@ useHead(() => ({
           </p>
         </Teleport>
 
-        <Teleport to="#cinema-settings-controls" :disabled="!settingsOpen">
+        <div
+          v-if="directoryTheaters.length > 0 && !directoryError"
+          class="selection-toolbar mt-5 flex flex-wrap items-center justify-between gap-2 lg:mt-7 lg:gap-3 lg:py-4"
+        >
           <div
-            v-if="directoryTheaters.length > 0 && !directoryError"
-            class="selection-toolbar flex-wrap items-center justify-between gap-3"
-            :class="settingsOpen ? 'flex' : 'mt-7 hidden py-4 lg:flex'"
+            class="view-switch inline-grid h-11 flex-1 lg:flex-none grid-cols-[repeat(2,minmax(4.25rem,1fr))] sm:grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface"
+            role="group"
+            aria-label="Mode d’affichage des cinémas"
           >
-            <div
-              class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full"
-              role="group"
-              aria-label="Mode d’affichage des cinémas"
+            <button
+              type="button"
+              class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-2 sm:px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
+              :aria-pressed="viewMode === 'list'"
+              @click="showList"
             >
-              <button
-                type="button"
-                class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
-                :aria-pressed="viewMode === 'list'"
-                @click="showList"
-              >
-                <List :size="16" aria-hidden="true" />
-                Liste
-              </button>
-              <button
-                type="button"
-                class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
-                :aria-pressed="viewMode === 'map'"
-                @click="setDisplayMode({ view: 'map' })"
-              >
-                <MapIcon :size="16" aria-hidden="true" />
-                Carte
-              </button>
-            </div>
-            <div
-              class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"
-              :class="settingsOpen ? 'w-full flex-col items-stretch' : ''"
+              <List :size="16" aria-hidden="true" />
+              Liste
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-2 sm:px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
+              :aria-pressed="viewMode === 'map'"
+              @click="setDisplayMode({ view: 'map' })"
             >
-              <CinemaChainFilter
-                :model-value="selectedChains"
-                :options="chainOptions"
-                :in-settings="settingsOpen"
-                @update:model-value="setChains"
-              />
+              <MapIcon :size="16" aria-hidden="true" />
+              Carte
+            </button>
+          </div>
+          <div class="selection-controls contents">
+            <button
+              type="button"
+              class="inline-flex ml-auto min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-3 py-2 text-sm font-bold hover:bg-[#fff3c4] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              :class="activeFilterCount ? 'bg-[#fff3c4]' : ''"
+              aria-controls="cinema-settings"
+              aria-haspopup="dialog"
+              :aria-expanded="settingsOpen"
+              @click="openSettings"
+            >
+              <SlidersHorizontal :size="18" aria-hidden="true" />
+              Filtres
+              <span
+                v-if="activeFilterCount"
+                class="grid min-w-6 place-items-center bg-ink px-1.5 py-0.5 text-xs text-white"
+                >{{
+                  activeFilterCount
+                }}</span
+              >
+            </button>
+            <Teleport
+              to="#cinema-settings-controls"
+              :disabled="!settingsOpen || isDesktop"
+            >
               <section
-                :class="settingsOpen ? 'mt-3 border-t-2 border-ink pt-4' : ''"
+                :class="settingsOpen && !isDesktop ? 'w-full' : 'hidden lg:block'"
               >
-                <h3 v-if="settingsOpen" class="mb-3 text-base font-black">
+                <h3
+                  v-if="settingsOpen && !isDesktop"
+                  class="mb-3 text-base font-black"
+                >
                   Cinémas affichés
                 </h3>
                 <div
@@ -722,9 +770,9 @@ useHead(() => ({
                   </ClientOnly>
                 </div>
               </section>
-            </div>
+            </Teleport>
           </div>
-        </Teleport>
+        </div>
 
         <Teleport to="#cinema-settings-feedback" :disabled="!settingsOpen">
           <p
@@ -751,20 +799,6 @@ useHead(() => ({
             </button>
           </div>
         </Teleport>
-
-        <div class="mt-5 flex justify-end lg:hidden">
-          <button
-            type="button"
-            class="editorial-button-outline size-11 shrink-0 p-0 lg:hidden"
-            aria-label="Réglages des cinémas"
-            aria-controls="cinema-settings"
-            aria-haspopup="dialog"
-            :aria-expanded="settingsOpen"
-            @click="openSettings"
-          >
-            <SlidersHorizontal :size="20" aria-hidden="true" />
-          </button>
-        </div>
 
         <EditorialStatePanel
           v-if="directoryTheaters.length === 0 && isLoading"
@@ -1124,37 +1158,51 @@ useHead(() => ({
       ref="settingsDialog"
       aria-labelledby="cinema-settings-title"
       aria-modal="true"
-      class="fixed inset-x-0 bottom-0 top-auto m-0 max-h-[calc(100dvh-1rem)] w-full max-w-none overflow-hidden rounded-none border-2 border-b-0 border-ink bg-[#f8f7f2] text-ink shadow-[0_-8px_0_#27272a] backdrop:bg-black/60"
+      class="fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0 text-ink backdrop:bg-black/60 open:flex open:items-end open:justify-end lg:open:items-stretch"
       @cancel.prevent="closeSettings()"
       @close="!settingsDialog?.open && closeSettings()"
       @click="handleSettingsBackdrop"
       @keydown="handleSettingsKeydown"
     >
-      <div class="flex max-h-[calc(100dvh-1rem-2px)] flex-col">
+      <div
+        class="flex h-[calc(100dvh-1rem)] min-h-0 w-full flex-col overflow-hidden border-2 border-b-0 border-ink bg-[#f8f7f2] shadow-[0_-8px_0_#27272a] lg:h-full lg:max-h-none lg:w-[32rem] lg:border-y-0 lg:border-r-0 lg:shadow-[-8px_0_0_#27272a]"
+      >
         <header
-          class="sticky top-0 z-10 flex shrink-0 items-center gap-2.5 border-b-2 border-ink bg-[#f8f7f2] p-4 sm:px-6"
+          class="sticky top-0 z-10 flex shrink-0 items-center gap-2.5 border-b-2 border-ink bg-[#ffcf3f] p-4 sm:px-6"
         >
           <SlidersHorizontal :size="18" aria-hidden="true" />
           <h2
             id="cinema-settings-title"
             class="min-w-0 flex-1 text-xl font-black leading-tight tracking-[-0.035em]"
           >
-            Réglages des cinémas
+            Filtres des cinémas
           </h2>
           <button
             ref="settingsCloseButton"
             type="button"
             class="editorial-button-outline ml-auto size-11 shrink-0 p-0"
-            aria-label="Fermer les réglages"
+            aria-label="Fermer les filtres"
             @click="closeSettings()"
           >
             <X :size="20" aria-hidden="true" />
           </button>
         </header>
         <div
-          class="cinema-settings-content min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
+          class="cinema-settings-content min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6"
         >
-          <div id="cinema-settings-controls"></div>
+          <div v-show="!isDesktop" id="cinema-settings-controls"></div>
+          <CinemaChainFilter
+            :model-value="selectedChains"
+            :options="chainOptions"
+            in-settings
+            @update:model-value="setChains"
+          />
+          <CinemaTechnologyFilter
+            :model-value="selectedTechnologies"
+            :options="technologyOptions"
+            class="border-t-2 border-ink pt-4"
+            @update:model-value="setTechnologies"
+          />
           <div
             id="cinema-settings-location"
             :class="locationMode === 'nearby' ? 'mt-5' : ''"
@@ -1162,8 +1210,15 @@ useHead(() => ({
           <div id="cinema-settings-feedback"></div>
         </div>
         <footer
-          class="sticky bottom-0 z-10 shrink-0 border-t-2 border-ink bg-[#f8f7f2] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+          class="sticky bottom-0 z-10 mt-auto flex shrink-0 flex-col-reverse gap-3 border-t-2 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:px-6 [&>button]:flex-1"
         >
+          <button
+            type="button"
+            class="editorial-button-outline"
+            @click="resetFilters"
+          >
+            Effacer les filtres
+          </button>
           <button
             type="button"
             class="editorial-button w-full"

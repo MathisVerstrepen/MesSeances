@@ -948,6 +948,7 @@ export interface Theater {
   city_slug: string
   postal_code: string
   available_dates: string[]
+  available_formats?: ShowtimeFormat[]
   accepted_passes: string[]
   latitude?: number | null
   longitude?: number | null

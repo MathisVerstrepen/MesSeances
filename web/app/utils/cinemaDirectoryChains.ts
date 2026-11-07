@@ -1,5 +1,6 @@
 import type { Provider, Theater } from '../types/api'
 import { THEATER_PROVIDER_LABELS } from './theaterMap.ts'
+import type { FormatBrand } from './formats.ts'
 
 // SAFETY: the existing label record exhaustively covers Provider identifiers.
 const providers = Object.keys(THEATER_PROVIDER_LABELS) as Provider[]
@@ -38,11 +39,19 @@ export function filterCinemaDirectory(
   theaters: readonly Theater[],
   search: string,
   chains: readonly Provider[],
+  technologies: readonly FormatBrand[] = [],
 ): Theater[] {
   const normalizedSearch = search.trim().toLocaleLowerCase('fr-FR')
   const selected = new Set(chains)
   return theaters.filter((theater) => {
     if (selected.size > 0 && !selected.has(theater.provider)) return false
+    if (
+      technologies.length > 0 &&
+      !technologies.some((technology) =>
+        theater.available_formats?.includes(technology),
+      )
+    )
+      return false
     const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase(
       'fr-FR',
     )

@@ -757,6 +757,9 @@ func TestTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &theaters); err != nil {
 		t.Fatal(err)
 	}
+	if len(theaters) == 0 || !reflect.DeepEqual(theaters[0].AvailableFormats, []schedule.Format{schedule.FormatScreenX}) {
+		t.Fatalf("directory formats missing: %+v", theaters)
+	}
 	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC || theaters[0].CitySlug != "lille" || theaters[1].CitySlug != "villeneuve-d-ascq" || theaters[0].Latitude == nil || *theaters[0].Latitude != 50.6321 || theaters[0].Longitude == nil || *theaters[0].Longitude != 3.0612 || theaters[1].Latitude != nil || theaters[1].Longitude != nil || !strings.Contains(response.Body.String(), `"latitude":null,"longitude":null`) {
 		t.Fatalf("theaters=%+v", theaters)
 	}

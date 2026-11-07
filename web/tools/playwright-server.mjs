@@ -350,6 +350,55 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
+    if (path === '/api/v1/theaters' && scenario.directoryTechnologies)
+      return json(response, [
+        {
+          ...theater,
+          available_formats: scenario.directoryTechnologyGallery
+            ? [
+                '3D',
+                'IMAX',
+                'DOLBY',
+                'SCREENX',
+                'LASER_ULTRA',
+                '4DX',
+                'ICE',
+                'INFINITY_VISION',
+              ]
+            : ['2D', 'IMAX', '3D'],
+        },
+        { ...secondTheater, provider: 'cgr', available_formats: ['2D', 'ICE'] },
+        {
+          ...theater,
+          id: 'fixture-plain',
+          slug: 'cinema-plain',
+          name: 'Cinéma Standard',
+          available_formats: [],
+        },
+        ...(scenario.directoryLongList
+          ? [
+              'cineville',
+              'cinewest',
+              'grandecran',
+              'kinepolis',
+              'majestic',
+              'megarama',
+              'mk2',
+              'noecinemas',
+              'ocine',
+              'pathe',
+              'veo',
+              'cineode',
+              'cinemovida',
+            ].map((provider) => ({
+              ...theater,
+              provider,
+              id: `fixture-${provider}`,
+              slug: `cinema-${provider}`,
+              available_formats: [],
+            }))
+          : []),
+      ])
     if (path === '/api/v1/theaters')
       return json(response, [
         theater,
