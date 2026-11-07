@@ -1858,6 +1858,44 @@ func TestCityInventoryAndDetailUseExactBucketsAndDeterministicOrders(t *testing.
 	}
 }
 
+func TestTheaterShowtimesAvailableFormatsSpanProgramme(t *testing.T) {
+	data := testDataset()
+	data.Window.Through = "2026-08-16"
+	data.Theaters[0].AvailableDates = []string{"2026-08-15", "2026-08-16"}
+	data.Showtimes[0].Format = FormatIMAX
+	data.Showtimes[1].Format = FormatScreenX // Another theater must not contribute.
+	for i, format := range []Format{FormatDolby, FormatICE, FormatIMAX, Format3D} {
+		showing := data.Showtimes[0]
+		showing.ID = fmt.Sprintf("ugc-showing-%d", 500+i)
+		showing.ProviderShowingID = fmt.Sprint(500 + i)
+		showing.ServiceDate = "2026-08-16"
+		showing.StartTime = showing.StartTime.AddDate(0, 0, 1)
+		showing.EndTime = showing.EndTime.AddDate(0, 0, 1)
+		showing.Format = format
+		data.Showtimes = append(data.Showtimes, showing)
+	}
+	data.Theaters = append(data.Theaters, TheaterRecord{ID: "ugc-empty", ProviderID: "empty", Slug: "ugc-empty", Name: "UGC Empty", City: "Lille", AvailableDates: []string{}, AcceptedPasses: []string{}})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Format{Format2D, Format3D, FormatDolby, FormatICE, FormatIMAX}
+	for _, date := range []string{"", "2026-08-15", "2026-08-16", "2027-01-01"} {
+		result, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-25", Date: date})
+		if err != nil || !reflect.DeepEqual(result.AvailableFormats, want) {
+			t.Fatalf("date=%q formats=%v want=%v err=%v", date, result.AvailableFormats, want, err)
+		}
+	}
+	empty, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-empty"})
+	if err != nil || empty.AvailableFormats == nil || len(empty.AvailableFormats) != 0 {
+		t.Fatalf("empty formats=%v err=%v", empty.AvailableFormats, err)
+	}
+	encoded, err := json.Marshal(empty)
+	if err != nil || !strings.Contains(string(encoded), `"available_formats":[]`) {
+		t.Fatalf("empty JSON=%s err=%v", encoded, err)
+	}
+}
+
 func TestTheaterShowtimesDateSemanticsOrderingAndExactSlug(t *testing.T) {
 	data := testDataset()
 	data.Theaters[0].AvailableDates = []string{"2026-08-16", "2026-08-15"}

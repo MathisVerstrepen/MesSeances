@@ -172,12 +172,13 @@ type CityDetail struct {
 }
 
 type TheaterShowtimes struct {
-	Discovery   TheaterDiscovery   `json:"discovery"`
-	GeneratedAt time.Time          `json:"generated_at"`
-	Timezone    string             `json:"timezone"`
-	Theater     Theater            `json:"theater"`
-	Date        *string            `json:"date"`
-	Showtimes   []TimelineShowtime `json:"showtimes"`
+	Discovery        TheaterDiscovery   `json:"discovery"`
+	GeneratedAt      time.Time          `json:"generated_at"`
+	Timezone         string             `json:"timezone"`
+	Theater          Theater            `json:"theater"`
+	Date             *string            `json:"date"`
+	Showtimes        []TimelineShowtime `json:"showtimes"`
+	AvailableFormats []Format           `json:"available_formats"`
 }
 
 type MovieCatalogItem struct {

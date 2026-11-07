@@ -1011,6 +1011,7 @@ export interface TheaterShowtimesResponse {
   generated_at: string
   timezone: 'Europe/Paris'
   theater: Theater & { image: PublicTheaterImage | null }
+  available_formats?: ShowtimeFormat[]
   date: string | null
   showtimes: TimelineShowtime[]
   discovery: {
