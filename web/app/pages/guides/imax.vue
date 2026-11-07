@@ -10,7 +10,6 @@ import {
 } from '@lucide/vue'
 import type { Theater } from '~/types/api'
 import imaxLogo from '~/assets/imgs/imax_logo_large.webp?no-inline'
-import { filterCinemaDirectory } from '~/utils/cinemaDirectoryChains'
 import {
   guideCinemaTarget,
   imaxDirectoryTarget,
@@ -34,9 +33,6 @@ const { data: directory } = await useAsyncData(
   },
 )
 const theaters = computed(() => directory.value?.theaters ?? [])
-const imaxTheaters = computed(() =>
-  filterCinemaDirectory(theaters.value, '', [], ['IMAX']),
-)
 const featuredCinemas = computed(() =>
   imaxFeaturedCinemas.map((cinema) => ({
     ...cinema,
@@ -187,7 +183,7 @@ const sources = [
     id: '143',
     name: 'IMAX · Salles Laser 1,43 pour Joker : Folie à Deux',
     detail:
-      '19 septembre 2024 · Présence de Montpellier dans la liste ; le 1,43 peut aussi venir d’un tournage numérique.',
+      '19 septembre 2024 · Montpellier figure dans cette liste de salles Laser 1,43. Le film a été tourné avec des caméras numériques certifiées IMAX.',
     url: 'https://www.imax.com/news/experience-joker-folie-a-deux-imax-with-laser-theatres-1-43',
   },
   {
@@ -430,52 +426,90 @@ useHead({
       <article class="min-w-0">
         <section
           id="essentiel"
-          class="guide-section"
+          class="guide-section imax-introduction"
           aria-labelledby="essentiel-title"
         >
-          <p class="guide-eyebrow">01 / LE POINT DE DÉPART</p>
-          <h2 id="essentiel-title" class="guide-title">
-            L’IMAX, c’est quoi au juste ?
-          </h2>
-          <p class="guide-intro">
-            Une expérience de cinéma qui associe projection, écran, son et
-            aménagement de la salle. Le logo désigne un ensemble ; toutes les
-            salles n’ont pas le même équipement.
-          </p>
-          <div class="mt-7 grid gap-4 sm:grid-cols-3">
-            <div class="border-2 border-ink bg-surface p-5">
-              <Maximize :size="25" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-5 font-black">Un écran immersif</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Un grand champ de vision, lié à l’écran, aux gradins et à votre
-                place dans la salle.
+          <div
+            class="grid gap-5 min-[900px]:grid-cols-[minmax(0,1fr)_clamp(260px,28vw,360px)] min-[900px]:gap-x-8"
+          >
+            <div class="min-[900px]:col-span-2">
+              <p class="guide-eyebrow">01 / LE POINT DE DÉPART</p>
+              <h2 id="essentiel-title" class="guide-title">
+                L’IMAX, c’est quoi ?
+              </h2>
+              <p class="mt-4 text-base leading-relaxed sm:text-lg">
+                L’IMAX associe un grand écran, une projection dédiée et un son
+                réglé pour la salle. L’objectif : une image qui remplit
+                davantage votre champ de vision et un son qui vous enveloppe.
               </p>
             </div>
-            <div class="border-2 border-ink bg-surface p-5">
-              <Film :size="25" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-5 font-black">Parfois plus d’image</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Certains films ouvrent leur cadre en hauteur, sur tout le film
-                ou sur quelques scènes.
-              </p>
+            <img
+              src="/images/guides/salle-imax-1200.webp"
+              srcset="
+                /images/guides/salle-imax-640.webp   640w,
+                /images/guides/salle-imax-1200.webp 1200w
+              "
+              sizes="(max-width: 899px) 90vw, 360px"
+              width="1619"
+              height="1080"
+              alt="Une salle IMAX vue depuis les gradins : un grand écran face à des rangées de fauteuils en pente."
+              class="h-auto w-full min-[900px]:col-start-2 min-[900px]:row-start-2 min-[900px]:self-center"
+              loading="lazy"
+              decoding="async"
+            >
+            <div
+              class="self-center min-[900px]:col-start-1 min-[900px]:row-start-2"
+            >
+              <div class="grid gap-5">
+                <div
+                  class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+                >
+                  <Maximize
+                    :size="20"
+                    class="mt-0.5 text-accent"
+                    aria-hidden="true"
+                  />
+                  <h3 class="font-bold">Un écran qui vous immerge</h3>
+                  <p class="col-start-2 text-sm leading-relaxed text-muted">
+                    L’écran et les gradins sont pensés pour donner l’impression
+                    d’être dans le film.
+                  </p>
+                </div>
+                <div
+                  class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+                >
+                  <Volume2
+                    :size="20"
+                    class="mt-0.5 text-accent"
+                    aria-hidden="true"
+                  />
+                  <h3 class="font-bold">Un son qui vous entoure</h3>
+                  <p class="col-start-2 text-sm leading-relaxed text-muted">
+                    Des voix claires, des effets précis et des basses que l’on
+                    ressent.
+                  </p>
+                </div>
+                <div
+                  class="grid grid-cols-[20px_minmax(0,1fr)] items-start gap-x-3 gap-y-2"
+                >
+                  <Film
+                    :size="20"
+                    class="mt-0.5 text-accent"
+                    aria-hidden="true"
+                  />
+                  <h3 class="font-bold">Parfois, plus d’image</h3>
+                  <p class="col-start-2 text-sm leading-relaxed text-muted">
+                    Certains films révèlent davantage d’image en haut et en bas,
+                    dans les salles compatibles.
+                  </p>
+                </div>
+              </div>
             </div>
-            <div class="border-2 border-ink bg-surface p-5">
-              <Volume2 :size="25" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-5 font-black">Un son enveloppant</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Un mixage et des enceintes adaptés à la salle, pour des voix,
-                des effets et des basses précis.
-              </p>
-            </div>
-          </div>
-          <div class="mt-7 border-l-4 border-primary bg-surface p-5">
-            <p class="font-black">
-              Le bon réflexe : vérifier le film ET la salle.
-            </p>
-            <p class="mt-2 text-sm leading-relaxed">
-              Pour voir davantage d’image, la version du film, le projecteur et
-              l’écran doivent être compatibles. Le logo IMAX seul ne garantit
-              pas un cadre étendu.
+            <p
+              class="text-sm leading-relaxed text-muted min-[900px]:col-span-2"
+            >
+              Toutes les salles IMAX n’ont pas le même équipement. Voici comment
+              comprendre les différences.
             </p>
           </div>
         </section>
@@ -490,35 +524,18 @@ useHead({
             La même scène, plus de hauteur.
           </h2>
           <p class="guide-intro">
-            Le « ratio », c’est simplement la forme de l’image : sa largeur
-            divisée par sa hauteur. À largeur égale, un chiffre plus petit donne
-            un cadre plus haut. Cliquez sur les formats pour comparer.
+            Certaines salles IMAX peuvent montrer une image plus haute que
+            d’autres, lorsque le film le permet. Pour comprendre cette
+            différence, on parle de « ratio » : le rapport entre la largeur et
+            la hauteur de l’image. À largeur égale, plus ce chiffre est petit,
+            plus le cadre est haut.
           </p>
           <div class="mt-7"><GuidesImaxFrameComparison /></div>
-          <div class="mt-8 grid gap-5 sm:grid-cols-2">
-            <div>
-              <h3 class="font-black">1,90 : le repère courant</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                C’est le cadre IMAX courant en multiplexe. Il montre environ 26
-                % de surface en plus que le 2,39, à largeur égale.
-              </p>
-            </div>
-            <div>
-              <h3 class="font-black">1,43 : le cadre très haut</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Ce cadre offre environ 67 % de surface en plus. En France, le
-                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
-                  >Pathé Odysseum à Montpellier</NuxtLink
-                >
-                permet de voir les films compatibles en 1,43.
-              </p>
-            </div>
+          <div class="mt-8">
+            <GuidesImaxRatioDiagram
+              :full-format-cinema="landmarkTarget('odysseum')"
+            />
           </div>
-          <p class="mt-5 text-sm leading-relaxed text-muted">
-            Le cinéma utilise aussi le 1,85:1 et d’autres formats. Ces chiffres
-            décrivent la forme de l’image, pas la taille de l’écran ni sa
-            définition.
-          </p>
         </section>
 
         <section
@@ -531,16 +548,17 @@ useHead({
             Laser, double laser, 70 mm…
           </h2>
           <p class="guide-intro">
-            Le laser produit la lumière d’un projecteur numérique ; le 70 mm est
-            une pellicule. Comparez ce que chaque système peut afficher.
+            Le laser fournit la lumière à un projecteur numérique. Le 70 mm
+            désigne la pellicule utilisée pour la projection. Voici ce que
+            chaque système peut afficher.
           </p>
           <div class="mt-7"><GuidesImaxProjectionExplorer /></div>
           <div class="mt-8">
             <h3 class="font-black">Le 15/70, sans jargon</h3>
             <p class="mt-3 text-sm leading-relaxed">
-              « 70 » correspond à la largeur de la pellicule en millimètres ; «
-              15 » au nombre de perforations par image. Le film défile
-              horizontalement dans le projecteur. Sur cette bande de
+              Le « 70 » indique la largeur de la pellicule en millimètres. Le «
+              15 » correspond au nombre de perforations par image. Le film
+              défile horizontalement dans le projecteur. Sur cette bande de
               <em>L’Odyssée</em>, on distingue les photogrammes et les
               perforations le long des deux bords.
             </p>
@@ -622,7 +640,7 @@ useHead({
               <h3 class="font-black">La 3D est une option de séance</h3>
               <p class="mt-3 text-sm leading-relaxed">
                 L’IMAX peut être en 2D ou en 3D. La 3D envoie une image
-                différente à chaque œil ; les lunettes servent à les séparer.
+                différente à chaque œil. Les lunettes séparent les deux images.
                 Elle ne change pas, à elle seule, le ratio du film.
               </p>
               <p class="mt-3 text-sm leading-relaxed">
@@ -680,10 +698,9 @@ useHead({
               >
               <h3 class="mt-3 font-black">Quel total, supplément compris ?</h3>
               <p class="mt-2 text-sm leading-relaxed">
-                Le supplément dépend du cinéma, de la séance, du tarif et de
-                votre abonnement. Comparez le montant final, y compris les
-                éventuelles lunettes ou options ; il n’existe pas de prix IMAX
-                unique en France.
+                Le supplément dépend du cinéma, de la séance et de votre tarif
+                ou abonnement. Avant de payer, vérifiez le montant final avec
+                les éventuelles lunettes et options.
               </p>
             </li>
             <li class="border-2 border-ink bg-surface p-5">
@@ -693,9 +710,9 @@ useHead({
               <h3 class="mt-3 font-black">Immersion ou recul ?</h3>
               <p class="mt-2 text-sm leading-relaxed">
                 Pour une première séance, choisissez une place au centre, vers
-                le milieu de la salle ou légèrement derrière. Plus près, l’image
-                remplit davantage votre champ de vision ; plus loin, vous voyez
-                plus facilement l’ensemble de l’écran.
+                le milieu de la salle ou légèrement derrière. Plus vous êtes
+                près de l’écran, plus l’image remplit votre champ de vision. En
+                reculant, vous voyez plus facilement l’ensemble de l’image.
               </p>
             </li>
           </ol>
@@ -729,44 +746,53 @@ useHead({
           </p>
           <div class="mt-7 border-2 border-ink bg-surface">
             <div class="border-b-2 border-ink bg-highlight p-5 sm:p-7">
-              <p class="guide-eyebrow">LE CAS À CONNAÎTRE</p>
-              <h3 class="mt-3 text-2xl font-black tracking-tight">
-                Montpellier : le rendez-vous du 1,43.
+              <p class="guide-eyebrow">PATHÉ ODYSSEUM · MONTPELLIER</p>
+              <h3
+                class="mt-3 text-2xl font-black leading-tight tracking-tight sm:text-3xl"
+              >
+                Le seul cinéma de France à proposer l’IMAX 70 mm en 1,43:1.
               </h3>
             </div>
             <div class="p-5 sm:p-7">
-              <p class="leading-relaxed">
-                Le
-                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
-                  >Pathé Odysseum</NuxtLink
-                >
-                propose le grand cadre 1,43 en IMAX Laser et, depuis juillet
-                2026, des projections sur pellicule IMAX 70 mm inaugurées avec
-                <em>L’Odyssée</em>.
-              </p>
               <dl
-                class="mt-5 grid gap-4 border-t border-line pt-4 text-sm sm:grid-cols-2"
+                class="grid gap-5 border-b border-line pb-5 sm:grid-cols-2"
                 aria-label="Équipement du Pathé Odysseum"
               >
                 <div>
                   <dt class="font-mono text-[10px] uppercase text-muted">
-                    Projection
+                    Format d’image
                   </dt>
-                  <dd class="mt-1 font-bold">IMAX Laser et IMAX 70 mm</dd>
+                  <dd class="mt-2 text-4xl font-black tracking-tight">
+                    1,43:1
+                  </dd>
                 </div>
                 <div>
                   <dt class="font-mono text-[10px] uppercase text-muted">
-                    Cadre maximal
+                    Projection sur pellicule
                   </dt>
-                  <dd class="mt-1 font-bold">Jusqu’à 1,43:1</dd>
+                  <dd class="mt-2 text-4xl font-black tracking-tight">
+                    IMAX 70 mm
+                  </dd>
                 </div>
               </dl>
+              <p class="mt-5 leading-relaxed">
+                Au
+                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
+                  >Pathé Odysseum</NuxtLink
+                >, les films compatibles profitent de toute la hauteur du cadre
+                IMAX 1,43. La salle dispose aussi d’une projection IMAX Laser.
+              </p>
+              <p class="mt-3 text-sm leading-relaxed">
+                Pour découvrir la pellicule, choisissez une séance portant la
+                mention « IMAX 70 mm ».
+              </p>
               <NuxtLink
                 :to="landmarkTarget('odysseum')"
-                class="editorial-button-outline mt-5"
-                >Consulter le cinéma
-                <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
+                class="editorial-button mt-5"
               >
+                Voir les séances au Pathé Odysseum
+                <ArrowRight :size="16" aria-hidden="true" />
+              </NuxtLink>
             </div>
           </div>
           <ul
@@ -804,11 +830,6 @@ useHead({
               </dl>
             </li>
           </ul>
-          <p class="mt-4 text-xs leading-relaxed text-muted">
-            Seules les caractéristiques confirmées par les sources sont
-            indiquées. La programmation et le format proposé restent propres à
-            chaque séance.
-          </p>
           <div class="mt-6 flex flex-wrap gap-3">
             <NuxtLink :to="imaxDirectoryTarget" class="editorial-button"
               >Voir tous les cinémas IMAX
@@ -820,15 +841,6 @@ useHead({
               >Voir la carte <MapPin :size="16" aria-hidden="true" /></NuxtLink
             >
           </div>
-          <p
-            v-if="imaxTheaters.length"
-            class="mt-3 font-mono text-xs text-muted"
-          >
-            {{ imaxTheaters.length }} cinéma{{
-              imaxTheaters.length > 1 ? 's' : ''
-            }} référencé{{ imaxTheaters.length > 1 ? 's' : '' }} avec IMAX dans
-            l’annuaire MesSeances.
-          </p>
           <p v-if="directory?.unavailable" class="mt-4 text-sm text-muted">
             L’annuaire est momentanément indisponible. Les liens de recherche
             restent accessibles.
@@ -886,38 +898,40 @@ useHead({
         >
           <p class="guide-eyebrow">POUR ALLER PLUS LOIN</p>
           <h2 id="sources-title" class="guide-title">Sources &amp; méthode.</h2>
-          <p class="mt-5 text-sm leading-relaxed">
+          <p class="mt-3 text-xs leading-relaxed text-muted">
             Les informations et les équipements des salles ci-dessus ont été
             vérifiés le 7 novembre 2026. Les ratios absents ne sont pas
             confirmés par les sources.
           </p>
-          <ol class="mt-6 space-y-5">
+          <ol class="mt-5 grid gap-x-8 gap-y-3 md:grid-cols-2">
             <li
               v-for="(source, index) in sources"
               :id="`source-${source.id}`"
               :key="source.id"
-              class="scroll-mt-32 border-t border-ink/20 pt-4"
+              class="min-w-0 scroll-mt-32"
             >
-              <a :href="source.url" class="guide-link text-sm"
+              <a :href="source.url" class="guide-link text-xs leading-relaxed"
                 >{{ index + 1 }}. {{ source.name }} ↗</a
               >
-              <p class="mt-1 text-xs leading-relaxed text-muted">
+              <p class="mt-0.5 text-xs leading-relaxed text-muted">
                 {{ source.detail }}
               </p>
             </li>
           </ol>
           <p
-            class="mt-7 border-t border-ink/20 pt-5 text-xs leading-relaxed text-muted"
+            class="mt-5 border-t border-ink/20 pt-3 text-xs leading-relaxed text-muted"
           >
             Visuels : scans de photogrammes de <em>Dune : Deuxième Partie</em>,
             <em>Project Hail Mary</em>
-            et <em>L’Odyssée</em>, fournis pour ce guide. Les images restent la
-            propriété de leurs ayants droit. Les masques de comparaison sont des
-            recadrages pédagogiques centrés ; les cadrages des copies
-            distribuées peuvent différer. Le schéma de projection est simplifié
-            et sans échelle.
+            et <em>L’Odyssée</em>, fournis pour ce guide. Affiches :
+            <a href="https://www.themoviedb.org/" class="guide-link"
+              >The Movie Database (TMDB)</a
+            >. Les images restent la propriété de leurs ayants droit. Les images
+            du comparateur sont recadrées pour illustrer les proportions. Les
+            versions projetées en salle peuvent avoir un cadrage différent. Le
+            schéma de projection est simplifié et sans échelle.
           </p>
-          <NuxtLink :to="imaxDirectoryTarget" class="editorial-button mt-8"
+          <NuxtLink :to="imaxDirectoryTarget" class="editorial-button mt-5"
             >Prêt à voir plus grand ? Trouver une salle IMAX
             <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
           >
@@ -935,6 +949,9 @@ useHead({
 .guide-section {
   scroll-margin-top: calc(var(--guide-header-height, 124px) + 80px);
   @apply border-b-2 border-ink px-4 py-10 last:border-b-0 sm:px-8 sm:py-14 xl:px-12;
+}
+.imax-introduction {
+  @apply py-8 sm:py-10;
 }
 .guide-mobile-contents {
   top: var(--guide-header-height, 124px);
@@ -959,13 +976,10 @@ useHead({
 .guide-link {
   @apply font-bold underline decoration-1 underline-offset-4 hover:text-primary;
 }
-.guide-details {
-  @apply border-2 border-ink bg-surface;
-}
 .guide-details summary {
-  @apply cursor-pointer px-5 py-4 text-sm font-bold leading-relaxed marker:text-accent hover:bg-highlight/20;
+  @apply min-h-11 cursor-pointer py-3 text-sm font-bold leading-relaxed marker:text-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent;
 }
 .guide-details > div {
-  @apply border-t border-line px-5 py-5 text-sm leading-relaxed;
+  @apply pb-3 pl-4 text-sm leading-relaxed;
 }
 </style>

@@ -1,7 +1,14 @@
 <script setup lang="ts">
+import { Check } from '@lucide/vue'
 import { imaxExtraImage, imaxRatios } from '~/utils/imaxGuide'
 
 const selectedId = ref<(typeof imaxRatios)[number]['id']>('digital')
+const formatOptions = [...imaxRatios].reverse()
+const formatNames = {
+  scope: 'Cinéma Scope',
+  digital: 'IMAX étendu',
+  full: 'IMAX plein format',
+}
 const scenes = [
   {
     id: 'dune',
@@ -35,76 +42,59 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
 </script>
 
 <template>
-  <div
-    class="border-2 border-ink bg-surface shadow-[6px_6px_0_var(--color-highlight)]"
+  <figure
+    class="imax-comparison grid overflow-hidden border-2 border-ink bg-surface text-ink shadow-[6px_6px_0_var(--color-highlight)] min-[1180px]:grid-cols-[minmax(0,1fr)_272px]"
   >
-    <figure>
-      <div class="relative overflow-hidden bg-[#10292f] p-3 sm:p-4">
-        <div
-          id="imax-scene-preview"
-          class="relative mx-auto aspect-[1.43] max-w-[640px] overflow-hidden border border-white/30"
-          role="img"
-          :aria-label="`${scene.alt} Simulation au format ${selected.value}. ${extraImage} % de surface en plus qu’au format Scope, à largeur égale.`"
-        >
-          <img
-            :src="`/images/guides/${scene.id}-1600.webp`"
-            :srcset="`/images/guides/${scene.id}-800.webp 800w, /images/guides/${scene.id}-1600.webp 1600w`"
-            sizes="(max-width: 680px) 90vw, 640px"
-            width="1430"
-            height="1000"
-            alt=""
-            class="absolute inset-0 size-full object-cover"
-            loading="lazy"
-            decoding="async"
-          >
-          <div
-            class="frame-mask absolute inset-x-0 top-0 bg-[#10292f]"
-            :style="{ height: maskHeight }"
-          />
-          <div
-            class="frame-mask absolute inset-x-0 bottom-0 bg-[#10292f]"
-            :style="{ height: maskHeight }"
-          />
-          <span
-            class="absolute bottom-2 left-2 bg-[#10292f] px-2 py-1 font-mono text-[10px] font-bold text-white sm:bottom-3 sm:left-3 sm:text-xs"
-            >SIMULATION DE CADRAGE</span
-          >
-        </div>
-        <div
-          role="group"
-          aria-label="Choisir un film"
-          class="mt-4 flex flex-wrap justify-center gap-2 sm:gap-3"
-        >
-          <button
-            v-for="item in scenes"
-            :key="item.id"
-            type="button"
-            :aria-pressed="sceneId === item.id"
-            aria-controls="imax-scene-preview"
-            class="inline-flex min-h-12 flex-col items-center justify-center gap-1 rounded-sm border px-3 py-2 text-center shadow-sm transition-colors focus-visible:ring-highlight focus-visible:ring-offset-[#10292f] sm:px-4"
-            :class="sceneId === item.id ? 'border-highlight bg-highlight text-ink' : 'border-white/25 bg-white/5 text-white hover:border-white/50 hover:bg-white/10'"
-            @click="sceneId = item.id"
-          >
-            <span class="text-xs font-bold sm:text-sm">{{ item.label }}</span>
-            <span
-              class="text-[10px] leading-tight sm:text-xs"
-              :class="sceneId === item.id ? 'text-ink/75' : 'text-white/70'"
-              >{{
-                item.director
-              }}</span
-            >
-          </button>
-        </div>
-      </div>
-      <fieldset
-        class="grid grid-cols-3 border-t-2 border-ink bg-ink text-white"
+    <div class="flex min-w-0 items-center bg-[#10292f] p-3 sm:p-4">
+      <div
+        id="imax-scene-preview"
+        class="relative mx-auto aspect-[1.43] w-full max-w-[680px] overflow-hidden border border-white/25 bg-[#10292f]"
+        role="img"
+        :aria-label="`${scene.alt} Simulation au format ${selected.value}. ${extraImage} % de surface en plus qu’au format Scope, à largeur égale.`"
       >
-        <legend class="sr-only">Choisir le cadrage à comparer</legend>
+        <img
+          :src="`/images/guides/${scene.id}-1600.webp`"
+          :srcset="`/images/guides/${scene.id}-800.webp 800w, /images/guides/${scene.id}-1600.webp 1600w`"
+          sizes="(max-width: 767px) 90vw, (max-width: 1179px) 75vw, 680px"
+          width="1430"
+          height="1000"
+          alt=""
+          class="absolute inset-0 size-full object-cover"
+          loading="lazy"
+          decoding="async"
+        >
+        <div
+          class="frame-mask absolute inset-x-0 top-0 bg-[#10292f]"
+          :style="{ height: maskHeight }"
+        />
+        <div
+          class="frame-mask absolute inset-x-0 bottom-0 bg-[#10292f]"
+          :style="{ height: maskHeight }"
+        />
+        <span
+          class="absolute top-2 left-2 border border-white/20 bg-ink px-2 py-1 font-mono text-xs font-bold text-white sm:top-3 sm:left-3"
+          >{{
+            selected.value
+          }}</span
+        >
+      </div>
+    </div>
+
+    <aside
+      class="min-w-0 border-t-2 border-ink bg-[#f8f7f2] p-3 sm:p-4 min-[1180px]:border-t-0 min-[1180px]:border-l-2"
+      aria-label="Sélections du comparateur"
+    >
+      <fieldset class="grid grid-cols-3 gap-2 min-[1180px]:grid-cols-1">
+        <legend
+          class="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent"
+        >
+          Le format de l’image
+        </legend>
         <label
-          v-for="format in imaxRatios"
+          v-for="format in formatOptions"
           :key="format.id"
-          class="relative flex min-h-24 cursor-pointer flex-col items-center justify-center gap-1 border-r border-white/20 px-2 py-2 text-center last:border-r-0 focus-within:z-10 focus-within:ring-2 focus-within:ring-highlight focus-within:ring-inset"
-          :class="selectedId === format.id ? 'text-white' : 'text-white/60 hover:text-white'"
+          class="relative flex min-h-11 cursor-pointer items-center justify-center gap-1.5 border-2 border-ink px-1 py-2 font-mono text-[11px] font-bold transition-colors focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset min-[1180px]:min-h-14 min-[1180px]:justify-start min-[1180px]:gap-3 min-[1180px]:px-3"
+          :class="selectedId === format.id ? 'bg-ink text-white' : 'bg-surface text-ink hover:bg-highlight/30'"
         >
           <input
             v-model="selectedId"
@@ -116,60 +106,121 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
             aria-controls="imax-frame-result"
           >
           <svg
-            viewBox="0 0 64 48"
-            class="h-8 w-12"
+            viewBox="0 0 40 32"
+            class="h-5 w-5 shrink-0 min-[1180px]:h-7 min-[1180px]:w-8"
             fill="none"
             aria-hidden="true"
           >
             <rect
-              x="8"
-              :y="24 - 24 / format.ratio"
-              width="48"
-              :height="48 / format.ratio"
+              x="3"
+              :y="16 - 17 / format.ratio"
+              width="34"
+              :height="34 / format.ratio"
               rx="1"
               stroke="currentColor"
-              stroke-width="2"
+              stroke-width="1.3"
             />
           </svg>
-          <span
-            class="font-mono text-[10px] font-bold uppercase tracking-wider sm:text-xs"
-            >{{
-              format.label
-            }}</span
+          <span class="min-w-0 flex-1 text-center min-[1180px]:text-left"
+            ><span class="block min-[1180px]:text-sm">{{ format.value }}</span
+            ><span
+              class="mt-0.5 hidden font-sans text-[11px] font-normal min-[1180px]:block"
+              :class="selectedId === format.id ? 'text-white/70' : 'text-muted'"
+              >{{
+                formatNames[format.id]
+              }}</span
+            ></span
           >
-          <span class="text-lg font-black sm:text-xl">{{ format.value }}</span>
-          <span
-            class="mt-1 h-1 w-8"
-            :class="selectedId === format.id ? 'bg-highlight' : 'bg-transparent'"
+          <Check
+            v-if="selectedId === format.id"
+            :size="14"
+            class="hidden shrink-0 min-[1180px]:block"
             aria-hidden="true"
           />
         </label>
       </fieldset>
-      <figcaption
-        id="imax-frame-result"
-        class="grid gap-4 border-t-2 border-ink p-4 sm:grid-cols-[minmax(0,12rem)_1fr] sm:gap-6 sm:p-5"
-        aria-live="polite"
-        aria-atomic="true"
+
+      <p
+        class="mt-5 mb-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent"
       >
-        <p class="font-black text-accent">
-          <span class="block text-4xl tracking-tighter sm:text-5xl">{{
-            `+${extraImage} %`
-          }}</span><span
-            class="mt-1 block font-mono text-[10px] uppercase tracking-wide"
+        Choisir un film
+      </p>
+      <div
+        role="group"
+        aria-label="Choisir un film"
+        class="grid grid-cols-3 gap-1.5 min-[1180px]:grid-cols-1 min-[1180px]:gap-2"
+      >
+        <button
+          v-for="item in scenes"
+          :key="item.id"
+          type="button"
+          :aria-pressed="sceneId === item.id"
+          aria-controls="imax-scene-preview"
+          class="flex min-w-0 flex-col items-center gap-2 border-2 p-2 text-center transition-colors focus-visible:ring-accent focus-visible:ring-inset sm:flex-row sm:gap-3 sm:text-left"
+          :class="sceneId === item.id ? 'border-ink bg-highlight' : 'border-transparent hover:border-ink/30 hover:bg-surface'"
+          @click="sceneId = item.id"
+        >
+          <img
+            :src="`/images/guides/${item.id}-poster.webp`"
+            alt=""
+            width="160"
+            height="240"
+            class="h-14 w-[37px] shrink-0 border border-ink/15 object-cover sm:h-[60px] sm:w-10"
+            loading="lazy"
+            decoding="async"
+          >
+          <span class="min-w-0"
+            ><span
+              class="block text-[11px] font-bold leading-snug sm:text-[13px]"
+              >{{
+                item.label
+              }}</span
+            ><span
+              class="mt-1 block text-[10px] leading-snug text-muted sm:text-[11px]"
+              >{{
+                item.director
+              }}</span
+            ></span
+          >
+        </button>
+      </div>
+    </aside>
+
+    <figcaption
+      id="imax-frame-result"
+      class="border-t-2 border-ink p-4 sm:p-5 min-[1180px]:col-span-2"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div
+        class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6"
+      >
+        <div>
+          <h3 class="text-base font-black sm:text-lg">
+            {{ selected.value }} — {{ formatNames[selected.id] }}
+          </h3>
+          <p class="mt-1.5 max-w-2xl text-sm leading-relaxed text-muted">
+            {{ selected.description }}
+          </p>
+          <p class="mt-2 text-[11px] text-muted">
+            Simulation de cadrage, à largeur égale.
+          </p>
+        </div>
+        <p
+          class="flex items-center gap-3 border-l-4 border-accent bg-accent-soft px-4 py-3"
+        >
+          <strong
+            class="shrink-0 text-2xl font-black tracking-tight text-accent"
+            >{{
+              `+${extraImage} %`
+            }}</strong
+          ><span class="max-w-36 text-[11px] leading-relaxed text-muted"
             >de surface en plus qu’en 2,39:1</span
           >
         </p>
-        <div>
-          <p class="font-bold">
-            {{ selected.description }}
-          </p>
-          <p class="mt-2 text-sm leading-relaxed text-muted">
-            À largeur égale, sans étirer l’image.
-          </p>
-        </div>
-      </figcaption>
-    </figure>
-  </div>
+      </div>
+    </figcaption>
+  </figure>
 </template>
 
 <style scoped>

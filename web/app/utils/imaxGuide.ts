@@ -24,7 +24,8 @@ export const imaxRatios = [
     ratio: 1.43,
     label: 'IMAX 1,43',
     value: '1,43:1',
-    description: 'Le cadre IMAX le plus haut de cette comparaison.',
+    description:
+      'Le grand cadre historique de l’IMAX, proche du carré. Il révèle toute la hauteur des scènes prévues en 1,43:1, dans une salle équipée d’un écran adapté et d’une projection IMAX 70 mm ou double laser compatible.',
   },
 ] as const
 

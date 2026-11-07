@@ -73,3 +73,50 @@ are removed when leaving the guide. Reduced motion keeps native anchor jumps.
 The frame comparison names its 2.39 baseline and labels the images as a framing
 simulation. The projection comparison puts support/definition and maximum ratio
 first; optional technical details retain the CoLa/GT names and optical caveats.
+
+
+## Comparison sidebar and posters
+
+The comparison uses a right sidebar for ratio and movie choices on desktop.
+Below 1180 px, controls stack beneath the preview. The explanation spans the full
+width beneath both columns, avoiding empty sidebar space next to the caption. MesSeances' square borders, cream
+surfaces and sage selection colors remain unchanged. Ratio choices run from
+1.43 to 2.39; the initial choice remains 1.90.
+
+Local 160 × 240 WebP posters were optimized from the existing public catalog's
+TMDB images, so the widget never needs external image requests at runtime:
+
+| Asset | Source |
+| --- | --- |
+| `dune-poster.webp` | `https://image.tmdb.org/t/p/w185/iRNbRAIGQQr5diGnjpwJFm0dgt4.jpg` |
+| `project-hail-mary-poster.webp` | `https://image.tmdb.org/t/p/w185/wzyy8ZrsuHfAt4iz4iH3rT0tdoT.jpg` |
+| `odyssee-voilier-poster.webp` | `https://image.tmdb.org/t/p/w185/kP8jJIkmX0vWEYiqQ9c5zU0dvcn.jpg` |
+
+Movie titles and director names remain available in the selector. Poster images
+are decorative because the adjacent button text identifies each movie.
+
+Below the interactive comparison, `ImaxRatioDiagram.vue` shows three centred
+frames at equal width. Frame heights are calculated from their ratios, and the
+image-area gains use the same Scope baseline as the interactive comparison.
+
+## Expanded projection details
+
+Only the optional technical panel contains the projector photos and the deeper
+explanations of light sources, image formation, resolution, aspect-ratio limits,
+alignment and film transport. The main comparison remains concise. Each system
+links to technical reading within its expanded panel.
+
+The four photos were supplied by the user. No photographer credit or original
+publication URL was supplied. Optimized local WebP copies preserve their framing:
+
+| Asset | Supplied file |
+| --- | --- |
+| `projecteur-imax-laser.webp` | `/home/mathis/Downloads/3j1wbpiaqmhb1.jpg` |
+| `projecteur-imax-gt.webp` | `/home/mathis/Downloads/image.webp` |
+| `projecteur-imax-film.webp` | `/home/mathis/Downloads/107273715-1689780929290-IMG_2085.jpg` |
+| `projecteur-imax-xenon.webp` | `/home/mathis/Downloads/IMAX-DH-Xenon-Front.jpg` |
+
+The introduction also includes a user-supplied auditorium photograph from
+`/home/mathis/Downloads/7utcbthcq2r81.jpg`. Local `salle-imax-640.webp` and
+`salle-imax-1200.webp` preserve its full framing. The theatre is not identified,
+so its location and projection specifications are not inferred from the photo.
