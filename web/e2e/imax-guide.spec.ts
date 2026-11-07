@@ -1,5 +1,79 @@
 import { test, expect, openPage } from './fixtures'
 
+test('articles index, breadcrumbs and legacy redirects expose the new category', async ({
+  page,
+  request,
+}, info) => {
+  for (const [oldPath, newPath] of [
+    ['/guides', '/articles'],
+    ['/guides/imax', '/articles/imax'],
+    ['/sitemaps/guides.xml', '/sitemaps/articles.xml'],
+  ] as const) {
+    const response = await request.get(oldPath, { maxRedirects: 0 })
+    expect(response.status()).toBe(301)
+    expect(response.headers().location).toBe(newPath)
+  }
+  const response = await request.get('/articles')
+  expect(response.status()).toBe(200)
+  expect(await response.text()).toContain('IMAX : le guide complet')
+  await openPage(page, '/articles')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Articles')
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    'href',
+    /\/articles$/,
+  )
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const articleLink = page.locator('main').getByRole('link', {
+    name: 'IMAX : le guide complet',
+    exact: true,
+  })
+  await expect(articleLink).toHaveAttribute('href', '/articles/imax')
+  await expect(articleLink.getByRole('img')).not.toHaveJSProperty(
+    'naturalWidth',
+    0,
+  )
+  await page.evaluate(() => document.fonts.ready)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('articles-index.png'),
+    fullPage: true,
+  })
+  await articleLink.click()
+  await expect(page).toHaveURL(/\/articles\/imax$/)
+  const breadcrumb = page.getByRole('navigation', { name: 'Fil d’Ariane' })
+  await expect(breadcrumb.getByRole('listitem')).toHaveText([
+    'Accueil',
+    'Articles',
+    'IMAX : le guide complet',
+  ])
+  const structuredBreadcrumb = await page
+    .locator('script[type="application/ld+json"]')
+    .evaluateAll((scripts) =>
+      scripts
+        .flatMap(
+          (script) => JSON.parse(script.textContent ?? '{}')['@graph'] ?? [],
+        )
+        .find((node) => node['@type'] === 'BreadcrumbList'),
+    )
+  expect(
+    structuredBreadcrumb.itemListElement.map(
+      (item: { name: string }) => item.name,
+    ),
+  ).toEqual(['Accueil', 'Articles', 'IMAX : le guide complet'])
+  await breadcrumb.getByRole('link', { name: 'Articles', exact: true }).click()
+  await expect(page).toHaveURL(/\/articles$/)
+  await expect(
+    page.locator('footer').getByRole('link', { name: 'Tous les articles' }),
+  ).toHaveAttribute('href', '/articles')
+  await openPage(page, '/guides/imax#formats')
+  await expect(page).toHaveURL(/\/articles\/imax#formats$/)
+  await expect(page.locator('#formats-title')).toBeInViewport()
+})
+
 test('guide film mentions use catalogue pages and the scene selector keeps its own action', async ({
   page,
   request,
@@ -7,7 +81,7 @@ test('guide film mentions use catalogue pages and the scene selector keeps its o
   await request.post('/__playwright/scenario', {
     data: { imaxGuideMovies: true },
   })
-  await openPage(page, '/guides/imax#projection')
+  await openPage(page, '/articles/imax#projection')
   await expect(
     page
       .locator('#projection')
@@ -59,13 +133,13 @@ test('guide serves readable content and metadata without depending on a cinema r
   await request.post('/__playwright/scenario', {
     data: { imaxGuideOffline: true },
   })
-  const response = await request.get('/guides/imax')
+  const response = await request.get('/articles/imax')
   expect(response.status()).toBe(200)
   const html = await response.text()
   expect(html).toContain('IMAX, le guide complet')
   expect(html).toContain('Laser, double laser, 70 mm')
   expect(html).toContain('application/ld+json')
-  await openPage(page, '/guides/imax')
+  await openPage(page, '/articles/imax')
   const heroFigure = page.locator('.imax-guide > header figure')
   if (info.project.name === 'mobile') await expect(heroFigure).toBeHidden()
   else await expect(heroFigure).toBeVisible()
@@ -84,24 +158,27 @@ test('guide serves readable content and metadata without depending on a cinema r
   ).toHaveJSProperty('complete', true)
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
-    /\/guides\/imax$/,
+    /\/articles\/imax$/,
   )
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     'content',
     'index,follow',
   )
-  const sitemap = await request.get('/sitemaps/guides.xml')
+  const sitemap = await request.get('/sitemaps/articles.xml')
   expect(sitemap.status()).toBe(200)
-  expect(await sitemap.text()).toContain('/guides/imax</loc>')
+  const sitemapXml = await sitemap.text()
+  expect(sitemapXml).toContain('/articles</loc>')
+  expect(sitemapXml).toContain('/articles/imax</loc>')
+  expect(sitemapXml).not.toContain('/guides/')
   expect(await (await request.get('/sitemap.xml')).text()).toContain(
-    '/sitemaps/guides.xml',
+    '/sitemaps/articles.xml',
   )
 })
 
 test('frame comparison changes the visible height without stretching the scene', async ({
   page,
 }, info) => {
-  await openPage(page, '/guides/imax#formats')
+  await openPage(page, '/articles/imax#formats')
   const figure = page.locator('#formats .imax-comparison')
   const image = figure.getByRole('img')
   const frame = page.locator('#imax-scene-preview img')
@@ -214,7 +291,7 @@ test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', a
   page,
 }, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openPage(page, '/guides/imax#projection')
+  await openPage(page, '/articles/imax#projection')
   const result = page.locator('#imax-projection-result')
   const technical = page.locator('#imax-projection-technical')
   await expect(technical).toHaveCount(0)
@@ -332,7 +409,7 @@ test('guide highlights Odysseum and sends the full cinema list to the IMAX direc
   await request.post('/__playwright/scenario', {
     data: { historicalTechnologies: true },
   })
-  await openPage(page, '/guides/imax#salles')
+  await openPage(page, '/articles/imax#salles')
   const venues = page.locator('#salles')
   await expect(
     venues.getByRole('list', { name: 'Sélection de cinémas IMAX' }),
@@ -408,12 +485,12 @@ test('contents follows the reading position and mobile navigation closes accessi
   page,
 }, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openPage(page, '/guides/imax#questions')
+  await openPage(page, '/articles/imax#questions')
   const initialContents = page.getByRole('navigation', {
     name:
       info.project.name === 'mobile'
-        ? 'Sommaire mobile du guide'
-        : 'Sommaire du guide',
+        ? 'Sommaire mobile de l’article'
+        : 'Sommaire de l’article',
     exact: true,
   })
   if (info.project.name === 'mobile')
@@ -430,7 +507,7 @@ test('contents follows the reading position and mobile navigation closes accessi
   await expect(page.locator('#formats-title')).toBeInViewport()
   const mobile = info.project.name === 'mobile'
   const contents = page.getByRole('navigation', {
-    name: mobile ? 'Sommaire mobile du guide' : 'Sommaire du guide',
+    name: mobile ? 'Sommaire mobile de l’article' : 'Sommaire de l’article',
     exact: true,
   })
   if (mobile) {
@@ -474,10 +551,10 @@ test('contents follows the reading position and mobile navigation closes accessi
     ).toHaveAttribute('aria-current', 'location')
 })
 
-test('footer exposes Guides and the guide stays usable on small screens', async ({
+test('footer exposes Articles and the guide stays usable on small screens', async ({
   page,
 }, info) => {
-  await openPage(page, '/guides/imax')
+  await openPage(page, '/articles/imax')
   const footer = page.getByRole('contentinfo')
   await expect(page.locator('#alternatives')).toHaveCount(0)
   await expect(
@@ -493,11 +570,11 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
     page.getByText('Choisissez vos cinémas', { exact: true }),
   ).toBeHidden()
   await expect(
-    footer.getByRole('heading', { name: 'Guides', exact: true }),
+    footer.getByRole('heading', { name: 'Articles', exact: true }),
   ).toBeVisible()
   await expect(
     footer.getByRole('link', { name: 'IMAX : le guide complet', exact: true }),
-  ).toHaveAttribute('href', '/guides/imax')
+  ).toHaveAttribute('href', '/articles/imax')
   await page.screenshot({
     path: info.outputPath('imax-guide.png'),
     fullPage: true,
@@ -512,7 +589,7 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
   if (info.project.name === 'mobile')
     await page
       .getByRole('navigation', {
-        name: 'Sommaire mobile du guide',
+        name: 'Sommaire mobile de l’article',
         exact: true,
       })
       .locator('summary')

@@ -73,14 +73,21 @@ function scrollToTop() {
             <h2
               class="font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.16em]"
             >
-              Guides
+              Articles
             </h2>
             <ul class="mt-5 space-y-3">
               <li>
                 <NuxtLink
-                  to="/guides/imax"
+                  to="/articles/imax"
                   class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
                   >IMAX : le guide complet</NuxtLink
+                >
+              </li>
+              <li>
+                <NuxtLink
+                  to="/articles"
+                  class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
+                  >Tous les articles</NuxtLink
                 >
               </li>
             </ul>

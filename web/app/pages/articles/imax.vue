@@ -282,7 +282,7 @@ const sources = [
   },
 ]
 const config = useRuntimeConfig()
-const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/guides/imax')
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/articles/imax')
 const title = 'IMAX : le guide complet en France - MesSeances'
 const description =
   'Comprendre l’IMAX sans jargon : comparez les formats 1,90 et 1,43, le laser et le 70 mm, puis trouvez votre cinéma IMAX en France.'
@@ -331,7 +331,13 @@ useHead({
               {
                 '@type': 'ListItem',
                 position: 2,
-                name: 'Guide IMAX',
+                name: 'Articles',
+                item: absoluteSiteUrl(config.public.siteUrl, '/articles'),
+              },
+              {
+                '@type': 'ListItem',
+                position: 3,
+                name: 'IMAX : le guide complet',
                 item: canonicalUrl,
               },
             ],
@@ -350,17 +356,13 @@ useHead({
   >
     <header class="border-b-2 border-ink">
       <div class="mx-auto max-w-[1440px] px-4 pt-6 sm:px-6 lg:px-10">
-        <nav
-          aria-label="Fil d’Ariane"
-          class="flex gap-2 font-mono text-[11px] text-muted"
-        >
-          <NuxtLink
-            to="/"
-            class="underline underline-offset-4 hover:text-primary"
-            >Accueil</NuxtLink
-          ><span aria-hidden="true">/</span
-          ><span aria-current="page">Guide IMAX</span>
-        </nav>
+        <Breadcrumbs
+          :items="[
+            { label: 'Accueil', to: '/' },
+            { label: 'Articles', to: '/articles' },
+            { label: 'IMAX : le guide complet' },
+          ]"
+        />
         <div
           class="grid gap-10 py-10 sm:py-16 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-14"
         >
@@ -436,7 +438,7 @@ useHead({
 
     <nav
       class="guide-mobile-contents sticky z-20 border-y-2 border-ink bg-[#f8f7f2] lg:hidden"
-      aria-label="Sommaire mobile du guide"
+      aria-label="Sommaire mobile de l’article"
     >
       <details
         ref="mobileContents"
@@ -475,7 +477,7 @@ useHead({
     >
       <aside class="hidden border-r-2 border-ink lg:block">
         <nav
-          aria-label="Sommaire du guide"
+          aria-label="Sommaire de l’article"
           class="guide-desktop-contents sticky px-4 py-7 xl:px-5"
         >
           <p

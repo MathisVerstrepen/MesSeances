@@ -1,8 +1,9 @@
 # IMAX guide maintenance
 
-The French public guide lives at `/guides/imax`. It is linked from the footer's
-Guides section and `/sitemaps/guides.xml`. Update the editorial review date and
-sitemap `lastmod` when changing its factual content. References and image credits
+The French public guide lives at `/articles/imax`. It is linked from the footer's
+Articles section, the `/articles` index and `/sitemaps/articles.xml`.
+The old `/guides` and `/guides/imax` URLs permanently redirect to their new paths.
+Update the editorial review date and sitemap `lastmod` when changing its factual content. References and image credits
 are grouped at the end of the article, without inline bibliography anchors.
 
 Cinema links resolve verified catalog IDs to current API slugs. Unknown entries

@@ -23,6 +23,11 @@ export default defineNuxtConfig({
   },
   modules: ['@vite-pwa/nuxt'],
   routeRules: {
+    '/guides': { redirect: { to: '/articles', statusCode: 301 } },
+    '/guides/imax': { redirect: { to: '/articles/imax', statusCode: 301 } },
+    '/sitemaps/guides.xml': {
+      redirect: { to: '/sitemaps/articles.xml', statusCode: 301 },
+    },
     ...Object.fromEntries(
       [...accountPageRoots, '/api/v1/auth', '/api/v1/account'].flatMap((path) =>
         [path, `${path}/**`].map((pattern) => [
