@@ -52,8 +52,8 @@ function toggle(value: FormatBrand) {
       </button>
     </div>
     <p class="mb-3 text-xs font-medium">
-      Selon la programmation disponible. Au moins une des technologies
-      sélectionnées.
+      Technologies observées dans la programmation actuelle ou sur les 12
+      derniers mois. Au moins une des technologies sélectionnées.
     </p>
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2">
       <label

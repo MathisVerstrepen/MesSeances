@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -25,8 +26,16 @@ func (s *Store) ProcessHistoryStatistics(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	var today time.Time
+	if err := tx.QueryRow(ctx, `SELECT (clock_timestamp() AT TIME ZONE 'Europe/Paris')::date`).Scan(&today); err != nil {
+		return false, err
+	}
 	if ready && revision == applied {
-		return false, tx.Commit(ctx)
+		changed, err := refreshTheaterTechnologies(ctx, tx, today, false, false)
+		if err != nil {
+			return false, err
+		}
+		return changed, tx.Commit(ctx)
 	}
 	if !ready {
 		err = backfillHistoryStatistics(ctx, tx)
@@ -34,6 +43,9 @@ func (s *Store) ProcessHistoryStatistics(ctx context.Context) (bool, error) {
 		err = applyHistoryStatistics(ctx, tx)
 	}
 	if err != nil {
+		return false, err
+	}
+	if _, err := refreshTheaterTechnologies(ctx, tx, today, !ready, true); err != nil {
 		return false, err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM screening_statistics_pending`); err != nil {

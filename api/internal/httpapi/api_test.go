@@ -812,7 +812,7 @@ func TestTheaterShowtimesTransportContracts(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(sortedKeys(payload), []string{"available_formats", "date", "discovery", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"available_formats", "date", "discovery", "generated_at", "showtimes", "technologies", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
 		t.Fatalf("payload=%+v", payload)
 	}
 	if !reflect.DeepEqual(payload["available_formats"], []any{"SCREENX"}) {

@@ -177,8 +177,8 @@ func TestHistoryRetentionIntegration(t *testing.T) {
 	}
 	historyPublish(t, s, testDataset(), kinepolisTestDataset())
 	// Emulate migration's empty history on an existing two-provider schedule.
-	// The activity journal also starts empty and retains noncascading theater references.
-	historyExec(t, pool, `DELETE FROM cinema_activity_episode_sources;DELETE FROM cinema_activity_episodes;DELETE FROM cinema_activity_coverage;DELETE FROM cinema_activity_state;DELETE FROM screening_history_showtimes;DELETE FROM screening_history_theaters;DELETE FROM screening_history_providers`)
+	// Activity and technology read models also start empty at that boundary.
+	historyExec(t, pool, `DELETE FROM theater_technology_summary;UPDATE theater_technology_state SET ready=false,evaluated_on=NULL;DELETE FROM cinema_activity_episode_sources;DELETE FROM cinema_activity_episodes;DELETE FROM cinema_activity_coverage;DELETE FROM cinema_activity_state;DELETE FROM screening_history_showtimes;DELETE FROM screening_history_theaters;DELETE FROM screening_history_providers`)
 	historyPublish(t, s, testDataset())
 	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes`, 5)
 	historyCount(t, pool, `SELECT count(*) FROM screening_history_providers WHERE provider='kinepolis'`, 0)

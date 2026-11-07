@@ -1,5 +1,36 @@
 import { test, expect, openPage } from './fixtures'
 
+test('directory and cinema detail show historical technology without currently bookable formats', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', {
+    data: { historicalTechnologies: true },
+  })
+  await openPage(page, '/cinemas')
+  await page.getByRole('button', { name: /^Filtres/ }).click()
+  const dialog = page.getByRole('dialog', {
+    name: 'Filtres des cinémas',
+    exact: true,
+  })
+  await dialog
+    .getByRole('checkbox', { name: 'ICE', exact: true })
+    .locator('..')
+    .click()
+  await expect(page).toHaveURL(/technologies=ICE/)
+  await dialog.getByRole('button', { name: 'Fermer les filtres' }).click()
+  await page
+    .locator('#cinema-section-all')
+    .getByRole('link', { name: /^Voir les séances/ })
+    .click()
+  const technologies = page.getByRole('list', {
+    name: 'Technologies du cinéma',
+  })
+  await expect(technologies.getByRole('listitem')).toHaveCount(2)
+  await expect(technologies.getByTitle('IMAX', { exact: true })).toBeVisible()
+  await expect(technologies.getByTitle('ICE', { exact: true })).toBeVisible()
+})
+
 test('mobile view controls stay beside Filters while the long filter sheet scrolls', async ({
   page,
   request,

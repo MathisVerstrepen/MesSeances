@@ -350,6 +350,14 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
+    if (path === '/api/v1/theaters' && scenario.historicalTechnologies)
+      return json(response, [
+        {
+          ...theater,
+          available_formats: ['2D'],
+          technologies: ['IMAX', 'ICE'],
+        },
+      ])
     if (path === '/api/v1/theaters' && scenario.directoryTechnologies)
       return json(response, [
         {
@@ -541,11 +549,16 @@ const mock = createServer((request, response) => {
       if (!venue) return json(response, { error: { code: 'not_found' } }, 404)
       if (scenario.discovery === 'error')
         return json(response, { error: { code: 'schedule_unavailable' } }, 503)
-      return json(response, {
+      const detail = {
         ...showtimes(url.searchParams.get('date') || date),
         theater: venue,
         discovery: cinemaDiscovery(scenario.discovery, venue),
-      })
+      }
+      if (scenario.historicalTechnologies) {
+        detail.available_formats = ['2D']
+        detail.technologies = ['IMAX', 'ICE']
+      }
+      return json(response, detail)
     }
     if (path === '/api/v1/theaters/missing/showtimes')
       return json(

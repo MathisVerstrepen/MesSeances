@@ -126,6 +126,7 @@ type Theater struct {
 }
 
 type TheaterCatalogItem struct {
+	Technologies     []Format `json:"technologies"`
 	Provider         Provider `json:"provider"`
 	ID               string   `json:"id"`
 	Slug             string   `json:"slug"`
@@ -173,6 +174,7 @@ type CityDetail struct {
 }
 
 type TheaterShowtimes struct {
+	Technologies     []Format           `json:"technologies"`
 	Discovery        TheaterDiscovery   `json:"discovery"`
 	GeneratedAt      time.Time          `json:"generated_at"`
 	Timezone         string             `json:"timezone"`

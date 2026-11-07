@@ -37,6 +37,24 @@ const theaters: Theater[] = [
   { ...base, id: 'missing' },
 ]
 
+test('directory uses precomputed historical technologies independently of current formats', () => {
+  const rows: Theater[] = [
+    { ...base, available_formats: ['2D'], technologies: ['IMAX', 'ICE'] },
+  ]
+  assert.deepEqual(
+    cinemaDirectoryTechnologies(rows).map((option) => option.value),
+    ['IMAX', 'ICE'],
+  )
+  assert.deepEqual(filterCinemaDirectory(rows, '', [], ['ICE']), rows)
+  assert.deepEqual(filterCinemaDirectory(rows, '', [], ['DOLBY']), [])
+  assert.deepEqual(
+    cinemaDirectoryTechnologies([
+      { ...base, available_formats: ['IMAX'], technologies: [] },
+    ]),
+    [],
+  )
+})
+
 test('technology options reflect the full directory, omit 2D and deduplicate formats', () => {
   assert.deepEqual(
     cinemaDirectoryTechnologies(theaters).map((option) => option.value),

@@ -46,6 +46,7 @@ type fakeSnapshotReader struct {
 	version           int64
 	enrichmentVersion int64
 	locationVersion   int64
+	technologyVersion int64
 	data              Dataset
 	versionErr        error
 	loadErr           error
@@ -63,7 +64,7 @@ func (f *fakeSnapshotReader) CurrentRevision(ctx context.Context) (SnapshotRevis
 	f.mu.Lock()
 	f.checks++
 	started, release := f.versionStarted, f.versionRelease
-	revision, err := SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion, TheaterLocationVersion: f.locationVersion}, f.versionErr
+	revision, err := SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion, TheaterLocationVersion: f.locationVersion, TheaterTechnologyVersion: f.technologyVersion}, f.versionErr
 	f.mu.Unlock()
 	if started != nil {
 		select {
@@ -85,7 +86,7 @@ func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevisio
 	f.mu.Lock()
 	f.loads++
 	started, release := f.loadStarted, f.loadRelease
-	data, version, enrichmentVersion, locationVersion, err := cloneDataset(f.data), f.version, f.enrichmentVersion, f.locationVersion, f.loadErr
+	data, version, enrichmentVersion, locationVersion, technologyVersion, err := cloneDataset(f.data), f.version, f.enrichmentVersion, f.locationVersion, f.technologyVersion, f.loadErr
 	if f.useLoadVersion {
 		version = f.loadVersion
 	}
@@ -103,7 +104,7 @@ func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevisio
 			return Dataset{}, SnapshotRevision{}, ctx.Err()
 		}
 	}
-	return data, SnapshotRevision{ScheduleVersion: version, EnrichmentVersion: enrichmentVersion, TheaterLocationVersion: locationVersion}, err
+	return data, SnapshotRevision{ScheduleVersion: version, EnrichmentVersion: enrichmentVersion, TheaterLocationVersion: locationVersion, TheaterTechnologyVersion: technologyVersion}, err
 }
 
 func TestPostgresSourceSnapshotIsDetachedZeroAllocationAndNoIO(t *testing.T) {

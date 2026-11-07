@@ -93,6 +93,7 @@ type theaterPageDiscovery struct {
 }
 
 type cinemaPageContent struct {
+	Technologies       []Format
 	Venue              pageVenue
 	Image              *PublicPageImage
 	AvailableDateCount int
@@ -289,7 +290,7 @@ func BuildSitemapProjection(view *SnapshotView, now time.Time, images map[string
 		if value, ok := images[theater.ID]; ok {
 			image = &value
 		}
-		content := cinemaPageContent{Venue: projectVenue(materializeTheater(view, position)), Image: image, AvailableDateCount: len(theater.AvailableDates), Dates: nonpastDates(theater.AvailableDates, today), DefaultDate: today, Programme: programme, Discovery: theaterPageDiscovery{Window: discovery.Window, Movies: cards, OtherTheaters: discovery.OtherTheaters}}
+		content := cinemaPageContent{Technologies: append([]Format{}, view.theaterTechnologies[position]...), Venue: projectVenue(materializeTheater(view, position)), Image: image, AvailableDateCount: len(theater.AvailableDates), Dates: nonpastDates(theater.AvailableDates, today), DefaultDate: today, Programme: programme, Discovery: theaterPageDiscovery{Window: discovery.Window, Movies: cards, OtherTheaters: discovery.OtherTheaters}}
 		if err := add("/cinema/"+url.PathEscape(theater.Slug), content); err != nil {
 			return SitemapProjection{}, err
 		}

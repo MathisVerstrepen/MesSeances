@@ -16,7 +16,9 @@ export function normalizeCinemaTechnologies(
 
 export function cinemaDirectoryTechnologies(theaters: readonly Theater[]) {
   const available = new Set(
-    theaters.flatMap((theater) => theater.available_formats ?? []),
+    theaters.flatMap(
+      (theater) => theater.technologies ?? theater.available_formats ?? [],
+    ),
   )
   return cinemaTechnologyOptions.filter((option) => available.has(option.value))
 }

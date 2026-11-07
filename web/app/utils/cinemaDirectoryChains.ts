@@ -48,7 +48,9 @@ export function filterCinemaDirectory(
     if (
       technologies.length > 0 &&
       !technologies.some((technology) =>
-        theater.available_formats?.includes(technology),
+        (theater.technologies ?? theater.available_formats)?.includes(
+          technology,
+        ),
       )
     )
       return false
