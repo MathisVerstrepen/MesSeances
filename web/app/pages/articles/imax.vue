@@ -282,18 +282,40 @@ const sources = [
   },
 ]
 const config = useRuntimeConfig()
+const publishedDate = '2026-11-07'
+const modifiedDate = '2026-11-07'
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/articles/imax')
+const socialImageUrl = absoluteSiteUrl(
+  config.public.siteUrl,
+  '/images/social/imax-guide-v2.jpg',
+)
+const socialImageAlt = 'IMAX : le guide complet — MesSeances.'
 const title = 'IMAX : le guide complet en France - MesSeances'
 const description =
   'Comprendre l’IMAX sans jargon : comparez les formats 1,90 et 1,43, le laser et le 70 mm, puis trouvez votre cinéma IMAX en France.'
 useSeoMeta({
   title,
   description,
-  robots: 'index,follow',
+  robots: 'index,follow,max-image-preview:large',
   ogTitle: title,
   ogDescription: description,
   ogUrl: canonicalUrl,
   ogType: 'article',
+  ogSiteName: 'MesSeances',
+  ogLocale: 'fr_FR',
+  ogImage: socialImageUrl,
+  ogImageType: 'image/jpeg',
+  ogImageWidth: 1200,
+  ogImageHeight: 630,
+  ogImageAlt: socialImageAlt,
+  twitterCard: 'summary_large_image',
+  twitterTitle: title,
+  twitterDescription: description,
+  twitterImage: socialImageUrl,
+  twitterImageAlt: socialImageAlt,
+  articlePublishedTime: publishedDate,
+  articleModifiedTime: modifiedDate,
+  articleSection: 'Formats et projection',
 })
 useHead({
   link: [{ rel: 'canonical', href: canonicalUrl }],
@@ -306,11 +328,14 @@ useHead({
         '@graph': [
           {
             '@type': 'Article',
+            '@id': `${canonicalUrl}#article`,
+            url: canonicalUrl,
             headline: 'IMAX, le guide complet',
+            image: socialImageUrl,
             description,
             inLanguage: 'fr-FR',
-            datePublished: '2026-11-07',
-            dateModified: '2026-11-07',
+            datePublished: publishedDate,
+            dateModified: modifiedDate,
             mainEntityOfPage: canonicalUrl,
             author: {
               '@id': `${absoluteSiteUrl(config.public.siteUrl, '/')}#organization`,

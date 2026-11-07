@@ -6,6 +6,33 @@ The old `/guides` and `/guides/imax` URLs permanently redirect to their new path
 Update the editorial review date and sitemap `lastmod` when changing its factual content. References and image credits
 are grouped at the end of the article, without inline bibliography anchors.
 
+## Indexing and social previews
+
+Both article routes render canonical URLs, indexable robots metadata (including
+`max-image-preview:large`), French Open Graph metadata and large Twitter cards
+in the initial server HTML. The IMAX Article JSON-LD includes its canonical URL,
+preview image, publication date and modification date, with MesSeances as author
+and publisher. Keep the article dates and sitemap `lastmod` consistent when
+updating the editorial content. Search engines decide whether and when to index.
+
+The public JPEG previews are 1200 × 630 at
+`/images/social/imax-guide-v2.jpg` and `/images/social/articles-v2.jpg`.
+The IMAX preview contains only the existing logo and article title. The index
+preview reads “Articles cinéma” and contains no IMAX branding. Both use local
+Noto Sans and site colors, with no ratio diagrams or small supporting text. Regenerate them with:
+
+```sh
+npm --prefix web run generate-article-previews
+# Optional existing Chrome instead of installed Playwright Chromium:
+CHROME_BIN=/usr/bin/google-chrome npm --prefix web run generate-article-previews
+```
+
+The generator is `web/tools/generate-article-previews.mjs`. Bump image filenames
+and metadata together when changing published artwork to avoid stale social
+cache entries. Production absolute URLs use `NUXT_PUBLIC_SITE_URL`, supplied
+from `WEB_ORIGIN` by production Compose. The browser suite verifies raw server
+metadata, crawlable images, structured data, sitemap and old-route redirects.
+
 Cinema links resolve verified catalog IDs to current API slugs. Unknown entries
 fall back to `/cinemas?technologies=IMAX&q=…`. The directory reads the public
 catalog, gives `technologies` precedence over currently bookable formats, and

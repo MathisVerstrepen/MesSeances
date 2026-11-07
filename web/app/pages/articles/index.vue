@@ -6,6 +6,11 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/articles')
+const socialImageUrl = absoluteSiteUrl(
+  config.public.siteUrl,
+  '/images/social/articles-v2.jpg',
+)
+const socialImageAlt = 'Articles cinéma — MesSeances.'
 const title = 'Articles cinéma - MesSeances'
 const description =
   'Formats, salles et expériences de cinéma : nos articles pour comprendre les différences et mieux choisir votre séance.'
@@ -13,11 +18,23 @@ const description =
 useSeoMeta({
   title,
   description,
-  robots: 'index,follow',
+  robots: 'index,follow,max-image-preview:large',
   ogTitle: title,
   ogDescription: description,
   ogUrl: canonicalUrl,
   ogType: 'website',
+  ogSiteName: 'MesSeances',
+  ogLocale: 'fr_FR',
+  ogImage: socialImageUrl,
+  ogImageType: 'image/jpeg',
+  ogImageWidth: 1200,
+  ogImageHeight: 630,
+  ogImageAlt: socialImageAlt,
+  twitterCard: 'summary_large_image',
+  twitterTitle: title,
+  twitterDescription: description,
+  twitterImage: socialImageUrl,
+  twitterImageAlt: socialImageAlt,
 })
 useHead({
   link: [{ rel: 'canonical', href: canonicalUrl }],
@@ -30,7 +47,9 @@ useHead({
         '@graph': [
           {
             '@type': 'CollectionPage',
+            '@id': canonicalUrl,
             name: 'Articles cinéma',
+            image: socialImageUrl,
             description,
             url: canonicalUrl,
             inLanguage: 'fr-FR',

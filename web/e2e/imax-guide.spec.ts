@@ -1,5 +1,87 @@
 import { test, expect, openPage } from './fixtures'
 
+test('article indexing and preview metadata are available in server HTML to crawlers', async ({
+  page,
+  request,
+  baseURL,
+}) => {
+  for (const [path, imagePath, type] of [
+    ['/articles', '/images/social/articles-v2.jpg', 'website'],
+    ['/articles/imax', '/images/social/imax-guide-v2.jpg', 'article'],
+  ] as const) {
+    const response = await request.get(path, {
+      headers: { 'User-Agent': 'facebookexternalhit/1.1' },
+    })
+    expect(response.status()).toBe(200)
+    expect(response.headers()['x-robots-tag'] ?? '').not.toContain('noindex')
+    // Parse the original server document without running its scripts/hydration.
+    const document = await page.evaluate(
+      (html) => {
+        const doc = new DOMParser().parseFromString(html, 'text/html')
+        return {
+          canonical: [...doc.querySelectorAll('link[rel="canonical"]')].map(
+            (link) => link.getAttribute('href'),
+          ),
+          meta: [...doc.head.querySelectorAll('meta')].map((meta) => ({
+            key: meta.getAttribute('property') ?? meta.getAttribute('name'),
+            value: meta.getAttribute('content'),
+          })),
+          graph: [
+            ...doc.querySelectorAll('script[type="application/ld+json"]'),
+          ].flatMap(
+            (script) => JSON.parse(script.textContent ?? '{}')['@graph'] ?? [],
+          ),
+        }
+      },
+      await response.text(),
+    )
+    const canonical = new URL(path, baseURL).href
+    const image = new URL(imagePath, baseURL).href
+    const meta = (key: string) =>
+      document.meta.filter((item) => item.key === key).map((item) => item.value)
+    expect(document.canonical).toEqual([canonical])
+    expect(meta('robots')).toEqual(['index,follow,max-image-preview:large'])
+    expect(meta('og:url')).toEqual([canonical])
+    expect(meta('og:type')).toEqual([type])
+    expect(meta('og:locale')).toEqual(['fr_FR'])
+    expect(meta('og:site_name')).toEqual(['MesSeances'])
+    expect(meta('og:image')).toEqual([image])
+    expect(meta('og:image:type')).toEqual(['image/jpeg'])
+    expect(meta('og:image:width')).toEqual(['1200'])
+    expect(meta('og:image:height')).toEqual(['630'])
+    expect(meta('og:image:alt')[0]).toBeTruthy()
+    expect(meta('twitter:card')).toEqual(['summary_large_image'])
+    expect(meta('twitter:image')).toEqual([image])
+    expect(meta('twitter:title')).toEqual(meta('og:title'))
+    expect(meta('twitter:description')).toEqual(meta('og:description'))
+    expect(meta('twitter:image:alt')).toEqual(meta('og:image:alt'))
+    const node = document.graph.find(
+      (item) =>
+        item['@type'] === (type === 'article' ? 'Article' : 'CollectionPage'),
+    )
+    expect(node.url).toBe(canonical)
+    expect(node.image).toBe(image)
+    if (type === 'article') {
+      expect(meta('article:published_time')).toEqual([node.datePublished])
+      expect(meta('article:modified_time')).toEqual([node.dateModified])
+      const author = document.graph.find(
+        (item) => item['@id'] === node.author['@id'],
+      )
+      expect(author.name).toBe('MesSeances')
+    }
+    const preview = await request.get(imagePath)
+    expect(preview.status()).toBe(200)
+    expect(preview.headers()['content-type']).toContain('image/jpeg')
+    expect(preview.headers()['x-robots-tag'] ?? '').not.toContain('noindex')
+    expect((await preview.body()).byteLength).toBeLessThan(300_000)
+    await page.goto(image)
+    await expect(page.locator('img')).toHaveJSProperty('naturalWidth', 1200)
+    await expect(page.locator('img')).toHaveJSProperty('naturalHeight', 630)
+  }
+  const robots = await request.get('/robots.txt')
+  expect(await robots.text()).toContain(`Sitemap: ${baseURL}/sitemap.xml`)
+})
+
 test('articles index, breadcrumbs and legacy redirects expose the new category', async ({
   page,
   request,
@@ -162,7 +244,7 @@ test('guide serves readable content and metadata without depending on a cinema r
   )
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
     'content',
-    'index,follow',
+    'index,follow,max-image-preview:large',
   )
   const sitemap = await request.get('/sitemaps/articles.xml')
   expect(sitemap.status()).toBe(200)
