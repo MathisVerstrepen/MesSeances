@@ -8,6 +8,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "generate-pwa-assets": "pwa-assets-generator",
+    "generate-article-previews": "node tools/generate-article-previews.mjs",
     "lint": "oxlint",
     "test:unit": "node --experimental-strip-types --test tests/*.test.ts",
     "test:accounts:browser": "node tools/account-browser.mjs",

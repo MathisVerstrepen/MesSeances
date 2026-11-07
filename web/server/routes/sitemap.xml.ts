@@ -4,6 +4,7 @@ const CHILD_SITEMAPS = [
   '/sitemaps/films.xml',
   '/sitemaps/cinemas.xml',
   '/sitemaps/cities.xml',
+  '/sitemaps/articles.xml',
 ]
 
 export default defineCachedEventHandler(

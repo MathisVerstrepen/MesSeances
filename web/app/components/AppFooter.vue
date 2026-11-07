@@ -48,7 +48,7 @@ function scrollToTop() {
 
         <nav
           aria-label="Navigation de pied de page"
-          class="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3"
+          class="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-2 xl:grid-cols-4"
         >
           <div>
             <h2
@@ -64,6 +64,30 @@ function scrollToTop() {
                   >{{
                     link.label
                   }}</NuxtLink
+                >
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <h2
+              class="font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.16em]"
+            >
+              Articles
+            </h2>
+            <ul class="mt-5 space-y-3">
+              <li>
+                <NuxtLink
+                  to="/articles/imax"
+                  class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
+                  >IMAX : le guide complet</NuxtLink
+                >
+              </li>
+              <li>
+                <NuxtLink
+                  to="/articles"
+                  class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
+                  >Tous les articles</NuxtLink
                 >
               </li>
             </ul>
