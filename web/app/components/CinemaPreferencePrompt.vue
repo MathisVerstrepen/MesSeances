@@ -21,6 +21,7 @@ const visible = computed(
     !preferences.writesBlocked.value &&
     !preferences.syncError.value &&
     route.path !== '/cinemas' &&
+    !/^\/guides(?:\/|$)/i.test(route.path) &&
     !isAccountPage(route.path) &&
     !/^\/admin(?:\/|$)/i.test(route.path) &&
     !$appUpdate.state.available,

@@ -181,6 +181,8 @@ test('prompt waits for presence and storage, suppresses saved/inactive/private/e
   assert.equal(h.page.visible.value, true)
   for (const path of [
     '/cinemas',
+    '/guides',
+    '/guides/imax',
     '/connexion',
     '/compte',
     '/compte/preferences',

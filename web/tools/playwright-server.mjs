@@ -350,6 +350,8 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
+    if (path === '/api/v1/theaters' && scenario.imaxGuideOffline)
+      return json(response, { error: { code: 'schedule_unavailable' } }, 503)
     if (path === '/api/v1/theaters' && scenario.historicalTechnologies)
       return json(response, [
         {
