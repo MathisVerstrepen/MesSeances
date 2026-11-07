@@ -9,8 +9,7 @@ const systems = [
     aspectRatio: 1.9,
     name: 'IMAX Laser · simple laser',
     text: 'Souvent appelé CoLa (Commercial Laser). C’est une configuration adaptée aux multiplexes. Elle améliore notamment la netteté, la luminosité et les couleurs par rapport à l’ancienne génération au xénon.',
-    takeaway:
-      'Un bon repère pour choisir une séance IMAX numérique. Le mot « Laser » seul ne garantit pas une image en 1,43.',
+    takeaway: 'Le simple laser affiche un cadre allant jusqu’à 1,90:1.',
     sound: 'Le son peut être à 12 canaux selon l’installation.',
   },
   {
@@ -23,7 +22,7 @@ const systems = [
     name: 'IMAX GT Laser · double laser',
     text: 'Deux projecteurs laser et une optique adaptée permettent d’afficher un cadre très haut sur un écran compatible. Le film doit lui aussi disposer d’une version en 1,43.',
     takeaway:
-      'Le double laser GT peut ouvrir l’image en 1,43. Deux projecteurs ne suffisent pas, à eux seuls, à identifier cette configuration.',
+      'Le double laser GT affiche les versions 1,43 sur un écran compatible.',
     sound: 'Une installation sonore immersive, généralement à 12 canaux.',
   },
   {
@@ -50,7 +49,7 @@ const systems = [
     name: 'IMAX numérique · xénon',
     text: 'La première génération de projection IMAX numérique utilise deux projecteurs 2K à lampes. La superposition de deux images 2K ne constitue pas une projection 4K native.',
     takeaway:
-      'Le label reste IMAX, mais l’équipement diffère du laser. Vérifiez la technologie annoncée par le cinéma.',
+      'Cette génération est limitée au 1,90:1 et à une définition de 2K par projecteur.',
     sound:
       'Le système historique utilise moins de canaux que les installations à 12 canaux.',
   },
@@ -130,9 +129,6 @@ const selected = computed(
             <dd class="mt-1 font-bold">{{ selected.resolution }}</dd>
           </div>
         </dl>
-        <p class="mt-4 text-xs text-muted">
-          Schéma de principe, sans échelle physique.
-        </p>
       </div>
       <div class="border-t-2 border-ink p-6 sm:p-8 lg:border-t-0 lg:border-l-2">
         <h3 class="editorial-heading">{{ selected.name }}</h3>

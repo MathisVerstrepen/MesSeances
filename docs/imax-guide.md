@@ -2,7 +2,8 @@
 
 The French public guide lives at `/guides/imax`. It is linked from the footer's
 Guides section and `/sitemaps/guides.xml`. Update the editorial review date and
-sitemap `lastmod` when changing its factual content.
+sitemap `lastmod` when changing its factual content. References and image credits
+are grouped at the end of the article, without inline bibliography anchors.
 
 Cinema links resolve verified catalog IDs to current API slugs. Unknown entries
 fall back to `/cinemas?technologies=IMAX&q=…`. The directory reads the public
@@ -15,7 +16,8 @@ The 26% and 67% figures are rounded rectangle-area comparisons at equal width
 against 2.39:1. They do not compare physical screens or resolution. Centered
 masks over scan images illustrate geometry rather than reproduce release
 masters. The source scans have slightly different image bounds; the display
-fits them into a 1.43 rectangle. Do not label these simulated crops as official
+fits them into a 1.43 rectangle. The unmasked film-strip illustration preserves
+the full scan, including its perforations. Do not label these simulated crops as official
 compositions.
 
 ## Visual assets
@@ -25,12 +27,13 @@ files in `/home/mathis/Pictures/IMAX Scans`; originals were not modified:
 
 | Web asset stem | Original filename |
 | --- | --- |
-| `interstellar-gargantua` | `Gargantua.jpg` |
-| `interstellar-edmund` | `INTERSTELLAR IMAX Brand Edmund_s planet.jpg` |
+| `dune` (Dune : Deuxième Partie) | `img20240322_16114833 2 2.jpg` |
+| `project-hail-mary` | `Project Hail Mary IMAX film cell strip scan.jpg` |
 | `odyssee-voilier` | `The Odyssey IMAX 70mm Scan 7.jpg` |
+| `odyssee-pellicule` (800, 1600 and 2400 px) | `The Odyssey IMAX 70mm Scan 3.jpg` |
 
 The library contained no scanner attribution or license notes. The guide names
-the films and director and attributes image rights to their respective holders;
+the films and attributes image rights to their respective holders;
 it does not claim a license, ownership, or an identified scan author.
 
 ## Verification
@@ -43,5 +46,5 @@ npm --prefix web run test:browser -- e2e/imax-guide.spec.ts
 ```
 
 The fixture covers desktop/mobile interaction, keyboard ratio selection,
-non-expanded films, scene switching, projection types, catalog outage,
+visible movie buttons below the preview, scene switching, projection types, catalog outage,
 IMAX directory filtering, fallback links, metadata, sitemap and footer entry.

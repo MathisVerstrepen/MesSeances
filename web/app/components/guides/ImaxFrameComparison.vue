@@ -2,29 +2,27 @@
 import { imaxExtraImage, imaxRatios } from '~/utils/imaxGuide'
 
 const selectedId = ref<(typeof imaxRatios)[number]['id']>('digital')
-const scopeOnly = ref(false)
-const showGuides = ref(false)
 const scenes = [
   {
-    id: 'interstellar-edmund',
-    label: 'Interstellar · le paysage',
-    credit: 'Interstellar (2014), Christopher Nolan',
-    alt: 'Une astronaute dans un paysage rocheux sous un vaste ciel.',
+    id: 'dune',
+    label: 'Dune : Deuxième Partie',
+    director: 'Denis Villeneuve',
+    alt: 'Dune : Deuxième Partie, deux personnages assis au milieu des dunes.',
   },
   {
-    id: 'interstellar-gargantua',
-    label: 'Interstellar · Gargantua',
-    credit: 'Interstellar (2014), Christopher Nolan',
-    alt: 'Le trou noir Gargantua et son disque lumineux dans l’espace.',
+    id: 'project-hail-mary',
+    label: 'Projet Dernière Chance',
+    director: 'Phil Lord et Christopher Miller',
+    alt: 'Une silhouette en apesanteur devant un astre vert.',
   },
   {
     id: 'odyssee-voilier',
-    label: 'L’Odyssée · le voilier',
-    credit: 'L’Odyssée (2026), Christopher Nolan',
+    label: 'L’Odyssée',
+    director: 'Christopher Nolan',
     alt: 'Un voilier à voile rouge navigue en mer.',
   },
 ] as const
-const sceneId = ref('interstellar-edmund')
+const sceneId = ref('dune')
 const scene = computed(
   () => scenes.find((item) => item.id === sceneId.value) ?? scenes[0],
 )
@@ -32,65 +30,21 @@ const selected = computed(
   () =>
     imaxRatios.find((ratio) => ratio.id === selectedId.value) ?? imaxRatios[1],
 )
-const effectiveRatio = computed(() =>
-  scopeOnly.value ? 2.39 : selected.value.ratio,
-)
-const maskHeight = computed(() => `${(1 - 1.43 / effectiveRatio.value) * 50}%`)
-const extraImage = computed(() => imaxExtraImage(effectiveRatio.value))
+const maskHeight = computed(() => `${(1 - 1.43 / selected.value.ratio) * 50}%`)
+const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
 </script>
 
 <template>
   <div
     class="border-2 border-ink bg-surface shadow-[6px_6px_0_var(--color-highlight)]"
   >
-    <div
-      class="flex flex-wrap items-center justify-between gap-3 bg-[#f8f7f2] p-4"
-    >
-      <label for="imax-scene" class="font-mono text-xs font-bold uppercase"
-        >Choisir une scène</label
-      >
-      <select
-        id="imax-scene"
-        v-model="sceneId"
-        class="editorial-field w-full sm:w-auto"
-      >
-        <option v-for="item in scenes" :key="item.id" :value="item.id">
-          {{ item.label }}
-        </option>
-      </select>
-    </div>
-    <fieldset class="grid grid-cols-3 border-b-2 border-ink">
-      <legend class="sr-only">Choisir le cadrage à comparer</legend>
-      <label
-        v-for="format in imaxRatios"
-        :key="format.id"
-        class="relative flex min-h-20 cursor-pointer flex-col justify-center gap-1 border-r-2 border-ink p-3 text-center last:border-r-0 focus-within:z-10 focus-within:ring-2 focus-within:ring-accent focus-within:ring-inset"
-        :class="selectedId === format.id ? 'bg-ink text-white' : 'hover:bg-subtle'"
-      >
-        <input
-          v-model="selectedId"
-          type="radio"
-          name="imax-ratio"
-          :value="format.id"
-          class="sr-only"
-          :aria-label="`${format.label} (${format.value})`"
-          aria-controls="imax-frame-result"
-        >
-        <span
-          class="font-mono text-[10px] font-bold uppercase tracking-wider sm:text-xs"
-          >{{
-            format.label
-          }}</span
-        >
-        <span class="text-lg font-black sm:text-2xl">{{ format.value }}</span>
-      </label>
-    </fieldset>
     <figure>
       <div class="relative overflow-hidden bg-[#10292f] p-3 sm:p-7">
         <div
+          id="imax-scene-preview"
           class="relative mx-auto aspect-[1.43] max-w-3xl overflow-hidden border border-white/30"
           role="img"
-          :aria-label="`${scene.alt} Simulation au format ${scopeOnly ? '2,39:1' : selected.value}. ${extraImage} % de surface en plus qu’au format Scope, à largeur égale.`"
+          :aria-label="`${scene.alt} Simulation au format ${selected.value}. ${extraImage} % de surface en plus qu’au format Scope, à largeur égale.`"
         >
           <img
             :src="`/images/guides/${scene.id}-1600.webp`"
@@ -111,17 +65,86 @@ const extraImage = computed(() => imaxExtraImage(effectiveRatio.value))
             class="frame-mask absolute inset-x-0 bottom-0 bg-[#10292f]"
             :style="{ height: maskHeight }"
           />
-          <div
-            v-if="showGuides"
-            class="pointer-events-none absolute inset-x-0 top-1/2 aspect-[2.39] -translate-y-1/2 border-y-2 border-dashed border-[#f5d998]"
-            aria-hidden="true"
-          />
           <span
             class="absolute bottom-2 left-2 bg-[#10292f] px-2 py-1 font-mono text-[10px] font-bold text-white sm:bottom-3 sm:left-3 sm:text-xs"
             >MÊME SCÈNE · MÊME LARGEUR</span
           >
         </div>
+        <div
+          role="group"
+          aria-label="Choisir un film"
+          class="mt-4 flex flex-wrap justify-center gap-2 sm:gap-3"
+        >
+          <button
+            v-for="item in scenes"
+            :key="item.id"
+            type="button"
+            :aria-pressed="sceneId === item.id"
+            aria-controls="imax-scene-preview"
+            class="inline-flex min-h-12 flex-col items-center justify-center gap-1 rounded-sm border px-3 py-2 text-center shadow-sm transition-colors focus-visible:ring-highlight focus-visible:ring-offset-[#10292f] sm:px-4"
+            :class="sceneId === item.id ? 'border-highlight bg-highlight text-ink' : 'border-white/25 bg-white/5 text-white hover:border-white/50 hover:bg-white/10'"
+            @click="sceneId = item.id"
+          >
+            <span class="text-xs font-bold sm:text-sm">{{ item.label }}</span>
+            <span
+              class="text-[10px] leading-tight sm:text-xs"
+              :class="sceneId === item.id ? 'text-ink/75' : 'text-white/70'"
+              >{{
+                item.director
+              }}</span
+            >
+          </button>
+        </div>
       </div>
+      <fieldset
+        class="grid grid-cols-3 border-t-2 border-ink bg-ink text-white"
+      >
+        <legend class="sr-only">Choisir le cadrage à comparer</legend>
+        <label
+          v-for="format in imaxRatios"
+          :key="format.id"
+          class="relative flex min-h-32 cursor-pointer flex-col items-center justify-center gap-1 border-r border-white/20 p-3 text-center last:border-r-0 focus-within:z-10 focus-within:ring-2 focus-within:ring-highlight focus-within:ring-inset"
+          :class="selectedId === format.id ? 'text-white' : 'text-white/60 hover:text-white'"
+        >
+          <input
+            v-model="selectedId"
+            type="radio"
+            name="imax-ratio"
+            :value="format.id"
+            class="sr-only"
+            :aria-label="`${format.label} (${format.value})`"
+            aria-controls="imax-frame-result"
+          >
+          <svg
+            viewBox="0 0 64 48"
+            class="mb-1 h-10 w-14"
+            fill="none"
+            aria-hidden="true"
+          >
+            <rect
+              x="8"
+              :y="24 - 24 / format.ratio"
+              width="48"
+              :height="48 / format.ratio"
+              rx="1"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+          </svg>
+          <span
+            class="font-mono text-[10px] font-bold uppercase tracking-wider sm:text-xs"
+            >{{
+              format.label
+            }}</span
+          >
+          <span class="text-lg font-black sm:text-xl">{{ format.value }}</span>
+          <span
+            class="mt-1 h-1 w-8"
+            :class="selectedId === format.id ? 'bg-highlight' : 'bg-transparent'"
+            aria-hidden="true"
+          />
+        </label>
+      </fieldset>
       <figcaption
         id="imax-frame-result"
         class="grid gap-4 border-t-2 border-ink p-5 sm:grid-cols-[auto_1fr] sm:gap-8 sm:p-7"
@@ -138,43 +161,15 @@ const extraImage = computed(() => imaxExtraImage(effectiveRatio.value))
         </p>
         <div>
           <p class="font-bold">
-            {{
-              scopeOnly ? 'Un film en Scope reste en Scope.' : selected.description
-            }}
+            {{ selected.description }}
           </p>
           <p class="mt-2 text-sm leading-relaxed text-muted">
-            {{
-              scopeOnly ? 'Le logo IMAX ne crée pas de contenu au-dessus et en dessous. Sans version à cadre étendu, l’image reste panoramique, même dans une salle 1,43.' : 'La scène s’ouvre en haut et en bas, sans étirer l’image. Les pourcentages comparent des rectangles à largeur identique, pas la taille réelle des écrans.'
-            }}
+            La scène s’ouvre en haut et en bas, sans étirer l’image. Les
+            surfaces sont comparées à largeur égale.
           </p>
         </div>
       </figcaption>
     </figure>
-    <p
-      class="border-t border-line px-5 py-3 text-xs leading-relaxed text-muted sm:px-7"
-    >
-      {{ scene.credit }}. Scans de photogrammes fournis pour ce guide ; droits
-      des images à leurs titulaires respectifs. Recadrages pédagogiques centrés
-      : les cadrages des versions distribuées peuvent différer.
-    </p>
-    <div
-      class="flex flex-col gap-3 border-t border-line bg-[#f8f7f2] p-5 text-sm sm:flex-row sm:flex-wrap sm:gap-x-8 sm:px-7"
-    >
-      <label class="flex min-h-8 cursor-pointer items-center gap-3"
-        ><input
-          v-model="scopeOnly"
-          type="checkbox"
-          class="size-4 accent-ink"
-        >Tester un film sans image étendue</label
-      >
-      <label class="flex min-h-8 cursor-pointer items-center gap-3"
-        ><input
-          v-model="showGuides"
-          type="checkbox"
-          class="size-4 accent-ink"
-        >Afficher les repères du Scope</label
-      >
-    </div>
   </div>
 </template>
 

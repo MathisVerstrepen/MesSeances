@@ -38,7 +38,7 @@ test('guide serves readable content and metadata without depending on a cinema r
   )
 })
 
-test('frame comparison changes the visible height without stretching the scene and handles a film without expanded image', async ({
+test('frame comparison changes the visible height without stretching the scene', async ({
   page,
 }, info) => {
   await openPage(page, '/guides/imax#formats')
@@ -46,6 +46,20 @@ test('frame comparison changes the visible height without stretching the scene a
   const image = figure.getByRole('img')
   await expect(figure.locator('figcaption')).toContainText('+26 %')
   const originalBounds = await image.boundingBox()
+  const movies = page.getByRole('group', {
+    name: 'Choisir un film',
+    exact: true,
+  })
+  await expect(movies.getByRole('button')).toHaveCount(3)
+  await expect(page.locator('#formats').getByRole('combobox')).toHaveCount(0)
+  await expect(
+    movies.getByRole('button', { name: /Dune : Deuxième Partie/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(figure.locator('img')).toHaveAttribute('src', /dune-1600.webp$/)
+  const movieBounds = await movies.boundingBox()
+  expect(movieBounds!.y).toBeGreaterThanOrEqual(
+    originalBounds!.y + originalBounds!.height,
+  )
   await page
     .getByRole('radio', { name: 'IMAX 1,90 (1,90:1)', exact: true })
     .focus()
@@ -55,27 +69,58 @@ test('frame comparison changes the visible height without stretching the scene a
   ).toBeChecked()
   await expect(figure.locator('figcaption')).toContainText('+67 %')
   await expect(image).toHaveAttribute('aria-label', /1,43:1/)
-  expect(await image.boundingBox()).toEqual(originalBounds)
+  const expandedBounds = await image.boundingBox()
+  expect(expandedBounds!.width).toBe(originalBounds!.width)
+  expect(expandedBounds!.height).toBe(originalBounds!.height)
   await expect(figure.locator('.frame-mask').first()).toHaveCSS('height', '0px')
-  await page.getByLabel('Choisir une scène').selectOption('odyssee-voilier')
+  await movies
+    .getByRole('button', {
+      name: /Projet Dernière Chance Phil Lord et Christopher Miller/,
+    })
+    .click()
+  await expect(figure.locator('img')).toHaveAttribute(
+    'src',
+    /project-hail-mary-1600.webp$/,
+  )
+  await expect(
+    movies.getByRole('button', {
+      name: /Projet Dernière Chance Phil Lord et Christopher Miller/,
+    }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await expect(
+    movies.getByRole('button', { name: /Dune : Deuxième Partie/ }),
+  ).toHaveAttribute('aria-pressed', 'false')
+  await expect(figure.locator('img')).toHaveJSProperty('complete', true)
+  expect(
+    await figure
+      .locator('img')
+      .evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  const odyssey = movies.getByRole('button', {
+    name: /L’Odyssée Christopher Nolan/,
+  })
+  await odyssey.focus()
+  await page.keyboard.press('Enter')
+  await expect(odyssey).toHaveAttribute('aria-pressed', 'true')
   await expect(figure.locator('img')).toHaveAttribute(
     'src',
     /odyssee-voilier-1600.webp$/,
   )
   await expect(figure.locator('img')).toHaveJSProperty('complete', true)
-  await page.getByLabel('Tester un film sans image étendue').check()
+  await page
+    .getByRole('radio', { name: 'Cinéma Scope (2,39:1)', exact: true })
+    .locator('..')
+    .click()
   await expect(figure.locator('figcaption')).toContainText('+0 %')
-  await expect(figure.locator('figcaption')).toContainText(
-    'Un film en Scope reste en Scope.',
-  )
   await page
     .getByRole('radio', { name: 'IMAX 1,90 (1,90:1)', exact: true })
     .locator('..')
     .click()
-  await expect(figure.locator('figcaption')).toContainText('+0 %')
-  await page.getByLabel('Tester un film sans image étendue').uncheck()
   await expect(figure.locator('figcaption')).toContainText('+26 %')
-  await page.getByLabel('Afficher les repères du Scope').check()
+  await expect(page.locator('#formats').getByRole('checkbox')).toHaveCount(0)
+  await expect(page.locator('#formats')).not.toContainText(
+    'Scans de photogrammes',
+  )
   await page
     .locator('#formats')
     .screenshot({ path: info.outputPath('imax-frame-comparison.png') })
@@ -108,6 +153,13 @@ test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', a
     .getByRole('radio', { name: 'Numérique xénon', exact: true })
     .locator('..')
     .click()
+  const strip = page.getByRole('img', { name: /Bande de pellicule IMAX 70 mm/ })
+  await strip.scrollIntoViewIfNeeded()
+  await expect(strip).toBeVisible()
+  await expect(strip).toHaveJSProperty('complete', true)
+  expect(
+    await strip.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
   await expect(result).toContainText('2K')
   await expect(result).toContainText(
     'ne constitue pas une projection 4K native',
@@ -158,6 +210,16 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
 }, info) => {
   await openPage(page, '/guides/imax')
   const footer = page.getByRole('contentinfo')
+  await expect(page.locator('#alternatives')).toHaveCount(0)
+  await expect(
+    page.getByText('LE GUIDE MESSEANCES · N° 01', { exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByText(/Lecture à votre rythme/)).toHaveCount(0)
+  await expect(page.locator('main a[href^="#source-"]')).toHaveCount(0)
+  await expect(page.locator('#source-imax a')).toHaveAttribute(
+    'href',
+    'https://www.imax.com/the-imax-experience',
+  )
   await expect(
     page.getByText('Choisissez vos cinémas', { exact: true }),
   ).toBeHidden()
@@ -179,6 +241,8 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
     ),
   ).toBe(true)
   await page.getByRole('link', { name: /Questions fréquentes/ }).click()
+  await expect(page).toHaveURL(/#questions$/)
+  await expect(page.locator('#questions-title')).toBeInViewport()
   const question = page
     .locator('#questions')
     .getByText('Le 70 mm classique est-il de l’IMAX ?', { exact: true })

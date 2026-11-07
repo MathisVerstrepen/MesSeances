@@ -60,7 +60,6 @@ const chapters = [
   { id: 'experience', label: 'Son & 3D' },
   { id: 'salles', label: 'Les salles en France' },
   { id: 'choisir', label: 'Choisir sa séance' },
-  { id: 'alternatives', label: 'Les autres formats' },
   { id: 'questions', label: 'Questions fréquentes' },
 ]
 const faqs = [
@@ -77,7 +76,7 @@ const faqs = [
   {
     question: 'Peut-on voir de l’IMAX 70 mm en France ?',
     answer:
-      'Le CNC documente l’ouverture de cette offre au Pathé Odysseum de Montpellier pour L’Odyssée, en juillet 2026. Cela ne signifie pas que toutes les séances de ce cinéma utilisent la pellicule. Vérifiez le film, la date et la mention « IMAX 70 mm » au moment de réserver.',
+      'Oui. Le Pathé Odysseum à Montpellier propose des projections IMAX 70 mm depuis juillet 2026, avec L’Odyssée comme premier film. Pour voir un film sur pellicule, choisissez une séance portant la mention « IMAX 70 mm ».',
   },
   {
     question: 'Le 70 mm classique est-il de l’IMAX ?',
@@ -144,12 +143,6 @@ const sources = [
     name: 'Dolby · Dolby Vision et Dolby Atmos au cinéma',
     detail: 'Les technologies d’image et de son qui équipent Dolby Cinema.',
     url: 'https://news.dolby.com/en-WW/236229-dolby-expanding-the-best-way-to-experience-movies-by-making-dolby-vision-and-dolby-atmos-available-to-all-premium-theater-exhibitors/',
-  },
-  {
-    id: 'ice',
-    name: 'ICE Theaters · Découvrir l’expérience',
-    detail: 'Projection laser, son Atmos et panneaux lumineux latéraux.',
-    url: 'https://www.icetheaters.com/discover-ice-imersa-experience',
   },
 ]
 const config = useRuntimeConfig()
@@ -233,12 +226,8 @@ useHead({
           class="grid gap-10 py-10 sm:py-16 lg:grid-cols-[1.15fr_1fr] lg:items-center lg:gap-14"
         >
           <div>
-            <p class="guide-eyebrow">
-              <span class="inline-block size-2 bg-primary" aria-hidden="true" />
-              LE GUIDE MESSEANCES · N° 01
-            </p>
             <h1
-              class="mt-5 text-[clamp(3rem,5.2vw,4.7rem)] font-black leading-[0.98] tracking-[-0.075em]"
+              class="text-[clamp(3rem,5.2vw,4.7rem)] font-black leading-[0.98] tracking-[-0.075em]"
             >
               L’IMAX en France,<br>
               <span class="text-accent">tout simplement.</span>
@@ -258,10 +247,6 @@ useHead({
                 <MapPin :size="16" aria-hidden="true" /></NuxtLink
               >
             </div>
-            <p class="mt-5 font-mono text-[10px] leading-5 text-muted">
-              Lecture à votre rythme · Comparaisons interactives<br>Repères
-              documentaires vérifiés le 7 novembre 2026
-            </p>
           </div>
           <figure
             class="relative mb-4 border-2 border-ink bg-ink p-3 shadow-[8px_8px_0_var(--color-highlight)] sm:p-4"
@@ -388,12 +373,6 @@ useHead({
               </p>
             </div>
           </div>
-          <p class="mt-5 text-xs leading-relaxed text-muted">
-            Conception des salles et remasterisation :
-            <a href="#source-imax" class="guide-link"
-              >IMAX, présentation de l’expérience</a
-            >.
-          </p>
           <div class="mt-7 border-l-4 border-primary bg-surface p-5">
             <p class="font-black">
               Le bon réflexe : vérifier le film ET la salle.
@@ -438,7 +417,7 @@ useHead({
                 <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
                   >Pathé Odysseum à Montpellier</NuxtLink
                 >
-                est un repère pour ce format.
+                permet de voir les films compatibles en 1,43.
               </p>
             </div>
           </div>
@@ -447,12 +426,6 @@ useHead({
             2,39 n’est donc pas le format de toutes les séances ordinaires. Une
             image plus haute ne dit rien, à elle seule, de la définition ou de
             la taille physique de l’écran.
-          </p>
-          <p class="mt-4 text-xs leading-relaxed text-muted">
-            Calculs géométriques à largeur constante. Montpellier en Laser 1,43
-            : <a href="#source-143" class="guide-link">liste IMAX</a>. Pour
-            découvrir une comparaison officielle par film :
-            <a href="#source-odyssey" class="guide-link">L’Odyssée</a>.
           </p>
         </section>
 
@@ -471,66 +444,36 @@ useHead({
             l’image. Ces mots ne parlent pas de la même chose.
           </p>
           <div class="mt-7"><GuidesImaxProjectionExplorer /></div>
-          <p class="mt-4 text-xs leading-relaxed text-muted">
-            Présentation du laser 4K et du son :
-            <a href="#source-laser" class="guide-link">IMAX with Laser</a>.
-            Disponibilité et compatibilité à vérifier auprès du cinéma pour
-            chaque film.
-          </p>
-          <div class="mt-8 grid gap-6 sm:grid-cols-2">
-            <div>
-              <h3 class="font-black">Le 15/70, sans jargon</h3>
-              <p class="mt-3 text-sm leading-relaxed">
-                « 70 » correspond à la largeur de la copie en millimètres ; « 15
-                » au nombre de perforations par image. Le film avance sur le
-                côté, ce qui laisse une grande surface pour chaque photogramme.
-                Il faut une copie physique et un projecteur spécialisé.
-              </p>
-            </div>
-            <figure class="border-2 border-ink bg-[#eee9dd] p-4">
-              <svg
-                viewBox="0 0 420 155"
-                role="img"
-                aria-label="Schéma de la pellicule IMAX : une grande image entre deux rangées de 15 perforations, avec un défilement horizontal."
-                class="w-full"
+          <div class="mt-8">
+            <h3 class="font-black">Le 15/70, sans jargon</h3>
+            <p class="mt-3 text-sm leading-relaxed">
+              « 70 » correspond à la largeur de la pellicule en millimètres ; «
+              15 » au nombre de perforations par image. Le film défile
+              horizontalement dans le projecteur. Sur cette bande de
+              <em>L’Odyssée</em>, on distingue les photogrammes et les
+              perforations le long des deux bords.
+            </p>
+            <figure class="mt-5 border-2 border-ink bg-[#eee9dd] p-3 sm:p-4">
+              <img
+                src="/images/guides/odyssee-pellicule-1600.webp"
+                srcset="
+                  /images/guides/odyssee-pellicule-800.webp   800w,
+                  /images/guides/odyssee-pellicule-1600.webp 1600w,
+                  /images/guides/odyssee-pellicule-2400.webp 2400w
+                "
+                sizes="(max-width: 1023px) 90vw, 1000px"
+                width="2400"
+                height="679"
+                alt="Bande de pellicule IMAX 70 mm de L’Odyssée : trois photogrammes et leurs perforations sur les bords supérieur et inférieur."
+                class="h-auto w-full"
+                loading="lazy"
+                decoding="async"
               >
-                <rect x="5" y="5" width="410" height="120" fill="#27272a" />
-                <g v-for="n in 15" :key="n" fill="#eee9dd">
-                  <rect
-                    :x="12 + (n - 1) * 27"
-                    y="11"
-                    width="12"
-                    height="10"
-                    rx="2"
-                  />
-                  <rect
-                    :x="12 + (n - 1) * 27"
-                    y="109"
-                    width="12"
-                    height="10"
-                    rx="2"
-                  />
-                </g>
-                <rect x="146" y="29" width="130" height="73" fill="#a8bfa3" />
-                <text
-                  x="211"
-                  y="72"
-                  text-anchor="middle"
-                  font-family="monospace"
-                  font-size="16"
-                  fill="#27272a"
-                >
-                  1 IMAGE
-                </text>
-                <path
-                  d="M75 142h270m-10-6 10 6-10 6"
-                  stroke="#27272a"
-                  stroke-width="2"
-                />
-              </svg>
-              <figcaption class="mt-2 font-mono text-[10px] leading-relaxed">
-                15 perforations par image · Défilement horizontal<br>Schéma
-                explicatif, proportions simplifiées.
+              <figcaption
+                class="mt-3 flex flex-wrap justify-between gap-2 font-mono text-[10px] leading-relaxed"
+              >
+                <span>15 perforations par image</span
+                ><span>Défilement horizontal →</span>
               </figcaption>
             </figure>
           </div>
@@ -538,10 +481,10 @@ useHead({
             <summary>Et les caméras, le DMR et les chiffres « 18K » ?</summary>
             <div class="space-y-4">
               <p>
-                Un film peut être tourné sur pellicule IMAX, avec des caméras
-                numériques certifiées, ou avec d’autres caméras puis adapté pour
-                une sortie IMAX. L’étiquette du tournage ne suffit pas à
-                connaître la copie que vous verrez.
+                Un film IMAX peut être tourné sur pellicule ou avec des caméras
+                numériques certifiées. D’autres films sont adaptés après le
+                tournage pour une sortie IMAX. Le format du tournage et celui de
+                la projection sont deux choses différentes.
               </p>
               <p>
                 Le DMR est une remasterisation de l’image pour la projection
@@ -578,16 +521,10 @@ useHead({
                 salle comptent autant que leur nombre.
               </p>
               <p class="mt-3 text-sm leading-relaxed">
-                Ce n’est pas le Dolby Atmos, qui peut placer des objets sonores
-                et les répartir selon les enceintes disponibles. Aucun de ces
-                noms ne suffit à classer toutes les séances du meilleur au moins
-                bon.
-              </p>
-              <p class="mt-3 text-xs text-muted">
-                Repères :
-                <a href="#source-laser" class="guide-link">IMAX Laser</a>
-                et
-                <a href="#source-dolby" class="guide-link">Dolby</a>.
+                Le Dolby Atmos fonctionne autrement : il place les sons dans
+                l’espace et les répartit entre les enceintes de la salle. Dans
+                les deux cas, la qualité d’écoute dépend du mixage et du réglage
+                des équipements.
               </p>
             </div>
             <div>
@@ -609,8 +546,8 @@ useHead({
             <p class="text-sm leading-relaxed">
               <strong>Pour votre confort :</strong>
               le son et le grand champ de vision peuvent paraître intenses. Une
-              place plus reculée peut être plus agréable si vous aimez garder
-              tout l’écran dans votre regard.
+              place plus reculée permet de voir l’ensemble de l’écran sans
+              tourner la tête.
             </p>
           </div>
         </section>
@@ -642,18 +579,15 @@ useHead({
                 <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
                   >Pathé Odysseum</NuxtLink
                 >
-                figure dans les listes IMAX Laser 1,43. En juillet 2026, le CNC
-                y documente aussi l’ouverture de l’offre IMAX 70 mm pour
+                possède un écran au format 1,43 et une projection IMAX Laser
+                compatible. Depuis juillet 2026, il propose aussi des
+                projections sur pellicule IMAX 70 mm, inaugurées avec
                 <em>L’Odyssée</em>.
-                <a href="#source-cnc" class="guide-link text-xs"
-                  >Source CNC ↗</a
-                >
               </p>
               <p class="mt-4 text-sm leading-relaxed">
-                La présence de ces équipements ne garantit pas la pellicule ou
-                le plein cadre à chaque séance. Avant de faire le déplacement,
-                vérifiez la mention exacte de la projection, la langue et la
-                disponibilité des billets.
+                Le format dépend de la séance : numérique ou pellicule, 2D ou
+                3D, VF ou VOST. Vérifiez ces mentions et la disponibilité des
+                billets avant de faire le déplacement.
               </p>
               <NuxtLink
                 :to="landmarkTarget('odysseum')"
@@ -676,11 +610,8 @@ useHead({
               >
             </div>
             <p class="mt-3 text-xs leading-relaxed text-muted">
-              Les liens ouvrent la fiche MesSeances lorsqu’elle est identifiée,
-              sinon une recherche avec le filtre IMAX. La Géode et les sites
-              scientifiques ou de loisirs ont une programmation spécifique : ne
-              présumez pas qu’ils diffusent les mêmes longs-métrages qu’un
-              multiplexe.
+              La Géode et les sites scientifiques ou de loisirs proposent une
+              programmation spécifique, souvent consacrée aux documentaires.
             </p>
           </div>
           <div class="mt-8 border-2 border-ink bg-surface p-5 sm:p-7">
@@ -691,10 +622,8 @@ useHead({
               >
             </div>
             <p class="mt-3 text-sm leading-relaxed text-muted">
-              L’étiquette IMAX indique une technologie connue du cinéma, pas une
-              séance IMAX disponible aujourd’hui. L’annuaire ne distingue pas
-              systématiquement le xénon, le simple laser, le double laser ou le
-              70 mm.
+              Retrouvez les cinémas équipés en IMAX et consultez leur
+              programmation.
             </p>
             <template v-if="!directory?.unavailable && imaxTheaters.length">
               <label
@@ -761,7 +690,7 @@ useHead({
               class="mt-5 border-l-4 border-accent bg-accent-soft p-4 text-sm leading-relaxed"
             >
               {{
-                directory?.unavailable ? 'L’annuaire est momentanément indisponible. Le guide reste consultable ; vous pouvez réessayer depuis la liste des cinémas.' : 'Aucun cinéma n’est actuellement référencé avec la technologie IMAX dans cet annuaire.'
+                directory?.unavailable ? 'L’annuaire est momentanément indisponible.' : 'Aucun cinéma n’est actuellement référencé avec la technologie IMAX dans cet annuaire.'
               }}
               <NuxtLink :to="imaxDirectoryTarget" class="guide-link"
                 >Consulter la liste IMAX</NuxtLink
@@ -772,14 +701,9 @@ useHead({
             <summary>Combien de salles existe-t-il en France ?</summary>
             <div>
               <p>
-                Le CNC cite 37 salles dans son article du 10 juillet 2026, en
-                incluant des sites non dédiés aux longs-métrages, comme la Cité
-                de l’espace et le Futuroscope. Ce chiffre daté et ce périmètre
-                ne correspondent pas forcément aux cinémas présents dans
-                MesSeances.
-                <a href="#source-cnc" class="guide-link"
-                  >Voir la source et sa date</a
-                >.
+                En juillet 2026, la France comptait 37 salles IMAX, en incluant
+                la Cité de l’espace et le Futuroscope. L’annuaire MesSeances
+                recense les cinémas suivis sur le site.
               </p>
             </div>
           </details>
@@ -793,9 +717,6 @@ useHead({
                 l’accélération des ouvertures dans les années 2010, puis la
                 diversification des exploitants. L’arrivée de l’IMAX 70 mm à
                 Montpellier en 2026 marque une nouvelle étape.
-                <a href="#source-cnc" class="guide-link"
-                  >Histoire documentée par le CNC</a
-                >.
               </p>
             </div>
           </details>
@@ -850,10 +771,10 @@ useHead({
               >
               <h3 class="mt-3 font-black">Immersion ou recul ?</h3>
               <p class="mt-2 text-sm leading-relaxed">
-                Pour un premier essai, le centre en largeur, vers le milieu ou
-                un peu derrière, est un point de départ. Avancez si vous aimez
-                remplir votre champ de vision ; reculez si vous préférez voir
-                l’ensemble sans tourner la tête.
+                Pour une première séance, choisissez une place au centre, vers
+                le milieu de la salle ou légèrement derrière. Plus près, l’image
+                remplit davantage votre champ de vision ; plus loin, vous voyez
+                plus facilement l’ensemble de l’écran.
               </p>
             </li>
           </ol>
@@ -873,90 +794,11 @@ useHead({
         </section>
 
         <section
-          id="alternatives"
-          class="guide-section"
-          aria-labelledby="alternatives-title"
-        >
-          <p class="guide-eyebrow">
-            07 / CHAQUE FORMAT A SON IDÉE DU SPECTACLE
-          </p>
-          <h2 id="alternatives-title" class="guide-title">
-            Et face au Dolby, à l’ICE ou à la 4DX ?
-          </h2>
-          <p class="guide-intro">
-            Ces labels répondent à des envies différentes. Choisissez
-            l’expérience qui vous attire, puis regardez la salle et la version
-            du film.
-          </p>
-          <div class="mt-7 grid gap-4 sm:grid-cols-2">
-            <div class="border-2 border-ink bg-highlight/25 p-5">
-              <h3 class="font-black">IMAX</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Pour le grand champ de vision, le son et les cadres étendus
-                lorsqu’ils existent. Le ratio dépend du film et de
-                l’installation.
-              </p>
-              <NuxtLink
-                :to="imaxDirectoryTarget"
-                class="guide-link mt-4 inline-block text-xs"
-                >Trouver un cinéma IMAX ↗</NuxtLink
-              >
-            </div>
-            <div class="border-2 border-ink bg-surface p-5">
-              <h3 class="font-black">Dolby Cinema</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Associe l’image Dolby Vision et le son Dolby Atmos. Un repère
-                pour le contraste et la spatialisation sonore. La mention Atmos
-                seule ne désigne pas une salle Dolby Cinema.
-              </p>
-              <a
-                href="#source-dolby"
-                class="guide-link mt-4 inline-block text-xs"
-                >Comprendre l’offre Dolby ↗</a
-              >
-            </div>
-            <div class="border-2 border-ink bg-surface p-5">
-              <h3 class="font-black">ICE</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Projection laser, son Atmos et panneaux latéraux qui prolongent
-                l’ambiance visuelle. Ces lumières périphériques ne sont pas des
-                portions supplémentaires du cadre IMAX.
-              </p>
-              <a href="#source-ice" class="guide-link mt-4 inline-block text-xs"
-                >Découvrir l’ICE ↗</a
-              >
-            </div>
-            <div class="border-2 border-ink bg-surface p-5">
-              <h3 class="font-black">Laser ULTRA</h3>
-              <p class="mt-2 text-sm leading-relaxed">
-                Le label de Kinepolis associe projection laser et Dolby Atmos.
-                Sa présence ne signifie pas que la séance utilise une version
-                IMAX à cadre étendu.
-              </p>
-              <NuxtLink
-                to="/cinemas?technologies=LASER_ULTRA"
-                class="guide-link mt-4 inline-block text-xs"
-                >Trouver un cinéma Laser ULTRA ↗</NuxtLink
-              >
-            </div>
-          </div>
-          <p class="mt-6 text-sm leading-relaxed">
-            <strong>Et la 4DX ?</strong>
-            Elle ajoute des sièges en mouvement et des effets physiques selon la
-            séance. C’est une expérience sensorielle différente ; elle ne
-            garantit ni un cadre IMAX, ni davantage d’image.
-            <NuxtLink to="/cinemas?technologies=4DX" class="guide-link"
-              >Voir les cinémas 4DX</NuxtLink
-            >.
-          </p>
-        </section>
-
-        <section
           id="questions"
           class="guide-section"
           aria-labelledby="questions-title"
         >
-          <p class="guide-eyebrow">08 / LES DERNIERS DOUTES</p>
+          <p class="guide-eyebrow">07 / LES DERNIERS DOUTES</p>
           <h2 id="questions-title" class="guide-title">
             Les questions qu’on se pose tous.
           </h2>
@@ -980,11 +822,8 @@ useHead({
           <p class="guide-eyebrow">POUR ALLER PLUS LOIN</p>
           <h2 id="sources-title" class="guide-title">Sources &amp; méthode.</h2>
           <p class="mt-5 text-sm leading-relaxed">
-            Ce guide vulgarise les notions du dossier de recherche sur l’IMAX en
-            France et les confronte aux sources ci-dessous. Il distingue le
-            support de projection, le cadrage et la taille d’écran. Les
-            équipements, tarifs et programmes peuvent évoluer ; les annonces de
-            la séance restent le repère pour réserver.
+            Les informations de ce guide s’appuient sur les publications
+            suivantes.
           </p>
           <ol class="mt-6 space-y-5">
             <li
@@ -1004,13 +843,13 @@ useHead({
           <p
             class="mt-7 border-t border-ink/20 pt-5 text-xs leading-relaxed text-muted"
           >
-            Visuels : scans de photogrammes d’<em>Interstellar</em>
-            (2014) et de <em>L’Odyssée</em> (2026), réalisés par Christopher
-            Nolan, fournis pour ce guide. Les images restent la propriété de
-            leurs ayants droit. Les masques de comparaison sont des recadrages
-            pédagogiques centrés, pas une comparaison de copies officielles. Les
-            schémas de projection et de pellicule sont simplifiés et sans
-            échelle.
+            Visuels : scans de photogrammes de <em>Dune : Deuxième Partie</em>,
+            <em>Project Hail Mary</em>
+            et <em>L’Odyssée</em>, fournis pour ce guide. Les images restent la
+            propriété de leurs ayants droit. Les masques de comparaison sont des
+            recadrages pédagogiques centrés ; les cadrages des copies
+            distribuées peuvent différer. Le schéma de projection est simplifié
+            et sans échelle.
           </p>
           <NuxtLink :to="imaxDirectoryTarget" class="editorial-button mt-8"
             >Prêt à voir plus grand ? Trouver une salle IMAX
