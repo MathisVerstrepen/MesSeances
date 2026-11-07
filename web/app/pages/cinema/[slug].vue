@@ -21,7 +21,7 @@ import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { publicCinemaImageUrl } from '~/utils/cinemaImage'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
-import { formatShowtimeCount } from '~/utils/formats'
+import { formatOptions, formatShowtimeCount } from '~/utils/formats'
 import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import {
@@ -146,6 +146,15 @@ const availableDates = computed(
     response.value?.theater.available_dates.filter(
       (date) => date >= todayInParis(),
     ) ?? [],
+)
+const theaterTechnologies = computed(() =>
+  formatOptions.filter(
+    (option) =>
+      option.brand &&
+      response.value?.available_formats?.some(
+        (format) => format === option.value,
+      ),
+  ),
 )
 
 function formatCinemaCity(city: string): string {
@@ -754,6 +763,20 @@ useHead(() => ({
                 : formatCinemaCity(response.theater.city)
               }}
             </p>
+            <ul
+              v-if="theaterTechnologies.length"
+              aria-label="Technologies du cinéma"
+              class="relative mt-4 flex flex-wrap items-center gap-2"
+            >
+              <li
+                v-for="technology in theaterTechnologies"
+                :key="technology.value"
+                :title="technology.label"
+                class="inline-flex min-h-9 max-w-full items-center border-2 border-ink bg-surface px-3 py-2 font-mono text-sm font-black text-ink"
+              >
+                <ShowtimeFormat :format="technology.value" />
+              </li>
+            </ul>
           </div>
           <div
             class="absolute bottom-8 right-8 hidden items-center gap-2 lg:flex"

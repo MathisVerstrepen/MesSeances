@@ -419,6 +419,9 @@ test('cinema is usable without horizontal overflow', async ({
   ).toBeVisible()
   const header = page.locator('main > header')
   const hero = header.locator(':scope > div').first()
+  await expect(
+    header.getByRole('list', { name: 'Technologies du cinéma' }),
+  ).toHaveCount(0)
   expect((await hero.boundingBox())!.height).toBeLessThanOrEqual(
     testInfo.project.name === 'mobile' ? 220 : 320,
   )
@@ -466,6 +469,18 @@ for (const imageState of ['photo', 'missing', 'failed']) {
         return route.fulfill({
           json: {
             ...payload,
+            available_formats: [
+              '2D',
+              '3D',
+              'IMAX',
+              'DOLBY',
+              'SCREENX',
+              'LASER_ULTRA',
+              '4DX',
+              'ICE',
+              'INFINITY_VISION',
+              'IMAX',
+            ],
             theater: {
               ...payload.theater,
               name: longName,
@@ -484,6 +499,34 @@ for (const imageState of ['photo', 'missing', 'failed']) {
     await page.getByRole('tab', { name: 'Demain', exact: true }).click()
     await page.setViewportSize(testInfo.project.use.viewport!)
     const header = page.locator('main > header')
+    const technologies = header.getByRole('list', {
+      name: 'Technologies du cinéma',
+    })
+    await expect(technologies).toBeVisible()
+    await expect(technologies.getByRole('listitem')).toHaveCount(8)
+    for (const label of [
+      '3D',
+      'IMAX',
+      'Dolby',
+      'ScreenX',
+      'Laser ULTRA by Kinepolis',
+      '4DX',
+      'ICE',
+      'Infinity Vision',
+    ]) {
+      await expect(
+        technologies.getByTitle(label, { exact: true }),
+      ).toBeVisible()
+    }
+    await expect(technologies.getByText('2D', { exact: true })).toHaveCount(0)
+    for (const logo of await technologies.locator('img').all()) {
+      await expect(logo).toHaveJSProperty('complete', true)
+      expect(
+        await logo.evaluate((image) =>
+          image instanceof HTMLImageElement ? image.naturalWidth : 0,
+        ),
+      ).toBeGreaterThan(0)
+    }
     await expect(header.getByRole('heading', { level: 1 })).toContainText(
       longName,
     )

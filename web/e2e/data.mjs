@@ -173,6 +173,7 @@ export function showtimes(selectedDate = date) {
     generated_at: generatedAt,
     timezone: 'Europe/Paris',
     theater,
+    available_formats: ['2D'],
     discovery: cinemaDiscovery(),
     date: selectedDate,
     showtimes:

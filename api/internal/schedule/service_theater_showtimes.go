@@ -19,6 +19,18 @@ func (s *Service) TheaterShowtimes(query TheaterShowtimesQuery) (TheaterShowtime
 	theater := view.data.Theaters[position]
 	result := TheaterShowtimes{GeneratedAt: view.data.GeneratedAt, Timezone: Timezone, Theater: materializeTheater(view, position), Showtimes: []TimelineShowtime{}}
 	result.Discovery = aggregateProgramme(view, s.now()).theater(view, position)
+	// Theater technologies come from the full synced programme, independent of the selected date.
+	formats := make(map[Format]bool)
+	result.AvailableFormats = []Format{}
+	for _, showingPosition := range view.theaterShowtimes[position] {
+		formats[view.data.Showtimes[showingPosition].Format] = true
+	}
+	for format := range formats {
+		result.AvailableFormats = append(result.AvailableFormats, format)
+	}
+	sort.Slice(result.AvailableFormats, func(i, j int) bool {
+		return result.AvailableFormats[i] < result.AvailableFormats[j]
+	})
 	date := query.Date
 	if date == "" && len(theater.AvailableDates) > 0 {
 		date = theater.AvailableDates[0]
