@@ -93,6 +93,11 @@ width beneath both columns, avoiding empty sidebar space next to the caption. Me
 surfaces and sage selection colors remain unchanged. Ratio choices run from
 1.43 to 2.39; the initial choice remains 1.90.
 
+On smaller screens, the ratio choices use compact labelled tabs and the film
+choices form a horizontally scrollable strip with posters, titles and directors.
+The mobile result puts its area gain beside the heading and keeps the Scope
+baseline visible. The header's decorative framing figure is desktop-only.
+
 Local 160 × 240 WebP posters were optimized from the existing public catalog's
 TMDB images, so the widget never needs external image requests at runtime:
 

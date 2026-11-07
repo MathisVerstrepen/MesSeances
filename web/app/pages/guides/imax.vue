@@ -393,7 +393,7 @@ useHead({
               >
             </div>
           </div>
-          <figure class="border-2 border-ink bg-ink p-3 sm:p-4">
+          <figure class="hidden border-2 border-ink bg-ink p-3 sm:p-4 lg:block">
             <div class="relative aspect-[1.43]">
               <img
                 src="/images/guides/odyssee-voilier-800.webp"

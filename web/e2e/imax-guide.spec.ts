@@ -55,7 +55,7 @@ test('guide film mentions use catalogue pages and the scene selector keeps its o
 test('guide serves readable content and metadata without depending on a cinema response', async ({
   page,
   request,
-}) => {
+}, info) => {
   await request.post('/__playwright/scenario', {
     data: { imaxGuideOffline: true },
   })
@@ -66,6 +66,9 @@ test('guide serves readable content and metadata without depending on a cinema r
   expect(html).toContain('Laser, double laser, 70 mm')
   expect(html).toContain('application/ld+json')
   await openPage(page, '/guides/imax')
+  const heroFigure = page.locator('.imax-guide > header figure')
+  if (info.project.name === 'mobile') await expect(heroFigure).toBeHidden()
+  else await expect(heroFigure).toBeVisible()
   await expect(
     page.getByText('L’annuaire est momentanément indisponible.', {
       exact: false,
@@ -127,7 +130,14 @@ test('frame comparison changes the visible height without stretching the scene',
   const posters = movies.locator('img')
   await expect(posters).toHaveCount(3)
   await movies.scrollIntoViewIfNeeded()
+  if (info.project.name === 'mobile')
+    expect(
+      await movies.evaluate(
+        (element) => element.scrollWidth > element.clientWidth,
+      ),
+    ).toBe(true)
   for (const poster of await posters.all()) {
+    await poster.scrollIntoViewIfNeeded()
     await expect(poster).toHaveJSProperty('complete', true)
     expect(
       await poster.evaluate((image: HTMLImageElement) => image.naturalWidth),
@@ -170,6 +180,14 @@ test('frame comparison changes the visible height without stretching the scene',
   await odyssey.focus()
   await page.keyboard.press('Enter')
   await expect(odyssey).toHaveAttribute('aria-pressed', 'true')
+  if (info.project.name === 'mobile') {
+    const stripBounds = (await movies.boundingBox())!
+    const selectedBounds = (await odyssey.boundingBox())!
+    expect(selectedBounds.x).toBeGreaterThanOrEqual(stripBounds.x - 1)
+    expect(selectedBounds.x + selectedBounds.width).toBeLessThanOrEqual(
+      stripBounds.x + stripBounds.width + 1,
+    )
+  }
   await expect(frame).toHaveAttribute('src', /odyssee-voilier-1600.webp$/)
   await expect(frame).toHaveJSProperty('complete', true)
   await page
@@ -186,9 +204,10 @@ test('frame comparison changes the visible height without stretching the scene',
   await expect(page.locator('#formats')).not.toContainText(
     'Scans de photogrammes',
   )
-  await page
-    .locator('#formats')
-    .screenshot({ path: info.outputPath('imax-frame-comparison.png') })
+  await page.locator('#formats').screenshot({
+    path: info.outputPath('imax-frame-comparison.png'),
+    animations: 'disabled',
+  })
 })
 
 test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', async ({
