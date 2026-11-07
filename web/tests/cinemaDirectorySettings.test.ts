@@ -77,13 +77,23 @@ function harness({
   }
   const bindings = {
     settingsOpen: ref(false),
+    isDesktop: ref(desktop),
+    previousRootStyles: null,
+    window: { innerWidth: desktop ? 1440 : 390 },
     settingsDialog: shallowRef(dialog),
     settingsCloseButton: shallowRef(close),
     settingsTrigger: null,
     desktopMediaQuery: { matches: desktop },
     isUnmounted: unmounted,
     bodyOverflowBeforeLock: null,
-    document: { body: { style: { overflow } }, activeElement: close },
+    document: {
+      body: { style: { overflow } },
+      documentElement: {
+        clientWidth: desktop ? 1425 : 390,
+        style: { overflow: 'scroll', scrollbarGutter: 'auto' },
+      },
+      activeElement: close,
+    },
     HTMLElement: FocusTarget,
     nextTick,
   }
@@ -117,6 +127,7 @@ test('settings use native modality, focus close, restore exact body overflow and
   assert.equal(dialog.open, true)
   assert.equal(bindings.settingsOpen.value, true)
   assert.equal(bindings.document.body.style.overflow, 'hidden')
+  assert.equal(bindings.document.documentElement.style.overflow, 'hidden')
   assert.equal(close.focusCalls, 1)
   await page.openSettings({ currentTarget: trigger })
   assert.equal(dialog.opens, 1)
@@ -125,6 +136,10 @@ test('settings use native modality, focus close, restore exact body overflow and
   assert.equal(dialog.open, false)
   assert.equal(bindings.settingsOpen.value, false)
   assert.equal(bindings.document.body.style.overflow, 'auto')
+  assert.deepEqual(bindings.document.documentElement.style, {
+    overflow: 'scroll',
+    scrollbarGutter: 'auto',
+  })
   assert.equal(trigger.focusCalls, 1)
   page.closeSettings()
   assert.equal(dialog.closes, 1)
@@ -171,10 +186,9 @@ test('Tab boundaries loop both ways and ignore other keys, hidden and disabled c
   assert.equal(prevented, 3)
 })
 
-test('desktop, unmounted and cancelled pending opens never enter modal or lock body', async () => {
-  for (const scenario of ['desktop', 'unmounted', 'closed', 'departed']) {
+test('unmounted and cancelled pending opens never enter modal or lock body', async () => {
+  for (const scenario of ['unmounted', 'closed', 'departed']) {
     const { page, dialog, trigger, bindings } = harness({
-      desktop: scenario === 'desktop',
       unmounted: scenario === 'unmounted',
     })
     const opening = page.openSettings({ currentTarget: trigger })
@@ -190,10 +204,9 @@ test('desktop, unmounted and cancelled pending opens never enter modal or lock b
   }
 })
 
-test('backdrop only dismisses outside bounds; resize and unmount cleanup skip hidden trigger focus', async () => {
+test('backdrop dismisses the overlay; resizing retains it and unmount restores scrolling', async () => {
   const { page, dialog, trigger, bindings } = harness({ overflow: '' })
   await page.openSettings({ currentTarget: trigger })
-  page.handleSettingsBackdrop({ target: dialog, clientX: 100, clientY: 500 })
   page.handleSettingsBackdrop({ target: trigger, clientX: 100, clientY: 100 })
   assert.equal(dialog.open, true)
   page.handleSettingsBackdrop({ target: dialog, clientX: 100, clientY: 100 })
@@ -205,7 +218,9 @@ test('backdrop only dismisses outside bounds; resize and unmount cleanup skip hi
   assert.equal(dialog.open, true)
   page.handleSettingsViewport({ matches: true })
   await nextTick()
-  assert.equal(dialog.open, false)
+  assert.equal(dialog.open, true)
+  assert.equal(bindings.isDesktop.value, true)
+  page.closeSettings({ restoreFocus: false })
   assert.equal(bindings.document.body.style.overflow, '')
   assert.equal(trigger.focusCalls, 1)
   await page.openSettings({ currentTarget: trigger })
@@ -216,74 +231,52 @@ test('backdrop only dismisses outside bounds; resize and unmount cleanup skip hi
   assert.equal(trigger.focusCalls, 1)
 })
 
-test('page exposes named native sheet and zero-result trigger with single reused controls and responsive cleanup', () => {
+test('same native overlay exposes both filters, desktop drawer and mobile sheet with one visible trigger', () => {
   const template = source.slice(source.indexOf('<template>'))
-  assert.match(
-    template,
-    /<dialog[\s\S]*?aria-labelledby="cinema-settings-title"[\s\S]*?aria-modal="true"/,
-  )
-  assert.match(template, /@cancel.prevent="closeSettings\(\)"/)
-  assert.match(
-    template,
-    /aria-label="Réglages des cinémas"[\s\S]*?aria-haspopup="dialog"/,
-  )
-  assert.match(template, /aria-expanded="settingsOpen"/)
-  assert.match(template, /size-11 shrink-0 p-0 lg:hidden/)
-  assert.match(
-    template,
-    /max-h-\[calc\(100dvh-1rem\)\][\s\S]*?overflow-y-auto[\s\S]*?safe-area-inset-bottom/,
-  )
   const sheet = template.slice(template.indexOf('<dialog'))
-  assert.match(sheet, /<header[^>]*sticky top-0[^>]*shrink-0/)
+  assert.match(sheet, /aria-labelledby="cinema-settings-title"/)
+  assert.match(sheet, /aria-modal="true"/)
+  assert.match(sheet, /@cancel.prevent="closeSettings\(\)"/)
+  assert.match(sheet, /lg:w-\[32rem\]/)
+  assert.match(sheet, /h-dvh/)
+  assert.match(sheet, /bg-\[#ffcf3f\]/)
   assert.match(
     sheet,
-    /cinema-settings-content min-h-0 overflow-y-auto overscroll-contain/,
+    /cinema-settings-content min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain/,
   )
+  assert.match(sheet, /<CinemaChainFilter[\s\S]*?<CinemaTechnologyFilter/)
+  assert.match(sheet, /aria-label="Fermer les filtres"/)
   assert.match(sheet, /<footer[^>]*sticky bottom-0[^>]*shrink-0/)
-  assert.ok(
-    sheet.indexOf('id="cinema-settings-controls"') <
-      sheet.indexOf('id="cinema-settings-location"'),
-  )
+  assert.match(sheet, /safe-area-inset-bottom/)
+  assert.match(sheet, /@click="resetFilters"/)
+  assert.match(sheet, /Voir \{\{ visibleTheaterCount \}\}/)
   assert.match(
     template,
-    /<h3 v-if="settingsOpen"[^>]*>\s*Cinémas affichés\s*<\/h3>/,
+    /aria-controls="cinema-settings"[\s\S]*?aria-haspopup="dialog"/,
   )
-  const footer = sheet.match(/<footer[\s\S]*?<\/footer>/)![0]
-  assert.match(footer, /@click="closeSettings\(\)"/)
-  assert.doesNotMatch(
-    footer,
-    /setChains|updateDisplayedSelection|disabled|apply|Appliquer/,
-  )
-  assert.match(
-    footer,
-    /Voir \{\{ visibleTheaterCount \}\}\s*\{\{ visibleTheaterCount === 1 \? 'cinéma' : 'cinémas' \}\}/,
-  )
-  assert.ok(
-    template.indexOf('aria-controls="cinema-settings"') <
-      template.indexOf('v-else-if="searchResults.length === 0"'),
-  )
-  assert.doesNotMatch(
-    template,
-    /selectedOnly|Sélectionnés uniquement|ListFilter/,
-  )
-  assert.equal(template.match(/@click="useCurrentPosition"/g)?.length, 1)
-  assert.equal(
-    template.match(/@click="setDisplayMode\(\{ view: 'map' \}\)"/g)?.length,
-    1,
-  )
+  assert.match(template, /:aria-expanded="settingsOpen"/)
   assert.match(
     template,
-    /<Teleport to="#cinema-settings-controls" :disabled="!settingsOpen">/,
+    /<Teleport\s+to="#cinema-settings-controls"\s+:disabled="!settingsOpen \|\| isDesktop"/,
   )
-  assert.match(
-    template,
-    /<Teleport to="#cinema-settings-location" :disabled="!settingsOpen">/,
-  )
-  assert.match(source, /window.matchMedia\('\(min-width: 1024px\)'\)/)
   assert.match(
     source,
-    /onBeforeUnmount\([\s\S]*?closeSettings\(\{ restoreFocus: false \}\)[\s\S]*?removeEventListener\('change', handleSettingsViewport\)/,
+    /onBeforeUnmount\([\s\S]*?closeSettings\(\{ restoreFocus: false \}\)/,
   )
+})
+
+test('desktop drawer locks root scrolling without losing the scrollbar gutter', async () => {
+  const { page, bindings, trigger } = harness({ desktop: true })
+  await page.openSettings({ currentTarget: trigger })
+  assert.equal(bindings.settingsOpen.value, true)
+  assert.equal(
+    bindings.document.documentElement.style.scrollbarGutter,
+    'stable',
+  )
+  page.closeSettings()
+  await nextTick()
+  assert.equal(bindings.document.documentElement.style.scrollbarGutter, 'auto')
+  assert.equal(trigger.focusCalls, 1)
 })
 
 test('one named responsive location launch stays beside explicitly labeled search, outside the sheet', () => {

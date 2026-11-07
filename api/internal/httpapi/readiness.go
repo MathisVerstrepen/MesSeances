@@ -64,5 +64,5 @@ func (c readinessChecker) ready(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	return revision.ScheduleVersion > 0 && revision.EnrichmentVersion >= 0 && revision.TheaterLocationVersion >= 0
+	return revision.ScheduleVersion > 0 && revision.EnrichmentVersion >= 0 && revision.TheaterLocationVersion >= 0 && revision.TheaterTechnologyVersion >= 0
 }

@@ -62,6 +62,7 @@ test('directory query restores all independent mode combinations and omits defau
         location,
         search: 'Lille',
         chains: [],
+        technologies: [],
       })
       assert.equal(query.view, view === 'map' ? 'map' : undefined)
       assert.equal(query.location, location === 'nearby' ? 'nearby' : undefined)
@@ -73,6 +74,7 @@ test('directory query restores all independent mode combinations and omits defau
     location: 'city',
     search: '',
     chains: [],
+    technologies: [],
   })
 })
 
@@ -206,6 +208,7 @@ test('memory history restores independent modes, replaces search and does not re
       location: 'nearby',
       search: 'Lille',
       chains: [],
+      technologies: [],
     })
     assert.equal(requests.length, 1)
     await traverse('back')
@@ -214,6 +217,7 @@ test('memory history restores independent modes, replaces search and does not re
       location: 'city',
       search: '',
       chains: [],
+      technologies: [],
     })
     assert.equal(location.locationStatus.value, 'idle')
     await traverse('back')
@@ -222,6 +226,7 @@ test('memory history restores independent modes, replaces search and does not re
       location: 'city',
       search: '',
       chains: [],
+      technologies: [],
     })
     await traverse('forward')
     await traverse('forward')
@@ -230,6 +235,7 @@ test('memory history restores independent modes, replaces search and does not re
       location: 'nearby',
       search: 'Lille',
       chains: [],
+      technologies: [],
     })
     assert.equal(requests.length, 2)
     requests[1]!.success(position())

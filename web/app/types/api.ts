@@ -948,6 +948,8 @@ export interface Theater {
   city_slug: string
   postal_code: string
   available_dates: string[]
+  available_formats?: ShowtimeFormat[]
+  technologies?: ShowtimeFormat[]
   accepted_passes: string[]
   latitude?: number | null
   longitude?: number | null
@@ -1012,6 +1014,7 @@ export interface TheaterShowtimesResponse {
   timezone: 'Europe/Paris'
   theater: Theater & { image: PublicTheaterImage | null }
   available_formats?: ShowtimeFormat[]
+  technologies?: ShowtimeFormat[]
   date: string | null
   showtimes: TimelineShowtime[]
   discovery: {

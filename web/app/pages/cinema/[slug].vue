@@ -151,7 +151,7 @@ const theaterTechnologies = computed(() =>
   formatOptions.filter(
     (option) =>
       option.brand &&
-      response.value?.available_formats?.some(
+      (response.value?.technologies ?? response.value?.available_formats)?.some(
         (format) => format === option.value,
       ),
   ),

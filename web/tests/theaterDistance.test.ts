@@ -439,7 +439,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     ) < toolbarEnd,
   )
   assert.doesNotMatch(page, /class="view-switch mb-7"/)
-  assert.match(page, /class="selection-toolbar flex-wrap /)
+  assert.match(page, /class="selection-toolbar [^"]*flex-wrap /)
   assert.match(page, /<List :size="16" aria-hidden="true" \/>\s+Liste/)
   assert.match(page, /<MapIcon :size="16" aria-hidden="true" \/>\s+Carte/)
   assert.match(
@@ -462,10 +462,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     /class="bulk-actions (?=[^"]*sm:h-11)[^"]*border-2 border-dashed border-ink/,
   )
   assert.match(page, /class="view-switch [^"]*h-11/)
-  assert.match(
-    page,
-    /class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"/,
-  )
+  assert.match(page, /class="selection-controls contents"/)
   assert.match(
     page,
     /class="bulk-actions [\s\S]*?class="inline-flex h-full min-h-0 min-w-0/,
@@ -475,7 +472,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
       ?.length,
     2,
   )
-  assert.match(page, /class="view-switch [^"]*max-sm:w-full/)
+  assert.doesNotMatch(page, /class="view-switch [^"]*max-sm:w-full/)
 })
 
 test('client map keeps individual points at every zoom, accessible Vue details, privacy, and cleanup', async () => {

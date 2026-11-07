@@ -30,6 +30,14 @@ func assertHistoryStatisticsBaseline(t *testing.T, ctx context.Context, pool *pg
 		t.Fatal("invalid statistics migration baseline", err)
 	}
 	delete(facts, "screening_statistics_state")
+	if facts["theater_technology_summary"] != "[]" {
+		t.Fatal("technology migration backfilled inside migration")
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(singleton AND NOT ready AND version=0 AND evaluated_on IS NULL) FROM theater_technology_state`).Scan(&valid); err != nil || !valid {
+		t.Fatal("invalid technology migration baseline", err)
+	}
+	delete(facts, "theater_technology_state")
+	delete(facts, "theater_technology_summary")
 }
 
 func TestHistoryStatisticsMigrationUpgradeIntegration(t *testing.T) {

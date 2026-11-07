@@ -1880,6 +1880,25 @@ func TestTheaterShowtimesAvailableFormatsSpanProgramme(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Format{Format2D, Format3D, FormatDolby, FormatICE, FormatIMAX}
+	catalog := service.Theaters(TheaterCatalogQuery{City: "lille"})
+	for _, item := range catalog {
+		detail, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: item.Slug})
+		if err != nil || !reflect.DeepEqual(item.AvailableFormats, detail.AvailableFormats) {
+			t.Fatalf("catalog formats=%v detail formats=%v err=%v", item.AvailableFormats, detail.AvailableFormats, err)
+		}
+		if item.ID == "ugc-25" {
+			if !reflect.DeepEqual(item.AvailableFormats, want) {
+				t.Fatalf("catalog formats=%v want=%v", item.AvailableFormats, want)
+			}
+			item.AvailableFormats[0] = FormatScreenX
+		}
+		if item.ID == "ugc-empty" {
+			encoded, err := json.Marshal(item)
+			if err != nil || !strings.Contains(string(encoded), `"available_formats":[]`) {
+				t.Fatalf("empty catalog JSON=%s err=%v", encoded, err)
+			}
+		}
+	}
 	for _, date := range []string{"", "2026-08-15", "2026-08-16", "2027-01-01"} {
 		result, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-25", Date: date})
 		if err != nil || !reflect.DeepEqual(result.AvailableFormats, want) {

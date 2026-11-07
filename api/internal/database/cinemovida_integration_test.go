@@ -113,7 +113,7 @@ func cinemovidaUnchangedConstraints(t *testing.T, ctx context.Context, pool *pgx
 	var result string
 	// Later additive tables have their own schema coverage; compare constraints
 	// on the tables that existed at the provider migration boundary.
-	if err := pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid),k.convalidated) ORDER BY c.relname,k.conname),'[]'::jsonb)::text FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname NOT IN ('account_activity_visits','movie_trailer_candidates','movie_trailer_lookups') AND NOT (c.relname||'.'||k.conname=ANY($1::text[])) AND NOT (c.relname=ANY($2::text[]))`, exclude, historyStatisticsTables).Scan(&result); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT coalesce(jsonb_agg(jsonb_build_array(c.relname,k.conname,pg_get_constraintdef(k.oid),k.convalidated) ORDER BY c.relname,k.conname),'[]'::jsonb)::text FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=current_schema() AND c.relname NOT IN ('account_activity_visits','movie_trailer_candidates','movie_trailer_lookups','theater_technology_state','theater_technology_summary') AND NOT (c.relname||'.'||k.conname=ANY($1::text[])) AND NOT (c.relname=ANY($2::text[]))`, exclude, historyStatisticsTables).Scan(&result); err != nil {
 		t.Fatal(err)
 	}
 	return result
