@@ -15,8 +15,9 @@ import {
   guideCinemaTarget,
   imaxDirectoryTarget,
   imaxLandmarks,
+  imaxFeaturedCinemas,
+  imaxVenueSources,
 } from '~/utils/imaxGuide'
-import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { serializeJsonLd } from '~/utils/jsonLd'
 
@@ -33,22 +34,14 @@ const { data: directory } = await useAsyncData(
   },
 )
 const theaters = computed(() => directory.value?.theaters ?? [])
-const theaterSearch = ref('')
 const imaxTheaters = computed(() =>
   filterCinemaDirectory(theaters.value, '', [], ['IMAX']),
 )
-const visibleTheaters = computed(() =>
-  filterCinemaDirectory(imaxTheaters.value, theaterSearch.value, []).sort(
-    (left, right) =>
-      left.city.localeCompare(right.city, 'fr-FR') ||
-      left.name.localeCompare(right.name, 'fr-FR'),
-  ),
-)
-const landmarks = computed(() =>
-  Object.entries(imaxLandmarks).map(([key, cinema]) => ({
-    key,
+const featuredCinemas = computed(() =>
+  imaxFeaturedCinemas.map((cinema) => ({
     ...cinema,
-    to: guideCinemaTarget(theaters.value, cinema),
+    name: imaxLandmarks[cinema.key].name,
+    to: guideCinemaTarget(theaters.value, imaxLandmarks[cinema.key]),
   })),
 )
 function landmarkTarget(key: keyof typeof imaxLandmarks) {
@@ -59,10 +52,74 @@ const chapters = [
   { id: 'formats', label: 'Comparer l’image' },
   { id: 'projection', label: 'Laser ou pellicule ?' },
   { id: 'experience', label: 'Son & 3D' },
-  { id: 'salles', label: 'Les salles en France' },
   { id: 'choisir', label: 'Choisir sa séance' },
+  { id: 'salles', label: 'Les salles en France' },
   { id: 'questions', label: 'Questions fréquentes' },
 ]
+const navigationChapters = [
+  ...chapters,
+  { id: 'sources', label: 'Sources & méthode' },
+]
+const activeChapter = ref('essentiel')
+const activeChapterLabel = computed(
+  () =>
+    navigationChapters.find((chapter) => chapter.id === activeChapter.value)
+      ?.label ?? chapters[0]!.label,
+)
+const mobileContents = ref<HTMLDetailsElement | null>(null)
+const headerHeight = ref(124)
+let headerObserver: ResizeObserver | undefined
+let scrollFrame: number | undefined
+
+function closeContents() {
+  if (mobileContents.value) mobileContents.value.open = false
+}
+function closeContentsWithFocus() {
+  closeContents()
+  mobileContents.value?.querySelector('summary')?.focus()
+}
+function updateActiveChapter() {
+  const cutoff = headerHeight.value + (window.innerWidth < 1024 ? 80 : 24)
+  let current = chapters[0]!.id
+  for (const chapter of navigationChapters) {
+    const section = document.getElementById(chapter.id)
+    if (section && section.getBoundingClientRect().top <= cutoff + 2)
+      current = chapter.id
+  }
+  activeChapter.value = current
+}
+function queueChapterUpdate() {
+  if (scrollFrame !== undefined) return
+  scrollFrame = window.requestAnimationFrame(() => {
+    scrollFrame = undefined
+    updateActiveChapter()
+  })
+}
+function handleGuideResize() {
+  if (window.innerWidth >= 1024) closeContents()
+  queueChapterUpdate()
+}
+onMounted(() => {
+  const appHeader = document.getElementById('app-header')
+  if (appHeader) {
+    headerHeight.value = appHeader.getBoundingClientRect().height
+    headerObserver = new ResizeObserver(() => {
+      headerHeight.value = appHeader.getBoundingClientRect().height
+      queueChapterUpdate()
+    })
+    headerObserver.observe(appHeader)
+  }
+  window.addEventListener('scroll', queueChapterUpdate, { passive: true })
+  window.addEventListener('resize', handleGuideResize)
+  updateActiveChapter()
+})
+onBeforeUnmount(() => {
+  headerObserver?.disconnect()
+  window.removeEventListener('scroll', queueChapterUpdate)
+  window.removeEventListener('resize', handleGuideResize)
+  if (scrollFrame !== undefined) window.cancelAnimationFrame(scrollFrame)
+})
+
 const faqs = [
   {
     question: 'Toutes les séances IMAX montrent-elles plus d’image ?',
@@ -106,6 +163,7 @@ const faqs = [
   },
 ]
 const sources = [
+  ...imaxVenueSources,
   {
     id: 'cnc',
     name: 'CNC · IMAX, l’odyssée française d’un format devenu une référence',
@@ -209,7 +267,10 @@ useHead({
 </script>
 
 <template>
-  <main class="imax-guide bg-[#f8f7f2] text-ink">
+  <main
+    class="imax-guide bg-[#f8f7f2] text-ink"
+    :style="{ '--guide-header-height': `${headerHeight}px` }"
+  >
     <header class="border-b-2 border-ink">
       <div class="mx-auto max-w-[1440px] px-4 pt-6 sm:px-6 lg:px-10">
         <nav
@@ -240,8 +301,8 @@ useHead({
               <span class="block text-ink">le guide complet</span>
             </h1>
             <p class="mt-7 max-w-xl text-lg leading-relaxed sm:text-xl">
-              Un écran qui en met plein les yeux. Mais que changent vraiment le
-              laser, le 70 mm et ces drôles de chiffres ? On vous montre.
+              Comprenez les formats IMAX, comparez l’image et trouvez votre
+              salle en France.
             </p>
             <div class="mt-8 flex flex-wrap gap-3">
               <a href="#formats" class="editorial-button"
@@ -296,10 +357,46 @@ useHead({
       </div>
     </header>
 
+    <nav
+      class="guide-mobile-contents sticky z-20 border-y-2 border-ink bg-[#f8f7f2] lg:hidden"
+      aria-label="Sommaire mobile du guide"
+    >
+      <details
+        ref="mobileContents"
+        @keydown.esc.prevent="closeContentsWithFocus"
+      >
+        <summary
+          class="cursor-pointer px-4 py-3 text-sm font-bold marker:text-accent sm:px-6"
+        >
+          <span>Sommaire</span
+          ><span class="ml-3 font-normal text-muted">{{
+            activeChapterLabel
+          }}</span>
+        </summary>
+        <ol
+          class="guide-mobile-chapters grid gap-1 overflow-y-auto border-t border-line px-4 py-3 sm:grid-cols-2 sm:px-6"
+        >
+          <li v-for="(chapter, index) in navigationChapters" :key="chapter.id">
+            <a
+              :href="`#${chapter.id}`"
+              :aria-current="activeChapter === chapter.id ? 'location' : undefined"
+              class="flex min-h-11 items-center gap-3 px-3 py-2 text-sm font-bold hover:bg-highlight/30"
+              :class="activeChapter === chapter.id ? 'bg-accent-soft text-accent' : undefined"
+              @click="closeContents"
+            >
+              <span class="font-mono text-[10px] text-accent">{{
+                String(index + 1).padStart(2, '0')
+              }}</span>{{ chapter.label }}
+            </a>
+          </li>
+        </ol>
+      </details>
+    </nav>
+
     <div
       class="mx-auto grid max-w-[1440px] lg:grid-cols-[210px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)]"
     >
-      <aside class="border-b-2 border-ink lg:border-r-2 lg:border-b-0">
+      <aside class="hidden border-r-2 border-ink lg:block">
         <nav
           aria-label="Sommaire du guide"
           class="px-4 py-6 sm:px-6 lg:sticky lg:top-28 lg:px-6 lg:py-10"
@@ -311,6 +408,8 @@ useHead({
             <li v-for="(chapter, index) in chapters" :key="chapter.id">
               <a
                 :href="`#${chapter.id}`"
+                :aria-current="activeChapter === chapter.id ? 'location' : undefined"
+                :class="activeChapter === chapter.id ? 'bg-accent-soft text-accent' : undefined"
                 class="flex min-h-11 items-center gap-3 py-2 text-xs font-bold hover:text-primary"
                 ><span class="font-mono text-[10px] text-accent"
                   >0{{ index + 1 }}</span
@@ -320,6 +419,8 @@ useHead({
           </ol>
           <a
             href="#sources"
+            :aria-current="activeChapter === 'sources' ? 'location' : undefined"
+            :class="activeChapter === 'sources' ? 'text-accent' : undefined"
             class="mt-5 inline-block font-mono text-[11px] underline underline-offset-4 hover:text-primary"
             >Sources &amp; méthode ↗</a
           >
@@ -372,9 +473,9 @@ useHead({
               Le bon réflexe : vérifier le film ET la salle.
             </p>
             <p class="mt-2 text-sm leading-relaxed">
-              Un grand écran n’ajoute pas automatiquement de l’image. Pour
-              profiter du cadre le plus haut, il faut une version du film, un
-              projecteur et un écran qui le permettent.
+              Pour voir davantage d’image, la version du film, le projecteur et
+              l’écran doivent être compatibles. Le logo IMAX seul ne garantit
+              pas un cadre étendu.
             </p>
           </div>
         </section>
@@ -398,16 +499,14 @@ useHead({
             <div>
               <h3 class="font-black">1,90 : le repère courant</h3>
               <p class="mt-2 text-sm leading-relaxed">
-                Le format IMAX des multiplexes peut montrer environ 26 % de
-                surface en plus qu’un cadre 2,39 à largeur égale, si la version
-                du film le prévoit.
+                C’est le cadre IMAX courant en multiplexe. Il montre environ 26
+                % de surface en plus que le 2,39, à largeur égale.
               </p>
             </div>
             <div>
               <h3 class="font-black">1,43 : le cadre très haut</h3>
               <p class="mt-2 text-sm leading-relaxed">
-                Jusqu’à environ 67 % en plus dans cette même comparaison. En
-                France, le
+                Ce cadre offre environ 67 % de surface en plus. En France, le
                 <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
                   >Pathé Odysseum à Montpellier</NuxtLink
                 >
@@ -416,10 +515,9 @@ useHead({
             </div>
           </div>
           <p class="mt-5 text-sm leading-relaxed text-muted">
-            Le cinéma classique utilise aussi le 1,85:1 et d’autres formats. Le
-            2,39 n’est donc pas le format de toutes les séances ordinaires. Une
-            image plus haute ne dit rien, à elle seule, de la définition ou de
-            la taille physique de l’écran.
+            Le cinéma utilise aussi le 1,85:1 et d’autres formats. Ces chiffres
+            décrivent la forme de l’image, pas la taille de l’écran ni sa
+            définition.
           </p>
         </section>
 
@@ -433,9 +531,8 @@ useHead({
             Laser, double laser, 70 mm…
           </h2>
           <p class="guide-intro">
-            Le laser désigne la source de lumière d’un projecteur numérique. Le
-            70 mm désigne une pellicule. Le 1,43 ou le 1,90 désigne la forme de
-            l’image. Ces mots ne parlent pas de la même chose.
+            Le laser produit la lumière d’un projecteur numérique ; le 70 mm est
+            une pellicule. Comparez ce que chaque système peut afficher.
           </p>
           <div class="mt-7"><GuidesImaxProjectionExplorer /></div>
           <div class="mt-8">
@@ -547,181 +644,11 @@ useHead({
         </section>
 
         <section
-          id="salles"
-          class="guide-section"
-          aria-labelledby="salles-title"
-        >
-          <p class="guide-eyebrow">05 / PASSER DE LA THÉORIE À LA SALLE</p>
-          <h2 id="salles-title" class="guide-title">
-            Où voir de l’IMAX en France ?
-          </h2>
-          <p class="guide-intro">
-            Le réseau s’étend au-delà de Paris : Pathé, Kinepolis, Megarama et
-            des exploitants indépendants proposent des salles IMAX. La liste
-            ci-dessous vient de l’annuaire MesSeances.
-          </p>
-          <div class="mt-7 border-2 border-ink bg-surface">
-            <div class="border-b-2 border-ink bg-highlight p-5 sm:p-7">
-              <p class="guide-eyebrow">LE CAS À CONNAÎTRE</p>
-              <h3 class="mt-3 text-2xl font-black tracking-tight">
-                Montpellier : le rendez-vous du 1,43.
-              </h3>
-            </div>
-            <div class="p-5 sm:p-7">
-              <p class="leading-relaxed">
-                Le
-                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
-                  >Pathé Odysseum</NuxtLink
-                >
-                possède un écran au format 1,43 et une projection IMAX Laser
-                compatible. Depuis juillet 2026, il propose aussi des
-                projections sur pellicule IMAX 70 mm, inaugurées avec
-                <em>L’Odyssée</em>.
-              </p>
-              <p class="mt-4 text-sm leading-relaxed">
-                Le format dépend de la séance : numérique ou pellicule, 2D ou
-                3D, VF ou VOST. Vérifiez ces mentions et la disponibilité des
-                billets avant de faire le déplacement.
-              </p>
-              <NuxtLink
-                :to="landmarkTarget('odysseum')"
-                class="editorial-button-outline mt-5"
-                >Consulter le cinéma
-                <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
-              >
-            </div>
-          </div>
-          <div class="mt-7">
-            <h3 class="font-black">Quelques repères pour commencer</h3>
-            <div class="mt-3 flex flex-wrap gap-2">
-              <NuxtLink
-                v-for="cinema in landmarks"
-                :key="cinema.key"
-                :to="cinema.to"
-                class="inline-flex min-h-11 items-center gap-2 border border-ink bg-surface px-3 py-2 text-xs font-bold hover:bg-highlight"
-                >{{ cinema.name }}
-                <ArrowRight :size="13" aria-hidden="true" /></NuxtLink
-              >
-            </div>
-            <p class="mt-3 text-xs leading-relaxed text-muted">
-              La Géode et les sites scientifiques ou de loisirs proposent une
-              programmation spécifique, souvent consacrée aux documentaires.
-            </p>
-          </div>
-          <div class="mt-8 border-2 border-ink bg-surface p-5 sm:p-7">
-            <div class="flex flex-wrap items-end justify-between gap-4">
-              <h3 class="editorial-heading">Les cinémas de l’annuaire</h3>
-              <NuxtLink :to="imaxDirectoryTarget" class="guide-link text-xs"
-                >Ouvrir la liste avec le filtre IMAX ↗</NuxtLink
-              >
-            </div>
-            <p class="mt-3 text-sm leading-relaxed text-muted">
-              Retrouvez les cinémas équipés en IMAX et consultez leur
-              programmation.
-            </p>
-            <template v-if="!directory?.unavailable && imaxTheaters.length">
-              <label
-                for="imax-theater-search"
-                class="mt-6 block font-mono text-xs font-bold"
-                >Chercher une ville ou un cinéma</label
-              ><input
-                id="imax-theater-search"
-                v-model="theaterSearch"
-                type="search"
-                class="editorial-field mt-2"
-                placeholder="Ex. : Lille, Montpellier, Pathé…"
-              >
-              <p role="status" class="mt-3 font-mono text-xs text-muted">
-                {{ visibleTheaters.length }} cinéma{{
-                  visibleTheaters.length > 1 ? 's' : ''
-                }} affiché{{ visibleTheaters.length > 1 ? 's' : '' }} sur
-                {{ imaxTheaters.length }} référencés avec IMAX
-              </p>
-              <ul
-                v-if="visibleTheaters.length"
-                class="mt-4 grid sm:grid-cols-2 sm:gap-x-6"
-              >
-                <li
-                  v-for="theater in visibleTheaters"
-                  :key="theater.id"
-                  class="border-t border-line"
-                >
-                  <NuxtLink
-                    :to="`/cinema/${encodeURIComponent(theater.slug)}`"
-                    class="group flex min-h-20 items-center justify-between gap-3 py-3 hover:text-primary"
-                    ><span
-                      ><span
-                        class="block font-mono text-[10px] uppercase tracking-wide text-muted"
-                        >{{
-                          theater.city
-                        }}</span
-                      ><span class="mt-1 block text-sm font-bold">{{
-                        theaterDisplayName(theater)
-                      }}</span></span
-                    ><ArrowRight
-                      :size="16"
-                      class="shrink-0 group-hover:translate-x-1 motion-reduce:transform-none"
-                      aria-hidden="true"
-                    /></NuxtLink
-                  >
-                </li>
-              </ul>
-              <div v-else class="mt-5 border border-line bg-subtle p-5">
-                <p class="text-sm">
-                  Aucun cinéma ne correspond à votre recherche.
-                </p>
-                <button
-                  type="button"
-                  class="mt-3 text-sm font-bold underline underline-offset-4"
-                  @click="theaterSearch = ''"
-                >
-                  Effacer la recherche
-                </button>
-              </div>
-            </template>
-            <p
-              v-else
-              class="mt-5 border-l-4 border-accent bg-accent-soft p-4 text-sm leading-relaxed"
-            >
-              {{
-                directory?.unavailable ? 'L’annuaire est momentanément indisponible.' : 'Aucun cinéma n’est actuellement référencé avec la technologie IMAX dans cet annuaire.'
-              }}
-              <NuxtLink :to="imaxDirectoryTarget" class="guide-link"
-                >Consulter la liste IMAX</NuxtLink
-              >.
-            </p>
-          </div>
-          <details class="guide-details mt-7">
-            <summary>Combien de salles existe-t-il en France ?</summary>
-            <div>
-              <p>
-                En juillet 2026, la France comptait 37 salles IMAX, en incluant
-                la Cité de l’espace et le Futuroscope. L’annuaire MesSeances
-                recense les cinémas suivis sur le site.
-              </p>
-            </div>
-          </details>
-          <details class="guide-details mt-3">
-            <summary>Comment le réseau français s’est-il développé ?</summary>
-            <div>
-              <p>
-                Après les installations de découverte scientifique, l’IMAX
-                arrive dans les multiplexes à Montpellier en 1998. Disney
-                Village suit en 2005. Le succès d’Avatar en 2009 accompagne
-                l’accélération des ouvertures dans les années 2010, puis la
-                diversification des exploitants. L’arrivée de l’IMAX 70 mm à
-                Montpellier en 2026 marque une nouvelle étape.
-              </p>
-            </div>
-          </details>
-        </section>
-
-        <section
           id="choisir"
           class="guide-section"
           aria-labelledby="choisir-title"
         >
-          <p class="guide-eyebrow">06 / AVANT DE RÉSERVER</p>
+          <p class="guide-eyebrow">05 / AVANT DE RÉSERVER</p>
           <h2 id="choisir-title" class="guide-title">
             Votre séance, en quatre vérifications.
           </h2>
@@ -788,6 +715,150 @@ useHead({
         </section>
 
         <section
+          id="salles"
+          class="guide-section"
+          aria-labelledby="salles-title"
+        >
+          <p class="guide-eyebrow">06 / TROUVER SA SALLE</p>
+          <h2 id="salles-title" class="guide-title">
+            Où voir de l’IMAX en France ?
+          </h2>
+          <p class="guide-intro">
+            Voici quelques salles pour découvrir les différentes expériences
+            IMAX en France. Retrouvez l’ensemble des cinémas dans l’annuaire.
+          </p>
+          <div class="mt-7 border-2 border-ink bg-surface">
+            <div class="border-b-2 border-ink bg-highlight p-5 sm:p-7">
+              <p class="guide-eyebrow">LE CAS À CONNAÎTRE</p>
+              <h3 class="mt-3 text-2xl font-black tracking-tight">
+                Montpellier : le rendez-vous du 1,43.
+              </h3>
+            </div>
+            <div class="p-5 sm:p-7">
+              <p class="leading-relaxed">
+                Le
+                <NuxtLink :to="landmarkTarget('odysseum')" class="guide-link"
+                  >Pathé Odysseum</NuxtLink
+                >
+                propose le grand cadre 1,43 en IMAX Laser et, depuis juillet
+                2026, des projections sur pellicule IMAX 70 mm inaugurées avec
+                <em>L’Odyssée</em>.
+              </p>
+              <dl
+                class="mt-5 grid gap-4 border-t border-line pt-4 text-sm sm:grid-cols-2"
+                aria-label="Équipement du Pathé Odysseum"
+              >
+                <div>
+                  <dt class="font-mono text-[10px] uppercase text-muted">
+                    Projection
+                  </dt>
+                  <dd class="mt-1 font-bold">IMAX Laser et IMAX 70 mm</dd>
+                </div>
+                <div>
+                  <dt class="font-mono text-[10px] uppercase text-muted">
+                    Cadre maximal
+                  </dt>
+                  <dd class="mt-1 font-bold">Jusqu’à 1,43:1</dd>
+                </div>
+              </dl>
+              <NuxtLink
+                :to="landmarkTarget('odysseum')"
+                class="editorial-button-outline mt-5"
+                >Consulter le cinéma
+                <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
+              >
+            </div>
+          </div>
+          <ul
+            class="mt-6 grid gap-4 sm:grid-cols-2"
+            aria-label="Sélection de cinémas IMAX"
+          >
+            <li
+              v-for="cinema in featuredCinemas"
+              :key="cinema.key"
+              class="flex flex-col border-2 border-ink bg-surface p-5"
+            >
+              <p
+                class="font-mono text-[10px] uppercase tracking-wide text-muted"
+              >
+                {{ cinema.city }}
+              </p>
+              <h3 class="mt-2 font-black">
+                <NuxtLink :to="cinema.to" class="guide-link">{{
+                  cinema.name
+                }}</NuxtLink>
+              </h3>
+              <dl class="mt-4 grid gap-3 text-sm">
+                <div>
+                  <dt class="font-mono text-[10px] uppercase text-muted">
+                    Projection
+                  </dt>
+                  <dd class="mt-1 font-bold">{{ cinema.projection }}</dd>
+                </div>
+                <div v-if="cinema.ratio">
+                  <dt class="font-mono text-[10px] uppercase text-muted">
+                    {{ cinema.key === 'geode' ? 'Écran' : 'Cadre maximal' }}
+                  </dt>
+                  <dd class="mt-1 font-bold">{{ cinema.ratio }}</dd>
+                </div>
+              </dl>
+            </li>
+          </ul>
+          <p class="mt-4 text-xs leading-relaxed text-muted">
+            Seules les caractéristiques confirmées par les sources sont
+            indiquées. La programmation et le format proposé restent propres à
+            chaque séance.
+          </p>
+          <div class="mt-6 flex flex-wrap gap-3">
+            <NuxtLink :to="imaxDirectoryTarget" class="editorial-button"
+              >Voir tous les cinémas IMAX
+              <ArrowRight :size="16" aria-hidden="true" /></NuxtLink
+            >
+            <NuxtLink
+              :to="`${imaxDirectoryTarget}&view=map`"
+              class="editorial-button-outline"
+              >Voir la carte <MapPin :size="16" aria-hidden="true" /></NuxtLink
+            >
+          </div>
+          <p
+            v-if="imaxTheaters.length"
+            class="mt-3 font-mono text-xs text-muted"
+          >
+            {{ imaxTheaters.length }} cinéma{{
+              imaxTheaters.length > 1 ? 's' : ''
+            }} référencé{{ imaxTheaters.length > 1 ? 's' : '' }} avec IMAX dans
+            l’annuaire MesSeances.
+          </p>
+          <p v-if="directory?.unavailable" class="mt-4 text-sm text-muted">
+            L’annuaire est momentanément indisponible. Les liens de recherche
+            restent accessibles.
+          </p>
+          <details class="guide-details mt-7">
+            <summary>Combien de salles existe-t-il en France ?</summary>
+            <div>
+              <p>
+                En juillet 2026, la France comptait 37 salles IMAX, en incluant
+                la Cité de l’espace et le Futuroscope. L’annuaire MesSeances
+                recense les cinémas suivis sur le site.
+              </p>
+            </div>
+          </details>
+          <details class="guide-details mt-3">
+            <summary>Comment le réseau français s’est-il développé ?</summary>
+            <div>
+              <p>
+                Après les installations de découverte scientifique, l’IMAX
+                arrive dans les multiplexes à Montpellier en 1998. Disney
+                Village suit en 2005. Le succès d’Avatar en 2009 accompagne
+                l’accélération des ouvertures dans les années 2010, puis la
+                diversification des exploitants. L’arrivée de l’IMAX 70 mm à
+                Montpellier en 2026 marque une nouvelle étape.
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <section
           id="questions"
           class="guide-section"
           aria-labelledby="questions-title"
@@ -816,8 +887,9 @@ useHead({
           <p class="guide-eyebrow">POUR ALLER PLUS LOIN</p>
           <h2 id="sources-title" class="guide-title">Sources &amp; méthode.</h2>
           <p class="mt-5 text-sm leading-relaxed">
-            Les informations de ce guide s’appuient sur les publications
-            suivantes.
+            Les informations et les équipements des salles ci-dessus ont été
+            vérifiés le 7 novembre 2026. Les ratios absents ne sont pas
+            confirmés par les sources.
           </p>
           <ol class="mt-6 space-y-5">
             <li
@@ -861,7 +933,19 @@ useHead({
   scroll-behavior: smooth;
 }
 .guide-section {
-  @apply scroll-mt-28 border-b-2 border-ink px-4 py-10 last:border-b-0 sm:px-8 sm:py-14 xl:px-12;
+  scroll-margin-top: calc(var(--guide-header-height, 124px) + 80px);
+  @apply border-b-2 border-ink px-4 py-10 last:border-b-0 sm:px-8 sm:py-14 xl:px-12;
+}
+.guide-mobile-contents {
+  top: var(--guide-header-height, 124px);
+}
+.guide-mobile-chapters {
+  max-height: calc(100dvh - var(--guide-header-height, 124px) - 64px);
+}
+@media (min-width: 1024px) {
+  .guide-section {
+    scroll-margin-top: calc(var(--guide-header-height, 74px) + 24px);
+  }
 }
 .guide-eyebrow {
   @apply flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-accent;

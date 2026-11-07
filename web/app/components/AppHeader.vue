@@ -89,6 +89,7 @@ onMounted(() => {
 
 <template>
   <header
+    id="app-header"
     class="top-0 z-30 border-b-2 border-ink bg-[#f8f7f2]/95 backdrop-blur-sm"
     :class="hasCompactPageControls ? 'relative lg:sticky' : 'sticky'"
   >

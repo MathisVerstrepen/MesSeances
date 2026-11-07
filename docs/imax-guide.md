@@ -48,3 +48,28 @@ npm --prefix web run test:browser -- e2e/imax-guide.spec.ts
 The fixture covers desktop/mobile interaction, keyboard ratio selection,
 visible movie buttons below the preview, scene switching, projection types, catalog outage,
 IMAX directory filtering, fallback links, metadata, sitemap and footer entry.
+
+## Reading flow and venue specifications
+
+Booking advice precedes the cinema selection. The article presents Montpellier
+and four featured venues; the complete list and map link to the existing IMAX
+filtered directory. It does not duplicate the full directory or its search UI.
+Catalog reads still resolve public cinema links and report the registered count.
+
+`imaxFeaturedCinemas` lists only sourced capabilities, with `sourceId` pointing
+to `imaxVenueSources`. Lomme and Dole's official IMAX listings confirm Laser;
+Cineum's own rooms page confirms Laser 4K; Apsys documents La Géode's Laser 4K
+dome. No flat-screen ratio is inferred for those venues. Montpellier's 1.43
+Laser and 70 mm references remain the IMAX location list and CNC article.
+Specifications were checked on 7 November 2026. Provider pages were fetched
+through the configured proxy file; no proxy details or raw responses are saved.
+
+The compact mobile contents stays below the measured site header. It closes
+on section selection or Escape, restores focus on Escape, and follows the
+reading position without rewriting the URL on manual scroll. The desktop
+contents uses the same current-section state. Observers and scroll listeners
+are removed when leaving the guide. Reduced motion keeps native anchor jumps.
+
+The frame comparison names its 2.39 baseline and labels the images as a framing
+simulation. The projection comparison puts support/definition and maximum ratio
+first; optional technical details retain the CoLa/GT names and optical caveats.

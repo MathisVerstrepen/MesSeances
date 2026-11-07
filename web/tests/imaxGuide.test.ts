@@ -6,6 +6,8 @@ import {
   imaxExtraImage,
   imaxLandmarks,
   imaxRatios,
+  imaxFeaturedCinemas,
+  imaxVenueSources,
 } from '../app/utils/imaxGuide.ts'
 
 test('ratio comparison calculates image area at equal width, without confusing it with resolution', () => {
@@ -84,5 +86,19 @@ test('unknown or unavailable cinema records fall back to a named search retainin
   assert.equal(
     guideCinemaTarget([], imaxLandmarks.cannes),
     '/cinemas?technologies=IMAX&q=Cannes',
+  )
+})
+
+test('featured venue specifications cite a primary source and do not infer flat-screen ratios from Laser labels', () => {
+  const sourceIds = new Set<string>(imaxVenueSources.map((source) => source.id))
+  for (const cinema of imaxFeaturedCinemas) {
+    assert.ok(sourceIds.has(cinema.sourceId))
+    if (cinema.ratio) assert.equal(cinema.key, 'geode')
+  }
+  assert.ok(
+    imaxFeaturedCinemas.some(
+      (cinema) =>
+        cinema.key === 'cannes' && cinema.projection === 'IMAX Laser 4K',
+    ),
   )
 })

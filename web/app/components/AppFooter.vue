@@ -80,7 +80,7 @@ function scrollToTop() {
                 <NuxtLink
                   to="/guides/imax"
                   class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
-                  >L’IMAX en France</NuxtLink
+                  >IMAX : le guide complet</NuxtLink
                 >
               </li>
             </ul>

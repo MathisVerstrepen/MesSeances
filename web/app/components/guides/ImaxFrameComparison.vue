@@ -39,17 +39,17 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
     class="border-2 border-ink bg-surface shadow-[6px_6px_0_var(--color-highlight)]"
   >
     <figure>
-      <div class="relative overflow-hidden bg-[#10292f] p-3 sm:p-7">
+      <div class="relative overflow-hidden bg-[#10292f] p-3 sm:p-4">
         <div
           id="imax-scene-preview"
-          class="relative mx-auto aspect-[1.43] max-w-3xl overflow-hidden border border-white/30"
+          class="relative mx-auto aspect-[1.43] max-w-[640px] overflow-hidden border border-white/30"
           role="img"
           :aria-label="`${scene.alt} Simulation au format ${selected.value}. ${extraImage} % de surface en plus qu’au format Scope, à largeur égale.`"
         >
           <img
             :src="`/images/guides/${scene.id}-1600.webp`"
             :srcset="`/images/guides/${scene.id}-800.webp 800w, /images/guides/${scene.id}-1600.webp 1600w`"
-            sizes="(max-width: 800px) 100vw, 768px"
+            sizes="(max-width: 680px) 90vw, 640px"
             width="1430"
             height="1000"
             alt=""
@@ -67,7 +67,7 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
           />
           <span
             class="absolute bottom-2 left-2 bg-[#10292f] px-2 py-1 font-mono text-[10px] font-bold text-white sm:bottom-3 sm:left-3 sm:text-xs"
-            >MÊME SCÈNE · MÊME LARGEUR</span
+            >SIMULATION DE CADRAGE</span
           >
         </div>
         <div
@@ -103,7 +103,7 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
         <label
           v-for="format in imaxRatios"
           :key="format.id"
-          class="relative flex min-h-32 cursor-pointer flex-col items-center justify-center gap-1 border-r border-white/20 p-3 text-center last:border-r-0 focus-within:z-10 focus-within:ring-2 focus-within:ring-highlight focus-within:ring-inset"
+          class="relative flex min-h-24 cursor-pointer flex-col items-center justify-center gap-1 border-r border-white/20 px-2 py-2 text-center last:border-r-0 focus-within:z-10 focus-within:ring-2 focus-within:ring-highlight focus-within:ring-inset"
           :class="selectedId === format.id ? 'text-white' : 'text-white/60 hover:text-white'"
         >
           <input
@@ -117,7 +117,7 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
           >
           <svg
             viewBox="0 0 64 48"
-            class="mb-1 h-10 w-14"
+            class="h-8 w-12"
             fill="none"
             aria-hidden="true"
           >
@@ -147,16 +147,16 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
       </fieldset>
       <figcaption
         id="imax-frame-result"
-        class="grid gap-4 border-t-2 border-ink p-5 sm:grid-cols-[auto_1fr] sm:gap-8 sm:p-7"
+        class="grid gap-4 border-t-2 border-ink p-4 sm:grid-cols-[minmax(0,12rem)_1fr] sm:gap-6 sm:p-5"
         aria-live="polite"
         aria-atomic="true"
       >
         <p class="font-black text-accent">
-          <span class="block text-5xl tracking-tighter">{{
+          <span class="block text-4xl tracking-tighter sm:text-5xl">{{
             `+${extraImage} %`
           }}</span><span
             class="mt-1 block font-mono text-[10px] uppercase tracking-wide"
-            >de surface d’image</span
+            >de surface en plus qu’en 2,39:1</span
           >
         </p>
         <div>
@@ -164,8 +164,7 @@ const extraImage = computed(() => imaxExtraImage(selected.value.ratio))
             {{ selected.description }}
           </p>
           <p class="mt-2 text-sm leading-relaxed text-muted">
-            La scène s’ouvre en haut et en bas, sans étirer l’image. Les
-            surfaces sont comparées à largeur égale.
+            À largeur égale, sans étirer l’image.
           </p>
         </div>
       </figcaption>

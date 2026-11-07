@@ -141,21 +141,24 @@ test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', a
     'IMAX Laser · simple laser',
   )
   await page
-    .getByRole('radio', { name: 'Double laser GT', exact: true })
+    .getByRole('radio', { name: 'Double laser', exact: true })
     .locator('..')
     .click()
-  await expect(result.getByRole('heading')).toHaveText(
-    'IMAX GT Laser · double laser',
-  )
-  await expect(result).toContainText('jusqu’à 1,43:1')
+  await expect(result.getByRole('heading')).toHaveText('IMAX · double laser')
+  await expect(result).toContainText('Jusqu’à 1,43:1')
   await page
     .getByRole('radio', { name: 'Pellicule 70 mm', exact: true })
     .locator('..')
     .click()
-  await expect(result).toContainText('IMAX 70 mm · 15/70')
-  await expect(result).toContainText('15 perforations')
+  await expect(result).toContainText('Pellicule 15/70')
   await page
-    .getByRole('radio', { name: 'Numérique xénon', exact: true })
+    .getByRole('button', { name: 'Détails techniques', exact: true })
+    .click()
+  await expect(page.locator('#imax-projection-technical')).toContainText(
+    '15 perforations',
+  )
+  await page
+    .getByRole('radio', { name: 'Xénon 2K', exact: true })
     .locator('..')
     .click()
   const strip = page.getByRole('img', { name: /Bande de pellicule IMAX 70 mm/ })
@@ -166,12 +169,12 @@ test('projection explorer distinguishes 4K laser, 2K xenon and physical 70mm', a
     await strip.evaluate((image: HTMLImageElement) => image.naturalWidth),
   ).toBeGreaterThan(0)
   await expect(result).toContainText('2K')
-  await expect(result).toContainText(
+  await expect(page.locator('#imax-projection-technical')).toContainText(
     'ne constitue pas une projection 4K native',
   )
 })
 
-test('guide lists registered IMAX cinemas, supports search, and keeps the filter on fallback links', async ({
+test('guide shows only sourced venue capabilities and sends the full cinema list to the IMAX directory', async ({
   page,
   request,
 }) => {
@@ -179,28 +182,53 @@ test('guide lists registered IMAX cinemas, supports search, and keeps the filter
     data: { historicalTechnologies: true },
   })
   await openPage(page, '/guides/imax#salles')
-  const directory = page.locator('#salles')
+  const venues = page.locator('#salles')
+  const selection = venues.getByRole('list', {
+    name: 'Sélection de cinémas IMAX',
+  })
+  await expect(selection.getByRole('listitem')).toHaveCount(4)
+  await expect(venues.getByRole('searchbox')).toHaveCount(0)
   await expect(
-    directory.getByRole('link', { name: /Cinéma Playwright/ }),
-  ).toHaveAttribute('href', '/cinema/cinema-playwright')
-  await expect(directory.getByRole('status')).toContainText(
-    '1 cinéma affiché sur 1 référencés avec IMAX',
+    venues.getByText(
+      '1 cinéma référencé avec IMAX dans l’annuaire MesSeances.',
+    ),
+  ).toBeVisible()
+  const cannes = selection.getByRole('listitem').filter({
+    has: page.getByRole('link', { name: 'Cineum Cannes', exact: true }),
+  })
+  await expect(cannes).toContainText('IMAX Laser 4K')
+  await expect(cannes).not.toContainText('Cadre maximal')
+  const dome = selection
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name: 'La Géode', exact: true }) })
+  await expect(dome).toContainText('Dôme hémisphérique')
+  await expect(dome.getByRole('link')).toHaveAttribute(
+    'href',
+    '/cinemas?technologies=IMAX&q=G%C3%A9ode',
   )
-  await page
-    .getByRole('searchbox', { name: 'Chercher une ville ou un cinéma' })
-    .fill('inconnu')
+  await expect(page.locator('#source-cineum a')).toHaveAttribute(
+    'href',
+    'https://www.cineum.fr/nos-salles/',
+  )
   await expect(
-    directory.getByText('Aucun cinéma ne correspond à votre recherche.'),
-  ).toBeVisible()
-  await directory.getByRole('button', { name: 'Effacer la recherche' }).click()
-  await expect(
-    directory.getByRole('link', { name: /Cinéma Playwright/ }),
-  ).toBeVisible()
-  await expect(
-    directory.getByRole('link', { name: 'La Géode', exact: true }),
-  ).toHaveAttribute('href', '/cinemas?technologies=IMAX&q=G%C3%A9ode')
-  await directory
-    .getByRole('link', { name: 'Ouvrir la liste avec le filtre IMAX ↗' })
+    venues.getByRole('link', { name: 'Voir la carte', exact: true }),
+  ).toHaveAttribute('href', '/cinemas?technologies=IMAX&view=map')
+  expect(
+    await page
+      .locator('article > section')
+      .evaluateAll((sections) => sections.map((section) => section.id)),
+  ).toEqual([
+    'essentiel',
+    'formats',
+    'projection',
+    'experience',
+    'choisir',
+    'salles',
+    'questions',
+    'sources',
+  ])
+  await venues
+    .getByRole('link', { name: 'Voir tous les cinémas IMAX', exact: true })
     .click()
   await expect(page).toHaveURL(/\/cinemas\?technologies=IMAX$/)
   await expect(
@@ -208,6 +236,61 @@ test('guide lists registered IMAX cinemas, supports search, and keeps the filter
       .locator('#cinema-section-all')
       .getByRole('link', { name: /Voir les séances/ }),
   ).toHaveCount(1)
+})
+
+test('contents follows the reading position and mobile navigation closes accessibly without hiding headings', async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await openPage(page, '/guides/imax')
+  await page
+    .getByRole('link', { name: 'Comparer les formats', exact: true })
+    .click()
+  await expect(page.locator('#formats-title')).toBeInViewport()
+  const mobile = info.project.name === 'mobile'
+  const contents = page.getByRole('navigation', {
+    name: mobile ? 'Sommaire mobile du guide' : 'Sommaire du guide',
+    exact: true,
+  })
+  if (mobile) {
+    await contents.locator('summary').click()
+    await expect(
+      contents.getByRole('link', { name: /Comparer l’image/ }),
+    ).toHaveAttribute('aria-current', 'location')
+  }
+  await contents.getByRole('link', { name: /Choisir sa séance/ }).click()
+  await expect(page.locator('#choisir-title')).toBeInViewport()
+  await expect(page).toHaveURL(/#choisir$/)
+  if (mobile) {
+    await expect(contents.locator('details')).not.toHaveAttribute('open')
+    await expect(contents.locator('summary')).toContainText('Choisir sa séance')
+    const navBounds = (await contents.boundingBox())!
+    const headerBounds = (await page.locator('#app-header').boundingBox())!
+    expect(Math.abs(navBounds.y - headerBounds.height)).toBeLessThan(2)
+    await contents.locator('summary').focus()
+    await page.keyboard.press('Enter')
+    await expect(contents.locator('details')).toHaveAttribute('open', '')
+    await page.keyboard.press('Escape')
+    await expect(contents.locator('summary')).toBeFocused()
+    await expect(contents.locator('details')).not.toHaveAttribute('open')
+  } else {
+    await expect(
+      contents.getByRole('link', { name: /Choisir sa séance/ }),
+    ).toHaveAttribute('aria-current', 'location')
+  }
+  await page
+    .locator('#salles')
+    .evaluate((section) =>
+      section.scrollIntoView({ behavior: 'instant', block: 'start' }),
+    )
+  if (mobile)
+    await expect(contents.locator('summary')).toContainText(
+      'Les salles en France',
+    )
+  else
+    await expect(
+      contents.getByRole('link', { name: /Les salles en France/ }),
+    ).toHaveAttribute('aria-current', 'location')
 })
 
 test('footer exposes Guides and the guide stays usable on small screens', async ({
@@ -232,7 +315,7 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
     footer.getByRole('heading', { name: 'Guides', exact: true }),
   ).toBeVisible()
   await expect(
-    footer.getByRole('link', { name: 'L’IMAX en France', exact: true }),
+    footer.getByRole('link', { name: 'IMAX : le guide complet', exact: true }),
   ).toHaveAttribute('href', '/guides/imax')
   await page.screenshot({
     path: info.outputPath('imax-guide.png'),
@@ -245,6 +328,14 @@ test('footer exposes Guides and the guide stays usable on small screens', async 
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true)
+  if (info.project.name === 'mobile')
+    await page
+      .getByRole('navigation', {
+        name: 'Sommaire mobile du guide',
+        exact: true,
+      })
+      .locator('summary')
+      .click()
   await page.getByRole('link', { name: /Questions fréquentes/ }).click()
   await expect(page).toHaveURL(/#questions$/)
   await expect(page.locator('#questions-title')).toBeInViewport()
