@@ -10,7 +10,7 @@ test('guide serves readable content and metadata without depending on a cinema r
   const response = await request.get('/guides/imax')
   expect(response.status()).toBe(200)
   const html = await response.text()
-  expect(html).toContain('L’IMAX en France,')
+  expect(html).toContain('IMAX, le guide complet')
   expect(html).toContain('Laser, double laser, 70 mm')
   expect(html).toContain('application/ld+json')
   await openPage(page, '/guides/imax')
@@ -19,9 +19,14 @@ test('guide serves readable content and metadata without depending on a cinema r
       exact: false,
     }),
   ).toBeVisible()
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    /L’IMAX en France,\s*tout simplement\./,
+  await expect(page.getByRole('heading', { level: 1 })).toHaveAccessibleName(
+    'IMAX le guide complet',
   )
+  await expect(
+    page
+      .getByRole('heading', { level: 1 })
+      .getByRole('img', { name: 'IMAX', exact: true }),
+  ).toHaveJSProperty('complete', true)
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
     'href',
     /\/guides\/imax$/,

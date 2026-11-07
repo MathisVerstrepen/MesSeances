@@ -9,6 +9,7 @@ import {
   Volume2,
 } from '@lucide/vue'
 import type { Theater } from '~/types/api'
+import imaxLogo from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import { filterCinemaDirectory } from '~/utils/cinemaDirectoryChains'
 import {
   guideCinemaTarget,
@@ -147,7 +148,7 @@ const sources = [
 ]
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/guides/imax')
-const title = 'IMAX en France : formats, salles et guide pratique - MesSeances'
+const title = 'IMAX : le guide complet en France - MesSeances'
 const description =
   'Comprendre l’IMAX sans jargon : comparez les formats 1,90 et 1,43, le laser et le 70 mm, puis trouvez votre cinéma IMAX en France.'
 useSeoMeta({
@@ -170,7 +171,7 @@ useHead({
         '@graph': [
           {
             '@type': 'Article',
-            headline: 'L’IMAX en France, tout simplement.',
+            headline: 'IMAX, le guide complet',
             description,
             inLanguage: 'fr-FR',
             datePublished: '2026-11-07',
@@ -229,8 +230,14 @@ useHead({
             <h1
               class="text-[clamp(3rem,5.2vw,4.7rem)] font-black leading-[0.98] tracking-[-0.075em]"
             >
-              L’IMAX en France,<br>
-              <span class="text-accent">tout simplement.</span>
+              <img
+                :src="imaxLogo"
+                alt="IMAX"
+                width="2048"
+                height="388"
+                class="mb-4 block h-auto w-[clamp(12rem,24vw,22rem)] max-w-full"
+              >
+              <span class="block text-ink">le guide complet</span>
             </h1>
             <p class="mt-7 max-w-xl text-lg leading-relaxed sm:text-xl">
               Un écran qui en met plein les yeux. Mais que changent vraiment le
@@ -248,10 +255,8 @@ useHead({
               >
             </div>
           </div>
-          <figure
-            class="relative mb-4 border-2 border-ink bg-ink p-3 shadow-[8px_8px_0_var(--color-highlight)] sm:p-4"
-          >
-            <div class="relative aspect-[1.43] overflow-hidden">
+          <figure class="border-2 border-ink bg-ink p-3 sm:p-4">
+            <div class="relative aspect-[1.43]">
               <img
                 src="/images/guides/odyssee-voilier-800.webp"
                 srcset="
@@ -286,17 +291,6 @@ useHead({
                 >2,39</span
               >
             </div>
-            <figcaption
-              class="flex items-center justify-between gap-4 pt-3 font-mono text-[10px] font-bold uppercase tracking-wider text-white"
-            >
-              <span>Une image. Plusieurs cadres.</span
-              ><span aria-hidden="true">↓ Explorez</span>
-            </figcaption>
-            <span
-              class="absolute -right-3 -bottom-5 rotate-[-5deg] border-2 border-ink bg-highlight px-4 py-2 font-mono text-xs font-bold"
-              aria-hidden="true"
-              >VOIR PLUS GRAND</span
-            >
           </figure>
         </div>
       </div>
@@ -863,6 +857,9 @@ useHead({
 
 <style scoped>
 @reference "../../assets/css/main.css";
+:global(html:has(.imax-guide)) {
+  scroll-behavior: smooth;
+}
 .guide-section {
   @apply scroll-mt-28 border-b-2 border-ink px-4 py-10 last:border-b-0 sm:px-8 sm:py-14 xl:px-12;
 }
