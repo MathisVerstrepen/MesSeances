@@ -25,6 +25,10 @@ export interface JsonLdNode {
   duration?: string
   description?: string
   datePublished?: string
+  dateModified?: string
+  headline?: string
+  mainEntityOfPage?: string
+  author?: JsonLdReference
   genre?: string[]
   image?: string | string[]
   sameAs?: string

@@ -35,6 +35,9 @@ func loadDataset(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sna
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
+	if err := tx.QueryRow(ctx, `SELECT version FROM theater_technology_state WHERE singleton`).Scan(&revision.TheaterTechnologyVersion); err != nil {
+		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("read theater technology revision failed")
+	}
 	if revision.ScheduleVersion > 0 {
 		data.Theaters, err = loadTheaterAggregate(ctx, tx, revision.ScheduleVersion)
 		if err != nil {
@@ -56,7 +59,7 @@ func loadDataset(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sna
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
-	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
+	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 || revision.TheaterTechnologyVersion < 0 {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("invalid schedule snapshot revision")
 	}
 	if err := schedule.ValidateSnapshotDataset(data, revision); err != nil {
@@ -248,6 +251,29 @@ ORDER BY t.provider, t.provider_id, t.id`, version)
 	}
 	if err := tx.QueryRow(ctx, "SELECT count(*) FROM passes").Scan(&passCount); err != nil || passCount != 1 || linkedPasses != ugcTheaters {
 		return nil, fmt.Errorf("unrepresentable pass rows")
+	}
+	rows, err = tx.Query(ctx, `SELECT s.theater_id,s.format FROM theater_technology_summary s
+JOIN theaters t ON t.id=s.theater_id AND t.generation_id=$1
+CROSS JOIN theater_technology_state state WHERE state.singleton AND state.ready
+ORDER BY s.theater_id,s.format`, version)
+	if err != nil {
+		return nil, fmt.Errorf("read theater technologies failed")
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var format schedule.Format
+		if err := rows.Scan(&id, &format); err != nil {
+			return nil, fmt.Errorf("read theater technologies failed")
+		}
+		position, ok := indexByID[id]
+		if !ok || !schedule.IsTechnologyFormat(format) {
+			return nil, fmt.Errorf("invalid theater technology")
+		}
+		theaters[position].Technologies = append(theaters[position].Technologies, format)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read theater technologies failed")
 	}
 	return theaters, nil
 }

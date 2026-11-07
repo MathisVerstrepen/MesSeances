@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [078_provider_trailers.sql](078_provider_trailers.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [079_theater_technologies.sql](079_theater_technologies.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -685,3 +685,11 @@ CGR and Cinéville observations commit in the schedule publication transaction. 
 `movie_trailer_lookups` records UGC-only lookup outcomes (`found`, `missing`, `failed`), `checked_at` and `retry_after`, keyed by `(provider, source_movie_id)`. Successful references retry after seven days, confirmed absence after one day, and failures after one hour. A session advisory lease permits one API replica to run a bounded cycle at a time. Lookups require future screenings and no available CGR/Cinéville candidate; eligibility is checked again after fetching. Candidate updates and enrichment-version advancement commit together under the existing schedule/public-movie publication transaction lock, without changing schedule generation. The worker expires evidence unseen for 30 days and advances enrichment revision when doing so. Public reads perform no provider/media requests.
 
 Migration 078 adds only these tables, index and view, without backfilling candidates or creating schedules. Earlier binaries reject its migration ledger; rollback requires a compatible corrective build rather than editing history.
+
+## Precomputed theater technologies
+
+Migration 079 adds `theater_technology_summary`, keyed by `(theater_id,format)`, with a durable FK to `screening_history_theaters(id)`, the eight branded formats (3D, IMAX, Dolby, ScreenX, Laser ULTRA, 4DX, ICE and Infinity Vision), and `latest_advertised_date date`. Ordinary 2D is excluded. The singleton `theater_technology_state` stores a nonnegative `version`, `ready` and nullable `evaluated_on`; ready is equivalent to an initialized evaluation date. Both start empty/unready, without scanning history inside migrations.
+
+The existing history worker builds this summary from committed daily counters, inside the same transaction and lock order as counter updates and queue acknowledgement. It recomputes only theaters in pending changes, rebuilding all on initial setup, statistics rebuild, or a change of Paris calendar date. Evidence covers the inclusive interval from the evaluation date minus 12 calendar months through that date; future retained advertisements are excluded. Corrections/deletions can remove previously inferred technologies. The `(theater_id,service_date)` daily-counter index bounds per-theater reads. The technology revision advances only for changed summary rows or first initialization. Expiry runs even without new syncs. Failures roll back counters, summary, revision and pending acknowledgement together.
+
+Snapshot revision checks include this independent technology version. Snapshot loads read only the small ready summary in their existing repeatable-read transaction. Snapshot construction precomputes current formats and the union of current branded formats and historical technologies. Public requests copy these bounded lists from memory. `available_formats` remains current-programme-only; `technologies` is the separate historical/current union on directory and cinema detail responses. Until the background summary is initialized, current-programme technologies remain available. No raw historical screenings enter application snapshots or public request paths.

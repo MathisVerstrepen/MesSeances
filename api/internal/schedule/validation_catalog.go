@@ -15,7 +15,7 @@ func ValidateCatalogOnlyDataset(data Dataset) error {
 }
 
 func ValidateSnapshotDataset(data Dataset, revision SnapshotRevision) error {
-	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
+	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 || revision.TheaterTechnologyVersion < 0 {
 		return fmt.Errorf("invalid snapshot revision")
 	}
 	if revision.ScheduleVersion == 0 {

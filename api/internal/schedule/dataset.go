@@ -84,6 +84,7 @@ type MovieSlugAliasRecord struct {
 }
 
 type TheaterRecord struct {
+	Technologies   []Format `json:"-"`
 	Provider       Provider `json:"provider,omitempty"`
 	ID             string   `json:"id"`
 	ProviderID     string   `json:"provider_id"`
@@ -155,6 +156,7 @@ func cloneDataset(in Dataset) Dataset {
 	out.Theaters = append([]TheaterRecord(nil), in.Theaters...)
 	for i := range out.Theaters {
 		out.Theaters[i].AvailableDates = append([]string(nil), in.Theaters[i].AvailableDates...)
+		out.Theaters[i].Technologies = append([]Format(nil), in.Theaters[i].Technologies...)
 		out.Theaters[i].AcceptedPasses = append([]string(nil), in.Theaters[i].AcceptedPasses...)
 		out.Theaters[i].Latitude = cloneFloat(in.Theaters[i].Latitude)
 		out.Theaters[i].Longitude = cloneFloat(in.Theaters[i].Longitude)

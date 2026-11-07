@@ -197,6 +197,7 @@ test('chain URL history restores selection and retains search, modes and unrelat
     view: 'list',
     location: 'city',
     chains: ['ugc', 'cgr'],
+    technologies: [],
   })
   await traverse('back')
   assert.deepEqual(parseCinemaDirectoryQuery(query()), {
@@ -204,6 +205,7 @@ test('chain URL history restores selection and retains search, modes and unrelat
     view: 'map',
     location: 'nearby',
     chains: ['ugc', 'cgr'],
+    technologies: [],
   })
   await traverse('back')
   assert.deepEqual(parseCinemaDirectoryQuery(query()), {
@@ -211,6 +213,7 @@ test('chain URL history restores selection and retains search, modes and unrelat
     view: 'map',
     location: 'nearby',
     chains: ['ugc'],
+    technologies: [],
   })
   await traverse('forward')
   assert.equal(query().tag, 'kept')
@@ -325,7 +328,7 @@ test('desktop has compact named popover; mobile exposes same options as flat alw
   assert.equal((mobile.match(/type="checkbox"/g) ?? []).length, 3)
 })
 
-test('page shares filtered results and places one filter beside bulk actions inside mobile settings teleport', async () => {
+test('page shares filtered results and groups both filters under one disclosure inside mobile settings teleport', async () => {
   const page = await readFile(
     new URL('../app/pages/cinemas.vue', import.meta.url),
     'utf8',
@@ -369,7 +372,12 @@ test('page shares filtered results and places one filter beside bulk actions ins
   assert.match(page, /textarea, summary, \[tabindex\]/)
   assert.match(
     page,
-    /<Teleport to="#cinema-settings-controls" :disabled="!settingsOpen">[\s\S]*?class="selection-controls[^>]*>\s*<CinemaChainFilter[\s\S]*?:in-settings="settingsOpen"[\s\S]*?@update:model-value="setChains"[\s\S]*?class="bulk-actions/,
+    /aria-controls="cinema-settings"[\s\S]*?aria-haspopup="dialog"/,
+  )
+  const dialog = page.slice(page.indexOf('<dialog'))
+  assert.match(
+    dialog,
+    /<CinemaChainFilter[\s\S]*?in-settings[\s\S]*?<CinemaTechnologyFilter/,
   )
   assert.match(page, /@click="resetFilters"/)
   assert.doesNotMatch(

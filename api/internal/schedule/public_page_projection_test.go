@@ -20,6 +20,19 @@ func pageProjection(t *testing.T, data Dataset, now time.Time, images map[string
 	return result
 }
 
+func TestPublicPageTechnologyHistoryChangesOnlyCinemaFingerprint(t *testing.T) {
+	data := publicPageFixture()
+	before := pageProjection(t, data, pageNow(), nil)
+	data.Theaters[0].Technologies = []Format{FormatICE}
+	after := pageProjection(t, data, pageNow(), nil)
+	path := "/cinema/" + data.Theaters[0].Slug
+	for candidate, fingerprint := range before.Fingerprints {
+		if (fingerprint != after.Fingerprints[candidate]) != (candidate == path) {
+			t.Fatalf("technology change leaked into %s", candidate)
+		}
+	}
+}
+
 func TestPublicPageContentIsolationAndBookkeeping(t *testing.T) {
 	data := publicPageFixture()
 	baseline := pageProjection(t, data, pageNow(), nil)

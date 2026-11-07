@@ -126,18 +126,20 @@ type Theater struct {
 }
 
 type TheaterCatalogItem struct {
-	Provider       Provider `json:"provider"`
-	ID             string   `json:"id"`
-	Slug           string   `json:"slug"`
-	Name           string   `json:"name"`
-	Address        string   `json:"address"`
-	City           string   `json:"city"`
-	CitySlug       string   `json:"city_slug"`
-	PostalCode     string   `json:"postal_code"`
-	AvailableDates []string `json:"available_dates"`
-	AcceptedPasses []string `json:"accepted_passes"`
-	Latitude       *float64 `json:"latitude"`
-	Longitude      *float64 `json:"longitude"`
+	Technologies     []Format `json:"technologies"`
+	Provider         Provider `json:"provider"`
+	ID               string   `json:"id"`
+	Slug             string   `json:"slug"`
+	Name             string   `json:"name"`
+	Address          string   `json:"address"`
+	City             string   `json:"city"`
+	CitySlug         string   `json:"city_slug"`
+	PostalCode       string   `json:"postal_code"`
+	AvailableDates   []string `json:"available_dates"`
+	AvailableFormats []Format `json:"available_formats"`
+	AcceptedPasses   []string `json:"accepted_passes"`
+	Latitude         *float64 `json:"latitude"`
+	Longitude        *float64 `json:"longitude"`
 }
 
 type City struct {
@@ -172,12 +174,14 @@ type CityDetail struct {
 }
 
 type TheaterShowtimes struct {
-	Discovery   TheaterDiscovery   `json:"discovery"`
-	GeneratedAt time.Time          `json:"generated_at"`
-	Timezone    string             `json:"timezone"`
-	Theater     Theater            `json:"theater"`
-	Date        *string            `json:"date"`
-	Showtimes   []TimelineShowtime `json:"showtimes"`
+	Technologies     []Format           `json:"technologies"`
+	Discovery        TheaterDiscovery   `json:"discovery"`
+	GeneratedAt      time.Time          `json:"generated_at"`
+	Timezone         string             `json:"timezone"`
+	Theater          Theater            `json:"theater"`
+	Date             *string            `json:"date"`
+	Showtimes        []TimelineShowtime `json:"showtimes"`
+	AvailableFormats []Format           `json:"available_formats"`
 }
 
 type MovieCatalogItem struct {

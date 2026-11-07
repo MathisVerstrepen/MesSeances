@@ -757,6 +757,9 @@ func TestTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &theaters); err != nil {
 		t.Fatal(err)
 	}
+	if len(theaters) == 0 || !reflect.DeepEqual(theaters[0].AvailableFormats, []schedule.Format{schedule.FormatScreenX}) {
+		t.Fatalf("directory formats missing: %+v", theaters)
+	}
 	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC || theaters[0].CitySlug != "lille" || theaters[1].CitySlug != "villeneuve-d-ascq" || theaters[0].Latitude == nil || *theaters[0].Latitude != 50.6321 || theaters[0].Longitude == nil || *theaters[0].Longitude != 3.0612 || theaters[1].Latitude != nil || theaters[1].Longitude != nil || !strings.Contains(response.Body.String(), `"latitude":null,"longitude":null`) {
 		t.Fatalf("theaters=%+v", theaters)
 	}
@@ -809,8 +812,11 @@ func TestTheaterShowtimesTransportContracts(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "discovery", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"available_formats", "date", "discovery", "generated_at", "showtimes", "technologies", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
 		t.Fatalf("payload=%+v", payload)
+	}
+	if !reflect.DeepEqual(payload["available_formats"], []any{"SCREENX"}) {
+		t.Fatalf("available_formats=%v", payload["available_formats"])
 	}
 	theater := payload["theater"].(map[string]any)
 	showtimes := payload["showtimes"].([]any)

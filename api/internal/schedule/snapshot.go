@@ -43,28 +43,30 @@ type movieIndex struct {
 // SnapshotView is a detached, immutable schedule snapshot. Callers can retain
 // a view while a source publishes a newer revision.
 type SnapshotView struct {
-	data             Dataset
-	readiness        snapshotReadiness
-	theaterByID      map[string]int
-	theaterBySlug    map[string]int
-	cityBuckets      []cityBucket
-	cityBucketByFold map[string]int
-	cityBucketBySlug map[string]int
-	theaterCity      []int
-	theaterDate      map[theaterDateKey][]int
-	theaterShowtimes [][]int
-	movieBySlug      map[string]movieIndex
-	movieAlias       map[string]string
-	publicMovieByID  map[int64]int
-	movieOrder       []string
-	allMovieOrder    []string
-	movieDate        map[movieDateKey][]int
-	movieDates       map[string][]string
-	theaterPositions []int
-	theaterCatalog   []int
-	theaterRank      []int
-	catalogRevision  string
-	catalogOnly      bool
+	data                Dataset
+	readiness           snapshotReadiness
+	theaterByID         map[string]int
+	theaterBySlug       map[string]int
+	cityBuckets         []cityBucket
+	cityBucketByFold    map[string]int
+	cityBucketBySlug    map[string]int
+	theaterCity         []int
+	theaterDate         map[theaterDateKey][]int
+	theaterShowtimes    [][]int
+	theaterFormats      [][]Format
+	theaterTechnologies [][]Format
+	movieBySlug         map[string]movieIndex
+	movieAlias          map[string]string
+	publicMovieByID     map[int64]int
+	movieOrder          []string
+	allMovieOrder       []string
+	movieDate           map[movieDateKey][]int
+	movieDates          map[string][]string
+	theaterPositions    []int
+	theaterCatalog      []int
+	theaterRank         []int
+	catalogRevision     string
+	catalogOnly         bool
 }
 
 type snapshotReadiness struct {
@@ -78,22 +80,24 @@ type snapshotReadiness struct {
 // Dataset policy validation remains the caller's responsibility.
 func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView {
 	view := &SnapshotView{
-		data:             cloneDataset(data),
-		theaterByID:      make(map[string]int, len(data.Theaters)),
-		theaterBySlug:    make(map[string]int, len(data.Theaters)),
-		cityBucketByFold: make(map[string]int),
-		cityBucketBySlug: make(map[string]int),
-		theaterDate:      make(map[theaterDateKey][]int),
-		theaterShowtimes: make([][]int, len(data.Theaters)),
-		movieBySlug:      make(map[string]movieIndex),
-		movieAlias:       make(map[string]string),
-		publicMovieByID:  make(map[int64]int),
-		movieDate:        make(map[movieDateKey][]int),
-		movieDates:       make(map[string][]string),
-		theaterPositions: make([]int, len(data.Theaters)),
-		theaterCatalog:   make([]int, len(data.Theaters)),
-		theaterRank:      make([]int, len(data.Theaters)),
-		theaterCity:      make([]int, len(data.Theaters)),
+		data:                cloneDataset(data),
+		theaterByID:         make(map[string]int, len(data.Theaters)),
+		theaterBySlug:       make(map[string]int, len(data.Theaters)),
+		cityBucketByFold:    make(map[string]int),
+		cityBucketBySlug:    make(map[string]int),
+		theaterDate:         make(map[theaterDateKey][]int),
+		theaterShowtimes:    make([][]int, len(data.Theaters)),
+		theaterFormats:      make([][]Format, len(data.Theaters)),
+		theaterTechnologies: make([][]Format, len(data.Theaters)),
+		movieBySlug:         make(map[string]movieIndex),
+		movieAlias:          make(map[string]string),
+		publicMovieByID:     make(map[int64]int),
+		movieDate:           make(map[movieDateKey][]int),
+		movieDates:          make(map[string][]string),
+		theaterPositions:    make([]int, len(data.Theaters)),
+		theaterCatalog:      make([]int, len(data.Theaters)),
+		theaterRank:         make([]int, len(data.Theaters)),
+		theaterCity:         make([]int, len(data.Theaters)),
 	}
 	view.readiness = newSnapshotReadiness(view.data)
 	if len(revisions) > 0 {
@@ -170,10 +174,15 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 	for index := range cityMovies {
 		cityMovies[index] = make(map[string]bool)
 	}
+	formats := make([]map[Format]bool, len(view.data.Theaters))
+	for i := range formats {
+		formats[i] = make(map[Format]bool)
+	}
 	for position, showing := range view.data.Showtimes {
 		view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}] = append(view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}], position)
 		slug := view.publicMovieSlug(showing.Movie)
 		if theaterPosition, exists := view.theaterByID[showing.TheaterID]; exists {
+			formats[theaterPosition][showing.Format] = true
 			view.theaterShowtimes[theaterPosition] = append(view.theaterShowtimes[theaterPosition], position)
 			cityMovies[view.theaterCity[theaterPosition]][slug] = true
 		}
@@ -207,6 +216,25 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 	}
 	for slug := range view.movieDates {
 		sort.Strings(view.movieDates[slug])
+	}
+	for position, theater := range view.data.Theaters {
+		technologies := make(map[Format]bool)
+		for format := range formats[position] {
+			view.theaterFormats[position] = append(view.theaterFormats[position], format)
+			if IsTechnologyFormat(format) {
+				technologies[format] = true
+			}
+		}
+		for _, format := range theater.Technologies {
+			if IsTechnologyFormat(format) {
+				technologies[format] = true
+			}
+		}
+		view.theaterFormats[position] = sortedFormats(view.theaterFormats[position])
+		for format := range technologies {
+			view.theaterTechnologies[position] = append(view.theaterTechnologies[position], format)
+		}
+		view.theaterTechnologies[position] = sortedFormats(view.theaterTechnologies[position])
 	}
 	return view
 }

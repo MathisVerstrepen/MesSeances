@@ -350,6 +350,65 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
+    if (path === '/api/v1/theaters' && scenario.imaxGuideOffline)
+      return json(response, { error: { code: 'schedule_unavailable' } }, 503)
+    if (path === '/api/v1/theaters' && scenario.historicalTechnologies)
+      return json(response, [
+        {
+          ...theater,
+          available_formats: ['2D'],
+          technologies: ['IMAX', 'ICE'],
+        },
+      ])
+    if (path === '/api/v1/theaters' && scenario.directoryTechnologies)
+      return json(response, [
+        {
+          ...theater,
+          available_formats: scenario.directoryTechnologyGallery
+            ? [
+                '3D',
+                'IMAX',
+                'DOLBY',
+                'SCREENX',
+                'LASER_ULTRA',
+                '4DX',
+                'ICE',
+                'INFINITY_VISION',
+              ]
+            : ['2D', 'IMAX', '3D'],
+        },
+        { ...secondTheater, provider: 'cgr', available_formats: ['2D', 'ICE'] },
+        {
+          ...theater,
+          id: 'fixture-plain',
+          slug: 'cinema-plain',
+          name: 'Cinéma Standard',
+          available_formats: [],
+        },
+        ...(scenario.directoryLongList
+          ? [
+              'cineville',
+              'cinewest',
+              'grandecran',
+              'kinepolis',
+              'majestic',
+              'megarama',
+              'mk2',
+              'noecinemas',
+              'ocine',
+              'pathe',
+              'veo',
+              'cineode',
+              'cinemovida',
+            ].map((provider) => ({
+              ...theater,
+              provider,
+              id: `fixture-${provider}`,
+              slug: `cinema-${provider}`,
+              available_formats: [],
+            }))
+          : []),
+      ])
     if (path === '/api/v1/theaters')
       return json(response, [
         theater,
@@ -492,11 +551,16 @@ const mock = createServer((request, response) => {
       if (!venue) return json(response, { error: { code: 'not_found' } }, 404)
       if (scenario.discovery === 'error')
         return json(response, { error: { code: 'schedule_unavailable' } }, 503)
-      return json(response, {
+      const detail = {
         ...showtimes(url.searchParams.get('date') || date),
         theater: venue,
         discovery: cinemaDiscovery(scenario.discovery, venue),
-      })
+      }
+      if (scenario.historicalTechnologies) {
+        detail.available_formats = ['2D']
+        detail.technologies = ['IMAX', 'ICE']
+      }
+      return json(response, detail)
     }
     if (path === '/api/v1/theaters/missing/showtimes')
       return json(
@@ -582,6 +646,36 @@ const mock = createServer((request, response) => {
       }, 700)
       return
     }
+    if (path === '/api/v1/movies' && scenario.imaxGuideMovies)
+      return json(response, {
+        items: [
+          {
+            ...movie,
+            slug: 'guide-odyssey',
+            title: 'L’Odyssée',
+            tmdb_id: 1368337,
+          },
+          {
+            ...movie,
+            slug: 'guide-dune-2',
+            title: 'Dune : Deuxième Partie',
+            tmdb_id: 693134,
+          },
+          {
+            ...movie,
+            slug: 'guide-hail-mary',
+            title: 'Projet Dernière Chance',
+            tmdb_id: 687163,
+          },
+          { ...movie, slug: 'guide-avatar', title: 'Avatar', tmdb_id: 19995 },
+        ],
+        available_genres: [],
+        page: 1,
+        page_size: 100,
+        total: 4,
+        generated_at: generatedAt,
+        catalog_revision: 'imax-guide-films',
+      })
     if (path === '/api/v1/movies')
       return json(response, {
         items: scenario.discovery ? discoveryMovies : [movie],
