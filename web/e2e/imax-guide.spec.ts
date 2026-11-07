@@ -389,7 +389,22 @@ test('contents follows the reading position and mobile navigation closes accessi
   page,
 }, info) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openPage(page, '/guides/imax')
+  await openPage(page, '/guides/imax#questions')
+  const initialContents = page.getByRole('navigation', {
+    name:
+      info.project.name === 'mobile'
+        ? 'Sommaire mobile du guide'
+        : 'Sommaire du guide',
+    exact: true,
+  })
+  if (info.project.name === 'mobile')
+    await expect(initialContents.locator('summary')).toContainText(
+      'Questions fréquentes',
+    )
+  else
+    await expect(
+      initialContents.getByRole('link', { name: /Questions fréquentes/ }),
+    ).toHaveAttribute('aria-current', 'location')
   await page
     .getByRole('link', { name: 'Comparer les formats', exact: true })
     .click()

@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Armchair,
   Film,
+  FileText,
   Glasses,
   MapPin,
   Maximize,
@@ -22,6 +23,7 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { serializeJsonLd } from '~/utils/jsonLd'
 
 const api = useMesSeancesApi()
+const isInitialHydration = useNuxtApp().isHydrating
 const { data: directory } = await useAsyncData(
   'imax-guide-theaters',
   async () => {
@@ -142,6 +144,17 @@ onMounted(() => {
   window.addEventListener('scroll', queueChapterUpdate, { passive: true })
   window.addEventListener('resize', handleGuideResize)
   updateActiveChapter()
+  nextTick(() => {
+    const initialChapter = navigationChapters.find(
+      (chapter) => `#${chapter.id}` === window.location.hash,
+    )
+    if (isInitialHydration && initialChapter)
+      document.getElementById(initialChapter.id)?.scrollIntoView({
+        behavior: 'instant',
+        block: 'start',
+      })
+    updateActiveChapter()
+  })
 })
 onBeforeUnmount(() => {
   headerObserver?.disconnect()
@@ -463,31 +476,39 @@ useHead({
       <aside class="hidden border-r-2 border-ink lg:block">
         <nav
           aria-label="Sommaire du guide"
-          class="px-4 py-6 sm:px-6 lg:sticky lg:top-28 lg:px-6 lg:py-10"
+          class="guide-desktop-contents sticky px-4 py-7 xl:px-5"
         >
-          <p class="guide-eyebrow">AU PROGRAMME</p>
-          <ol
-            class="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4 lg:grid-cols-1"
+          <p
+            class="px-3 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-accent"
           >
-            <li v-for="(chapter, index) in chapters" :key="chapter.id">
+            AU PROGRAMME
+          </p>
+          <ol class="mt-4">
+            <li
+              v-for="(chapter, index) in navigationChapters"
+              :key="chapter.id"
+              :class="chapter.id === 'sources' ? 'mt-3 border-t border-ink/10 pt-3' : undefined"
+            >
               <a
                 :href="`#${chapter.id}`"
                 :aria-current="activeChapter === chapter.id ? 'location' : undefined"
-                :class="activeChapter === chapter.id ? 'bg-accent-soft text-accent' : undefined"
-                class="flex min-h-11 items-center gap-3 py-2 text-xs font-bold hover:text-primary"
-                ><span class="font-mono text-[10px] text-accent"
-                  >0{{ index + 1 }}</span
-                >{{ chapter.label }}</a
+                class="grid min-h-11 grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-2.5 border-l-2 py-2 pr-2 pl-3 text-xs leading-snug transition-colors hover:bg-ink/5 hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
+                :class="activeChapter === chapter.id ? 'border-accent font-bold text-accent' : 'border-ink/10 font-medium text-ink/70'"
               >
+                <span
+                  class="grid size-5 place-items-center font-mono text-[10px] font-bold transition-colors"
+                  :class="activeChapter === chapter.id ? 'bg-accent text-white' : 'text-muted'"
+                  aria-hidden="true"
+                >
+                  <FileText v-if="chapter.id === 'sources'" :size="13" />
+                  <template v-else>{{
+                    String(index + 1).padStart(2, '0')
+                  }}</template>
+                </span>
+                <span>{{ chapter.label }}</span>
+              </a>
             </li>
           </ol>
-          <a
-            href="#sources"
-            :aria-current="activeChapter === 'sources' ? 'location' : undefined"
-            :class="activeChapter === 'sources' ? 'text-accent' : undefined"
-            class="mt-5 inline-block font-mono text-[11px] underline underline-offset-4 hover:text-primary"
-            >Sources &amp; méthode ↗</a
-          >
         </nav>
       </aside>
 
@@ -1386,6 +1407,12 @@ useHead({
 }
 .imax-introduction {
   @apply py-8 sm:py-10;
+}
+.guide-desktop-contents {
+  top: calc(var(--guide-header-height, 74px) + 20px);
+  max-height: calc(100dvh - var(--guide-header-height, 74px) - 40px);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .guide-mobile-contents {
   top: var(--guide-header-height, 124px);
