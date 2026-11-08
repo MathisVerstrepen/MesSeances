@@ -846,7 +846,7 @@ class Run:
         if check_id in ("format", "build"):
             okay &= need("make", lambda r: self.executable("make"))
         if check_id == "tooling-unit":
-            for name in ("bash", "jq", "curl", "tar", "sha256sum"):
+            for name in ("bash", "jq", "curl", "tar", "sha256sum", "timeout"):
                 okay &= need(name, lambda r, n=name: self.executable(n))
         if check_id == "format":
             okay &= need("gofmt", lambda r: self.executable("gofmt"))

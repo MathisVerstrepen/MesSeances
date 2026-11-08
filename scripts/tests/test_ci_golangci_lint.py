@@ -34,10 +34,15 @@ class CILinterInstallerTests(unittest.TestCase):
         self.installer = self.root / "installer.sh"
         self.marker = self.root / "executed"
         self.calls = self.root / "curl.jsonl"
+        self.api_calls = self.root / "gh.jsonl"
+        self.api_body = self.root / "api-archive"
         self.env = dict(os.environ, PATH=f"{self.stub}:{os.environ['PATH']}")
         self.env["REAL_CURL"] = shutil.which("curl") or "curl"
         self.env["CURL_CALLS"] = str(self.calls)
         self.env["BINARY_MARKER"] = str(self.marker)
+        self.env["GH_CALLS"] = str(self.api_calls)
+        self.env["GH_FIXTURE_BODY"] = str(self.api_body)
+        self.env["GH_FIXTURE_EXIT"] = "1"
         self.stub.joinpath("uname").write_text(
             '#!/bin/sh\nif [ "$1" = -s ]; then echo Linux; else echo x86_64; fi\n'
         )
@@ -48,9 +53,22 @@ import json, os, sys
 args = sys.argv[1:]
 with open(os.environ["CURL_CALLS"], "a") as stream:
     stream.write(json.dumps(args) + "\\n")
+if "CURL_FORCE_ERROR" in os.environ:
+    print("504", end="")
+    sys.exit(int(os.environ["CURL_FORCE_ERROR"]))
 args = ["=http" if arg == "=https" else arg for arg in args]
 args[-1] = os.environ["FIXTURE_URL"]
 os.execv(os.environ["REAL_CURL"], ["curl", *args])
+''')
+        self.stub.joinpath("gh").write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+with open(os.environ["GH_CALLS"], "a") as stream:
+    stream.write(json.dumps(sys.argv[1:]) + "\\n")
+status = int(os.environ["GH_FIXTURE_EXIT"])
+if status == 0:
+    sys.stdout.buffer.write(Path(os.environ["GH_FIXTURE_BODY"]).read_bytes())
+sys.exit(status)
 ''')
         for stub in self.stub.iterdir():
             stub.chmod(0o755)
@@ -98,6 +116,7 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
             info.mode = 0o755
             archive.addfile(info, io.BytesIO(binary))
         self.payload = buffer.getvalue()
+        self.api_body.write_bytes(self.payload)
         checksum = hashlib.sha256(self.payload).hexdigest()
         # Substitute only the trusted digest in an isolated script copy. The
         # production installer has no environment-based checksum/URL override.
@@ -135,6 +154,7 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
         result = self.run_installer()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.calls.exists())
+        self.assertFalse(self.api_calls.exists())
         self.assertTrue(self.marker.exists())
 
     def test_corrupt_cache_is_rejected_before_execution_without_download(self):
@@ -144,6 +164,7 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
         self.assertIn("Cached linter checksum mismatch", result.stderr)
         self.assertFalse(self.marker.exists())
         self.assertFalse(self.calls.exists())
+        self.assertFalse(self.api_calls.exists())
         self.assert_no_install_or_partials()
 
     def test_corrupt_download_is_neither_executed_nor_cached(self):
@@ -152,6 +173,7 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Downloaded linter checksum mismatch", result.stderr)
         self.assertEqual(self.requests, 1)
+        self.assertFalse(self.api_calls.exists())
         self.assertFalse(self.marker.exists())
         self.assertFalse(self.archive.exists())
         self.assert_no_install_or_partials()
@@ -168,6 +190,7 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.requests, 1)
+        self.assertFalse(self.api_calls.exists())
         self.assertFalse(self.archive.exists())
         self.assert_no_install_or_partials()
 
@@ -176,7 +199,67 @@ os.execv(os.environ["REAL_CURL"], ["curl", *args])
         result = self.run_installer()
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.requests, 5)
+        self.assertEqual(len(self.api_calls.read_text().splitlines()), 1)
         self.assertFalse(self.archive.exists())
+        self.assert_no_install_or_partials()
+
+    def test_api_fallback_recovers_persistent_504_and_caches_verified_archive(self):
+        self.statuses = [504] * 5
+        self.env["GH_FIXTURE_EXIT"] = "0"
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.requests, 5)
+        self.assertEqual(self.archive.read_bytes(), self.payload)
+        self.assertTrue(self.marker.exists())
+        self.assertEqual(json.loads(self.api_calls.read_text()), [
+            "api", "--hostname", "github.com",
+            "repos/golangci/golangci-lint/releases/assets/522396872",
+            "--header", "Accept: application/octet-stream",
+        ])
+        self.calls.unlink()
+        self.api_calls.unlink()
+        self.marker.unlink()
+        self.env["GH_FIXTURE_EXIT"] = "1"
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(self.api_calls.exists())
+        self.assertTrue(self.marker.exists())
+
+    def test_api_fallback_corruption_is_rejected_before_execution_or_caching(self):
+        self.env["CURL_FORCE_ERROR"] = "22"
+        self.env["GH_FIXTURE_EXIT"] = "0"
+        self.api_body.write_bytes(b"corrupt")
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Downloaded linter checksum mismatch", result.stderr)
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.archive.exists())
+        self.assert_no_install_or_partials()
+
+    def test_api_fallback_uses_arm64_asset_and_rejects_wrong_version(self):
+        self.stub.joinpath("uname").write_text(
+            '#!/bin/sh\nif [ "$1" = -s ]; then echo Linux; else echo aarch64; fi\n'
+        )
+        self.make_archive(version="2.13.10", arch="arm64")
+        self.env["CURL_FORCE_ERROR"] = "22"
+        self.env["GH_FIXTURE_EXIT"] = "0"
+        result = self.run_installer()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Installed linter version mismatch", result.stderr)
+        self.assertIn("repos/golangci/golangci-lint/releases/assets/522396912", json.loads(self.api_calls.read_text()))
+        self.assert_no_install_or_partials()
+
+    def test_api_timeout_preserves_failure_and_cleans_partial_download(self):
+        self.env["CURL_FORCE_ERROR"] = "22"
+        self.stub.joinpath("timeout").write_text(
+            '#!/bin/sh\n[ "$1" = 90s ] || exit 2\nprintf partial\nexit 124\n'
+        )
+        self.stub.joinpath("timeout").chmod(0o755)
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 124)
+        self.assertFalse(self.archive.exists())
+        self.assertFalse(self.marker.exists())
         self.assert_no_install_or_partials()
 
     def test_arm64_uses_matching_archive(self):
