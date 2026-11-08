@@ -26,7 +26,7 @@ func toulouseEntryPage(start time.Time) CheckoutResult {
 // Run the same binding, parser-attestation and retry controls for each admitted
 // cinema. All pages remain synthetic; only the cinema identity differs.
 func TestBoundEntryCheckouts(t *testing.T) {
-	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}, {"P1028", "castelnaudary"}} {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}, {"P1028", "castelnaudary"}, {"P0792", "decazeville"}} {
 		t.Run(cinema.id, func(t *testing.T) {
 			row := func(i int) schedule.ShowtimeRecord {
 				r := retryTestRow(i)
@@ -111,7 +111,7 @@ func testEntryUnavailableDiscardsAllPageFacts(t *testing.T, retryTestRow func(in
 }
 
 func testEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T, retryTestRow func(int) schedule.ShowtimeRecord, toulouseEntryPage func(time.Time) CheckoutResult, toulouseEntryAction string) {
-	slug := strings.Split(entryCheckoutAction(retryTestRow(902).TheaterID), "/")[3]
+	slug := strings.Split(toulouseEntryAction, "/")[3]
 	for _, tc := range []struct {
 		name   string
 		change func(*schedule.ShowtimeRecord, *CheckoutResult)
@@ -315,22 +315,33 @@ func TestToulouseEntryConcurrentAtomicMapAndCancellation(t *testing.T) {
 }
 
 func TestSyncToulouseEntryGapPreservesFullAtomicDataset(t *testing.T) {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0792", "decazeville"}} {
+		t.Run(cinema.id, func(t *testing.T) {
+			testSyncEntryGapPreservesFullAtomicDataset(t, cinema.id, cinema.slug)
+		})
+	}
+}
+
+func testSyncEntryGapPreservesFullAtomicDataset(t *testing.T, cinemaID, slug string) {
 	for _, fail := range []bool{false, true} {
 		base := &fixtureGetter{modify: func(op Operation, raw string, b []byte) ([]byte, error) {
 			text := string(b)
 			if strings.HasPrefix(raw, MainOrigin) {
 				if op == OperationCinemas || op == OperationSchedule {
-					text = strings.ReplaceAll(text, "P1028", "G0699")
+					text = strings.ReplaceAll(text, "P1028", cinemaID)
 				}
 				if op == OperationSchedule {
-					text = strings.ReplaceAll(text, "/fixture/r/123", "/toulouse/r/123")
+					text = strings.ReplaceAll(text, "/fixture/r/123", "/"+slug+"/r/123")
 				}
 			}
 			return []byte(text), nil
 		}}
 		g := &retryCheckoutGetter{Getter: base, fetch: func(_ context.Context, raw string, start time.Time, _ int) (CheckoutResult, error) {
-			if strings.Contains(raw, "/toulouse/") {
-				return toulouseEntryPage(start), nil
+			if strings.Contains(raw, "/"+slug+"/") {
+				p := toulouseEntryPage(start)
+				p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "/toulouse/", "/"+slug+"/")
+				p.Body = []byte(strings.ReplaceAll(string(p.Body), "/toulouse/", "/"+slug+"/"))
+				return p, nil
 			}
 			if fail {
 				return CheckoutResult{}, errShape
@@ -344,11 +355,15 @@ func TestSyncToulouseEntryGapPreservesFullAtomicDataset(t *testing.T) {
 			}
 			continue
 		}
-		if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 5 || s.ToulouseUnavailableCheckouts != 2 || s.CheckoutRetryAttempts != 0 || d.Window.Through != "2026-10-28" {
+		wantToulouse := 0
+		if cinemaID == "G0699" {
+			wantToulouse = 2
+		}
+		if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 5 || s.ToulouseUnavailableCheckouts != wantToulouse || s.CheckoutRetryAttempts != 0 || d.Window.Through != "2026-10-28" {
 			t.Fatal("full acquisition changed", s, err)
 		}
 		for _, r := range d.Showtimes {
-			if r.TheaterID == "veo-G0699" && (!r.EndTime.Equal(r.StartTime) || r.Room == "Salle 8" || r.BookingURL != "https://achat.veocinemas.fr/toulouse/r/123") {
+			if r.TheaterID == "veo-"+cinemaID && (!r.EndTime.Equal(r.StartTime) || r.Room == "Salle 8" || r.BookingURL != "https://achat.veocinemas.fr/"+slug+"/r/123") {
 				t.Fatal("session/API room/source changed")
 			}
 		}
