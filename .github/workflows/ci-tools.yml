@@ -1,0 +1,23 @@
+name: CI tools cache
+
+# PR merge-ref caches cannot be shared with other PRs. Seed base-branch caches
+# so future PRs into dev/main can restore the same verified archive.
+on:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  linter-cache:
+    name: Warm verified linter cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install verified linter
+        uses: ./.github/actions/setup-golangci-lint

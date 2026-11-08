@@ -1,0 +1,25 @@
+name: Set up verified golangci-lint
+description: Restore or download the pinned, checksum-verified CI linter.
+runs:
+  using: composite
+  steps:
+    - name: Restore pinned linter archive
+      id: linter-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/golangci-lint-archive
+        key: golangci-lint-archive-v1-${{ runner.os }}-${{ runner.arch }}-v2.13.1-${{ hashFiles('scripts/install-ci-golangci-lint.sh') }}
+
+    - name: Install verified linter
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        bash scripts/install-ci-golangci-lint.sh "$RUNNER_TEMP/golangci-lint-archive" "$RUNNER_TEMP/golangci-lint-bin"
+        echo "$RUNNER_TEMP/golangci-lint-bin" >> "$GITHUB_PATH"
+
+    - name: Save verified linter archive
+      if: steps.linter-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/golangci-lint-archive
+        key: ${{ steps.linter-cache.outputs.cache-primary-key }}

@@ -54,10 +54,13 @@ jobs:
         working-directory: .
         run: make test-race
 
+      - name: Install verified linter
+        uses: ./.github/actions/setup-golangci-lint
+
       - name: Lint
         uses: golangci/golangci-lint-action@v9.3.0
         with:
-          version: v2.13.1
+          install-mode: none
           working-directory: api
 
       - name: Vulnerability check

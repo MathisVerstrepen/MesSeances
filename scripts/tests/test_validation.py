@@ -1201,8 +1201,10 @@ class CommandContractTests(unittest.TestCase):
     def test_ci_keeps_security_and_owned_database_gates(self):
         # Real Make tests below cover dispatch; these are CI-only safety gates.
         workflow = (ROOT / ".github/workflows/go.yml").read_text()
-        for text in ("contents: read", "go vet ./...", "golang/govulncheck-action@", "golangci/golangci-lint-action@", "version: " + v.TOOL_PINS["golangci-lint"][1]):
+        for text in ("contents: read", "go vet ./...", "golang/govulncheck-action@", "golangci/golangci-lint-action@", "install-mode: none"):
             self.assertIn(text, workflow)
+        self.assertLess(workflow.index("uses: ./.github/actions/setup-golangci-lint"), workflow.index("- name: Lint\n"))
+        self.assertNotIn("continue-on-error:", workflow)
         for target in ("test-go", "test-race", "test-integration"):
             self.assertIn(f"run: make {target}\n", workflow)
         for forbidden in ("services:", "TEST_DATABASE_URL", "command -v psql", "upload-artifact"):
