@@ -195,6 +195,42 @@ func TestSyncUnknownRuntimeEndAndOptionalFailures(t *testing.T) {
 	}
 }
 
+func TestSyncZeroRuntimePreservesSessionsAndSourceEnds(t *testing.T) {
+	for _, recoverEnd := range []bool{false, true} {
+		t.Run(fmt.Sprint(recoverEnd), func(t *testing.T) {
+			f := goodFixture()
+			original := f.get
+			f.get = func(ctx context.Context, op Operation, raw string) ([]byte, error) {
+				body, err := original(ctx, op, raw)
+				if op == OperationMovies {
+					body = []byte(strings.ReplaceAll(string(body), `"runtime":6000`, `"runtime":0`))
+				}
+				return body, err
+			}
+			if !recoverEnd {
+				f.checkout = func(context.Context, string, time.Time) ([]byte, error) {
+					return []byte(`<p>Fin non renseignée</p>`), nil
+				}
+			}
+			d, summary, err := Sync(t.Context(), f, SyncOptions{From: "2026-10-17", Now: time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(d.Theaters) != 4 || len(d.Showtimes) != 6 || summary.EndsAttempted != 6 {
+				t.Fatalf("zero runtime interrupted acquisition: %+v", summary)
+			}
+			if recoverEnd && summary.EndsRecovered != 6 || !recoverEnd && summary.EndsUnresolved != 6 {
+				t.Fatalf("source end accounting lost: %+v", summary)
+			}
+			for _, r := range d.Showtimes {
+				if r.Movie.RuntimeMinutes != 0 || r.Movie.Overview != "Résumé" || r.EndTime.After(r.StartTime) != recoverEnd || !recoverEnd && !r.EndTime.Equal(r.StartTime) {
+					t.Fatal("zero runtime lost metadata or invented an end")
+				}
+			}
+		})
+	}
+}
+
 func TestCensusAndMovieValidation(t *testing.T) {
 	for _, mutate := range []func([]cinema) []cinema{
 		func(c []cinema) []cinema { return c[:3] },
