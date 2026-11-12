@@ -128,7 +128,9 @@ func parseMovies(body []byte) (map[string]schedule.MovieRecord, error) {
 			return nil, fmt.Errorf("invalid movie metadata")
 		}
 		runtime := 0
-		if m.Runtime != nil {
+		// The source also uses zero for an unknown runtime (notably local
+		// events). Keep its sessions, just as for a missing or null runtime.
+		if m.Runtime != nil && *m.Runtime != 0 {
 			runtime = *m.Runtime / 60
 			if *m.Runtime <= 0 || runtime == 0 {
 				return nil, fmt.Errorf("invalid movie runtime")
