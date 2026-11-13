@@ -670,12 +670,16 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
   await format.selectOption('2D')
   await ads.uncheck()
   await watchlist.check()
+  // Move the start earlier before setting the end, regardless of the current time.
   await form
     .getByRole('combobox', { name: 'À partir de' })
-    .selectOption('12:00')
+    .selectOption('08:00')
   await form
     .getByRole('combobox', { name: 'Terminé avant' })
     .selectOption('18:00')
+  await form
+    .getByRole('combobox', { name: 'À partir de' })
+    .selectOption('12:00')
   await page.screenshot({
     path: info.outputPath('search-expanded.png'),
     fullPage: true,
@@ -916,12 +920,16 @@ for (const mode of ['initial', 'edit'] as const) {
       'Afficher uniquement les séances sélectionnées',
     )
     const finalSetting = watched
+    // Move the start earlier before setting the end, regardless of the current time.
     await form
       .getByRole('combobox', { name: 'À partir de' })
-      .selectOption('12:00')
+      .selectOption('08:00')
     await form
       .getByRole('combobox', { name: 'Terminé avant' })
       .selectOption('18:00')
+    await form
+      .getByRole('combobox', { name: 'À partir de' })
+      .selectOption('12:00')
 
     const scrollSettings = async (fraction: number) => {
       await settings.evaluate((element, value) => {
