@@ -349,6 +349,7 @@ func readSession(n *html.Node, clock string, date time.Time, movie schedule.Movi
 	if err != nil {
 		return s, err
 	}
+	// Keep the existing non-bookable identity sentinel, including future rows.
 	hall := "past"
 	if n.Data == "a" {
 		if hasClass(n, "past") {
@@ -379,7 +380,9 @@ func readSession(n *html.Node, clock string, date time.Time, movie schedule.Movi
 		}
 		hall = h
 	} else {
-		if n.Data != "div" || !hasClass(n, "past") || len(nodes(n, func(n *html.Node) bool { return n.Data == "a" })) != 0 {
+		// The programme also uses divs without a past class for non-bookable
+		// sessions. Their grid clock remains authoritative; no checkout exists.
+		if n.Data != "div" || len(nodes(n, func(n *html.Node) bool { return n.Data == "a" })) != 0 {
 			return s, fmt.Errorf("%w: anchorless session", errShape)
 		}
 		instants := clockInstants(date, clock, loc)
