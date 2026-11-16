@@ -45,6 +45,7 @@ async function settled(page: Page, item: (typeof cases)[number]) {
   await expect(page.locator(item.ready).locator(item.rows)).toHaveCount(
     item.count,
   )
+  await expect(page.locator(item.signal)).toHaveAttribute('aria-busy', 'false')
 }
 async function cinemas(page: Page) {
   await page
@@ -182,7 +183,21 @@ for (const item of cases) {
       await request.post('/__playwright/scenario', {
         data: { scrollRoute: mode },
       })
+      // Statistics also resolves the selected film independently of its rows.
+      // Give transport the test's request budget before asserting rendered readiness.
+      const endpoints = [item.endpoint]
+      if (item.name === 'statistics')
+        endpoints.push(`/api/v1/movies/${movie.slug}/showtimes`)
+      const loaded = Promise.all(
+        endpoints.map(async (endpoint) => {
+          const response = await page.waitForResponse(
+            (response) => new URL(response.url()).pathname === endpoint,
+          )
+          expect(await response.finished()).toBeNull()
+        }),
+      )
       await page.goBack()
+      await loaded
       await expect(page.locator(item.signal)).toHaveAttribute(
         'aria-busy',
         'false',
