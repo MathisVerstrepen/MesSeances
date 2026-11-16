@@ -321,24 +321,26 @@ export function useAccountActivity() {
       readingPending.value ||
       account.writesBlocked.value
     )
-      return
+      return false
     const token = capture()
-    if (!token.valid()) return
+    if (!token.valid()) return false
     readingPending.value = key
     readingError.value = ''
     readingController = new AbortController()
     try {
       const value = await write(token.expectedOwner, readingController.signal)
-      if (!token.valid() || !response.value) return
+      if (!token.valid() || !response.value) return false
       commit(value, response.value)
       void notification.refresh()
       app._accountChannel?.postMessage('activity-visited')
+      return true
     } catch (cause) {
-      if (!token.valid()) return
+      if (!token.valid()) return false
       readingError.value = `Impossible de mémoriser ce changement. ${accountErrorMessage(cause)}`
       // A lost response may follow a committed write. Reconcile without
       // replaying the mutation or clearing the list/scroll position.
       void account.revalidate()
+      return false
     } finally {
       if (token.valid()) readingPending.value = ''
     }
@@ -390,7 +392,7 @@ export function useAccountActivity() {
   }
   function markAllConsulted() {
     const latest = latestActivityEventID(response.value?.items ?? [])
-    if (latest === '0' || !response.value?.reading.manual_reading) return
+    if (latest === '0') return
     return changeReading(
       'all',
       (expected_username, signal) =>

@@ -172,11 +172,21 @@ export function useActivityVisit(
     attempted = null
     void synchronize()
   }
+  function confirmConsulted(lastEventID: string) {
+    const id = activityEventID(lastEventID)
+    if (!owner.value || id === null) return
+    if (
+      previousLastEventID.value === null ||
+      BigInt(id) > BigInt(previousLastEventID.value)
+    )
+      previousLastEventID.value = id
+  }
   return {
     previousLastEventID: computed(() =>
       owner.value ? previousLastEventID.value : null,
     ),
     error,
     retry,
+    confirmConsulted,
   }
 }
