@@ -28,6 +28,14 @@ func activityVisitInput(scope, rawID string) (int64, error) {
 // The account lock serializes visits from different sessions/devices, including
 // the first insert. Older pages/devices can never move the watermark backwards.
 func (s *Service) VisitActivity(ctx context.Context, rawSession, expectedUsername, scope, lastEventID string) (ActivityVisitView, error) {
+	return s.visitActivity(ctx, rawSession, expectedUsername, scope, lastEventID, false)
+}
+
+func (s *Service) MarkAllActivityConsulted(ctx context.Context, rawSession, expectedUsername, lastEventID string) (ActivityVisitView, error) {
+	return s.visitActivity(ctx, rawSession, expectedUsername, "followed", lastEventID, true)
+}
+
+func (s *Service) visitActivity(ctx context.Context, rawSession, expectedUsername, scope, lastEventID string, explicit bool) (ActivityVisitView, error) {
 	id, err := activityVisitInput(scope, lastEventID)
 	if err != nil {
 		return ActivityVisitView{}, err
@@ -46,12 +54,26 @@ func (s *Service) VisitActivity(ctx context.Context, rawSession, expectedUsernam
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return ErrUnavailable
 		}
+		view = ActivityVisitView{Username: *a.username, Scope: scope, PreviousLastEventID: strconv.FormatInt(previous, 10)}
+		if scope == "followed" {
+			reading, err := readActivityReading(ctx, tx, a)
+			if err != nil {
+				return err
+			}
+			// Enforce manual mode on the server too: a stale automatic tab must
+			// never clear activity after another device enables manual reading.
+			if reading.ManualReading && !explicit {
+				return nil
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM account_activity_reads WHERE account_id=$1 AND event_id<=$2`, a.id, id); err != nil {
+				return ErrUnavailable
+			}
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO account_activity_visits(account_id,scope,last_event_id) VALUES($1,$2,$3)
 		 ON CONFLICT(account_id,scope) DO UPDATE SET last_event_id=greatest(account_activity_visits.last_event_id,excluded.last_event_id)`, a.id, scope, id)
 		if err != nil {
 			return ErrUnavailable
 		}
-		view = ActivityVisitView{Username: *a.username, Scope: scope, PreviousLastEventID: strconv.FormatInt(previous, 10)}
 		return nil
 	})
 	if err != nil {

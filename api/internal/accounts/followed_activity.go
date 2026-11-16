@@ -25,7 +25,8 @@ type FollowedActivityTheater struct {
 
 type FollowedActivityItem struct {
 	schedule.ActivityEvent
-	Theater FollowedActivityTheater `json:"theater"`
+	Theater   FollowedActivityTheater `json:"theater"`
+	Consulted bool                    `json:"consulted"`
 }
 
 type FollowedActivityCoverage struct {
@@ -45,6 +46,7 @@ type FollowedActivityView struct {
 	Items                []FollowedActivityItem   `json:"items"`
 	Limit                int                      `json:"limit"`
 	NextCursor           *string                  `json:"next_cursor"`
+	Reading              ActivityReadingView      `json:"reading"`
 }
 
 func NormalizeFollowedActivityQuery(q FollowedActivityQuery) (FollowedActivityQuery, error) {
@@ -79,6 +81,10 @@ func (s *Service) FollowedActivity(ctx context.Context, rawSession string, query
 			return ErrUnavailable
 		}
 		a, _, err := s.authorize(ctx, tx, rawSession, true)
+		if err != nil {
+			return err
+		}
+		result.Reading, err = readActivityReading(ctx, tx, a)
 		if err != nil {
 			return err
 		}
@@ -138,6 +144,7 @@ func (s *Service) FollowedActivity(ctx context.Context, rawSession string, query
 		if rows.Err() != nil {
 			return ErrUnavailable
 		}
+		rows.Close()
 		if result.Coverage.InitializedTheaterCount > 0 {
 			result.Coverage.Completeness = "partial"
 		}
@@ -146,7 +153,7 @@ func (s *Service) FollowedActivity(ctx context.Context, rawSession string, query
 			cursor := s.encodeFollowedActivityCursor(a.id, follows.Revision, upper, result.Items[len(result.Items)-1].ActivityEvent)
 			result.NextCursor = &cursor
 		}
-		return nil
+		return readActivityItems(ctx, tx, a, result.Items, result.Reading.LastReadEventID)
 	})
 	if err != nil {
 		return FollowedActivityView{}, err

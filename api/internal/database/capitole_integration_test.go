@@ -141,7 +141,7 @@ func capitoleFKFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tabl
 // ignoring new tables or any backfilled private rows.
 func assertCapitoleAdditiveBaselines(t *testing.T, ctx context.Context, pool *pgxpool.Pool, facts map[string]string) {
 	t.Helper()
-	for _, table := range []string{"account_watched_state", "account_watched_items", "account_activity_visits", "movie_trailer_candidates", "movie_trailer_lookups"} {
+	for _, table := range []string{"account_watched_state", "account_watched_items", "account_activity_visits", "account_activity_preferences", "account_activity_reads", "movie_trailer_candidates", "movie_trailer_lookups"} {
 		if facts[table] != "[]" {
 			t.Fatalf("additive migration did not create empty %s", table)
 		}

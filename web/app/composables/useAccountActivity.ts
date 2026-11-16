@@ -2,11 +2,14 @@ import type { AccountActivityResponse } from '~/types/cinemaFollows'
 import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 import { appendActivityItems, groupActivityItems } from '~/utils/cinemaActivity'
 import { activityPageDepth } from '~/utils/activityPageDepth'
+import { latestActivityEventID } from '~/utils/activityVisit'
 
 export function useAccountActivity() {
   const account = useAccountSession()
   const follows = useCinemaFollows()
   const api = useAccountApi()
+  const app = useNuxtApp()
+  const notification = useActivityNotification()
   const response = ref<AccountActivityResponse | null>(null)
   const loading = ref(true)
   const morePending = ref(false)
@@ -18,9 +21,12 @@ export function useAccountActivity() {
   let pagesLoaded = 1
   let restorePages = depth.target
   const departingHeight = ref(0)
+  const readingPending = ref('')
+  const readingError = ref('')
   let mounted = false
   let generation = 0
   let controller: AbortController | undefined
+  let readingController: AbortController | undefined
   let unregister: (() => void) | undefined
   const owner = computed(() =>
     account.status.value === 'ready' &&
@@ -32,6 +38,8 @@ export function useAccountActivity() {
   function cancelPending() {
     generation++
     controller?.abort()
+    readingController?.abort()
+    readingPending.value = ''
     morePending.value = false
   }
   function clear() {
@@ -42,6 +50,7 @@ export function useAccountActivity() {
     moreError.value = ''
     revalidationError.value = ''
     newActivityAvailable.value = false
+    readingError.value = ''
   }
   const lifetime = useAccountLifetime(() => {
     // Keep outgoing geometry while clearing private rows, so the browser cannot
@@ -104,6 +113,21 @@ export function useAccountActivity() {
     revalidationError.value = ''
     newActivityAvailable.value = false
     loading.value = false
+  }
+  async function readLoadedStates(ids: string[], signal?: AbortSignal) {
+    const states = new Map<string, boolean>()
+    let reading: AccountActivityResponse['reading'] | undefined
+    for (let start = 0; start < Math.max(ids.length, 1); start += 100) {
+      const value = await api.activityReading(
+        ids.slice(start, start + 100),
+        signal,
+      )
+      if (value.reading.username !== owner.value)
+        throw new AccountApiError(401, 'authentication_required')
+      reading = value.reading
+      for (const item of value.items) states.set(item.event_id, item.consulted)
+    }
+    return { reading, states }
   }
   async function refresh() {
     if (!import.meta.client || !mounted || !unregister) return
@@ -175,13 +199,29 @@ export function useAccountActivity() {
     controller = new AbortController()
     try {
       const value = await api.accountActivity(undefined, controller.signal)
-      if (token.valid()) check(value, token.expectedOwner)
+      if (!token.valid()) return () => {}
+      check(value, token.expectedOwner)
+      // Reconcile every loaded row after another tab/device changes reading
+      // state, keeping the current walk, continuation cursor and DOM in place.
+      const reading = response.value
+        ? await readLoadedStates(
+            response.value.items.map((item) => item.event_id),
+            controller.signal,
+          )
+        : undefined
       return () => {
         if (!token.valid()) return
         const previous = response.value
         if (!previous || previous.follows_revision !== value.follows_revision) {
           apply(value)
           return
+        }
+        if (reading?.reading) {
+          previous.reading = reading.reading
+          previous.items = previous.items.map((item) => ({
+            ...item,
+            consulted: reading.states.get(item.event_id) ?? item.consulted,
+          }))
         }
         // IDs are monotonically allocated decimal strings. Older events filling
         // gaps, changed metadata and a new cursor alone are not new activity.
@@ -223,7 +263,8 @@ export function useAccountActivity() {
       !previous ||
       loading.value ||
       morePending.value ||
-      account.writesBlocked.value
+      account.writesBlocked.value ||
+      readingPending.value
     )
       return
     const token = capture()
@@ -266,6 +307,108 @@ export function useAccountActivity() {
     } finally {
       if (token.valid()) morePending.value = false
     }
+  }
+  async function changeReading<T>(
+    key: string,
+    write: (username: string, signal: AbortSignal) => Promise<T>,
+    commit: (value: T, current: AccountActivityResponse) => void,
+  ) {
+    if (
+      !import.meta.client ||
+      !response.value ||
+      loading.value ||
+      morePending.value ||
+      readingPending.value ||
+      account.writesBlocked.value
+    )
+      return
+    const token = capture()
+    if (!token.valid()) return
+    readingPending.value = key
+    readingError.value = ''
+    readingController = new AbortController()
+    try {
+      const value = await write(token.expectedOwner, readingController.signal)
+      if (!token.valid() || !response.value) return
+      commit(value, response.value)
+      void notification.refresh()
+      app._accountChannel?.postMessage('activity-visited')
+    } catch (cause) {
+      if (!token.valid()) return
+      readingError.value = `Impossible de mémoriser ce changement. ${accountErrorMessage(cause)}`
+      // A lost response may follow a committed write. Reconcile without
+      // replaying the mutation or clearing the list/scroll position.
+      void account.revalidate()
+    } finally {
+      if (token.valid()) readingPending.value = ''
+    }
+  }
+  function saveReadingMode(manual: boolean) {
+    return changeReading(
+      'mode',
+      (expected_username, signal) =>
+        api.saveActivityReading(
+          { expected_username, manual_reading: manual ? 'true' : 'false' },
+          signal,
+        ),
+      (value, current) => {
+        if (value.username !== current.username) throw new AccountApiError(401)
+        if (
+          BigInt(value.last_read_event_id) >
+          BigInt(current.reading.last_read_event_id)
+        ) {
+          for (const item of current.items)
+            if (BigInt(item.event_id) <= BigInt(value.last_read_event_id))
+              item.consulted = true
+        }
+        current.reading = value
+      },
+    )
+  }
+  function toggleConsulted(eventID: string) {
+    const item = response.value?.items.find((item) => item.event_id === eventID)
+    if (!item || !response.value?.reading.manual_reading) return
+    const consulted = !item.consulted
+    return changeReading(
+      eventID,
+      (expected_username, signal) =>
+        api.saveActivityRead(
+          {
+            expected_username,
+            event_id: eventID,
+            consulted: consulted ? 'true' : 'false',
+          },
+          signal,
+        ),
+      (value, current) => {
+        if (value.username !== current.username || value.event_id !== eventID)
+          throw new AccountApiError(401)
+        const saved = current.items.find((item) => item.event_id === eventID)
+        if (saved) saved.consulted = value.consulted
+      },
+    )
+  }
+  function markAllConsulted() {
+    const latest = latestActivityEventID(response.value?.items ?? [])
+    if (latest === '0' || !response.value?.reading.manual_reading) return
+    return changeReading(
+      'all',
+      (expected_username, signal) =>
+        api.markAllActivityConsulted(
+          { expected_username, last_event_id: latest },
+          signal,
+        ),
+      (value, current) => {
+        if (value.username !== current.username || value.scope !== 'followed')
+          throw new AccountApiError(401)
+        current.reading.last_read_event_id =
+          BigInt(value.previous_last_event_id) > BigInt(latest)
+            ? value.previous_last_event_id
+            : latest
+        for (const item of current.items)
+          if (BigInt(item.event_id) <= BigInt(latest)) item.consulted = true
+      },
+    )
   }
   watch(
     owner,
@@ -341,8 +484,13 @@ export function useAccountActivity() {
     revalidationError,
     newActivityAvailable,
     departingHeight,
+    readingPending,
+    readingError,
     groups: computed(() => groupActivityItems(response.value?.items ?? [])),
     refresh,
     loadMore,
+    saveReadingMode,
+    toggleConsulted,
+    markAllConsulted,
   }
 }

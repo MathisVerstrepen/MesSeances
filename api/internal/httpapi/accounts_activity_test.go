@@ -85,7 +85,7 @@ func TestAccountActivityRoutesAndCookie(t *testing.T) {
 			t.Fatal("empty feed", w.Code, w.Body.String())
 		}
 		var v map[string]any
-		if json.Unmarshal(w.Body.Bytes(), &v) != nil || len(v) != 9 || v["username"] != "owner" || v["follows_revision"] != "0" || v["timezone"] != "Europe/Paris" || v["generated_at"] != "2026-10-03T12:00:00.123456Z" || v["next_cursor"] != nil || len(v["items"].([]any)) != 0 {
+		if json.Unmarshal(w.Body.Bytes(), &v) != nil || len(v) != 10 || v["username"] != "owner" || v["follows_revision"] != "0" || v["timezone"] != "Europe/Paris" || v["generated_at"] != "2026-10-03T12:00:00.123456Z" || v["next_cursor"] != nil || len(v["items"].([]any)) != 0 {
 			t.Fatal("empty DTO", w.Body.String())
 		}
 	}
@@ -103,7 +103,7 @@ func TestAccountActivityDTOSerialization(t *testing.T) {
 	item := data["items"].([]any)[0].(map[string]any)
 	movie := item["movie"].(map[string]any)
 	theater := item["theater"].(map[string]any)
-	if len(item) != 9 || len(movie) != 4 || len(theater) != 5 || item["event_id"] != "10" || item["detected_at"] != "2026-10-03T12:00:00.123456Z" || item["has_upcoming_showtimes"] != false {
+	if len(item) != 10 || len(movie) != 4 || len(theater) != 5 || item["consulted"] != false || item["event_id"] != "10" || item["detected_at"] != "2026-10-03T12:00:00.123456Z" || item["has_upcoming_showtimes"] != false {
 		t.Fatal("item contract", w.Body.String())
 	}
 	for _, key := range []string{"previous_program_end_date", "next_showtime_date"} {

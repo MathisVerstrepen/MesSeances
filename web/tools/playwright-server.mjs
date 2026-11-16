@@ -59,6 +59,23 @@ let followGets = 0
 let activityGets = 0
 let activityNotificationGets = 0
 const activityVisits = new Map()
+const activityPreferences = new Map()
+const activityReads = new Map()
+
+function activityReading() {
+  return {
+    username: scenario.username,
+    manual_reading: activityPreferences.get(scenario.username) ?? false,
+    last_read_event_id:
+      activityVisits.get(`${scenario.username}/followed`) || '0',
+  }
+}
+function activityConsulted(eventID) {
+  return (
+    activityReads.get(`${scenario.username}/${eventID}`) ??
+    BigInt(eventID) <= BigInt(activityReading().last_read_event_id)
+  )
+}
 let selected = {
   username: scenario.username,
   revision: '1',
@@ -100,6 +117,7 @@ function activityPage(cursor) {
   const visible = scenario.feed === 'populated' ? items : []
   const page = {
     username: scenario.username,
+    reading: activityReading(),
     follows_revision: follows.revision,
     followed_theater_count: ids.size,
     generated_at: generatedAt,
@@ -119,7 +137,11 @@ function activityPage(cursor) {
       !cursor && visible.length > 2 ? `fixture-${follows.revision}` : null,
   }
   if (scenario.feed === 'scroll')
-    return { ...page, ...scrollActivityPage(cursor) }
+    Object.assign(page, scrollActivityPage(cursor))
+  page.items = page.items.map((item) => ({
+    ...item,
+    consulted: activityConsulted(item.event_id),
+  }))
   return page
 }
 function json(response, body, status = 200) {
@@ -132,7 +154,15 @@ function json(response, body, status = 200) {
 const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
-  if (request.method === 'POST' && path === '/api/v1/account/activity/visit') {
+  if (
+    request.method === 'POST' &&
+    [
+      '/api/v1/account/activity/visit',
+      '/api/v1/account/activity/reading',
+      '/api/v1/account/activity/read',
+      '/api/v1/account/activity/read-all',
+    ].includes(path)
+  ) {
     let body = ''
     request.on('data', (chunk) => {
       body += chunk
@@ -148,19 +178,63 @@ const mock = createServer((request, response) => {
           { error: { code: 'authentication_required' } },
           401,
         )
-      const key = `${scenario.username}/${input.scope}`
+      if (path.endsWith('/reading')) {
+        activityPreferences.set(
+          scenario.username,
+          input.manual_reading === 'true',
+        )
+        return json(response, activityReading())
+      }
+      if (path.endsWith('/read')) {
+        activityReads.set(
+          `${scenario.username}/${input.event_id}`,
+          input.consulted === 'true',
+        )
+        return json(response, {
+          username: scenario.username,
+          event_id: input.event_id,
+          consulted: input.consulted === 'true',
+        })
+      }
+      const scope = path.endsWith('/read-all') ? 'followed' : input.scope
+      const key = `${scenario.username}/${scope}`
       const previous = activityVisits.get(key) || '0'
-      if (BigInt(input.last_event_id) > BigInt(previous))
-        activityVisits.set(key, input.last_event_id)
+      if (
+        scope !== 'followed' ||
+        !activityReading().manual_reading ||
+        path.endsWith('/read-all')
+      ) {
+        if (BigInt(input.last_event_id) > BigInt(previous))
+          activityVisits.set(key, input.last_event_id)
+        if (scope === 'followed') {
+          const prefix = `${scenario.username}/`
+          for (const readKey of activityReads.keys())
+            if (
+              readKey.startsWith(prefix) &&
+              BigInt(readKey.slice(prefix.length)) <=
+                BigInt(input.last_event_id)
+            )
+              activityReads.delete(readKey)
+        }
+      }
       json(response, {
         username: scenario.username,
-        scope: input.scope,
+        scope,
         previous_last_event_id: previous,
       })
     })
     return
   }
   if (request.method === 'GET') {
+    if (path === '/api/v1/account/activity/reading')
+      return json(response, {
+        reading: activityReading(),
+        items: url.searchParams.getAll('event_id').map((event_id) => ({
+          username: scenario.username,
+          event_id,
+          consulted: activityConsulted(event_id),
+        })),
+      })
     if (
       (scenario.cinemovida || scenario.ocine) &&
       path === '/api/v1/search/slot'
@@ -298,15 +372,13 @@ const mock = createServer((request, response) => {
         )
       if (scenario.feed === 'error')
         return json(response, { error: { code: 'accounts_unavailable' } }, 503)
-      const previous = BigInt(
-        activityVisits.get(`${scenario.username}/followed`) || '0',
-      )
       return json(response, {
         username: scenario.username,
         follows_revision: follows.revision,
-        has_new_activity: activityPage().items.some(
-          (item) => BigInt(item.event_id) > previous,
-        ),
+        has_new_activity: [
+          ...activityPage().items,
+          ...activityPage(`fixture-${follows.revision}`).items,
+        ].some((item) => !item.consulted),
       })
     }
     if (path === '/api/v1/account/theater-follows') {
@@ -1021,6 +1093,10 @@ try {
         activityGets = 0
         activityNotificationGets = 0
         activityVisits.clear()
+        activityPreferences.clear()
+        activityReads.clear()
+        if (input.manualReading)
+          activityPreferences.set(scenario.username, true)
         unexpected.length = 0
         json(response, { ready: true })
       })

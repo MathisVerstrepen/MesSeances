@@ -12,6 +12,23 @@ export interface ActivityVisit {
   previous_last_event_id: string
 }
 
+export interface ActivityReading {
+  username: string
+  manual_reading: boolean
+  last_read_event_id: string
+}
+
+export interface ActivityRead {
+  username: string
+  event_id: string
+  consulted: boolean
+}
+
+export interface ActivityReadingSnapshot {
+  reading: ActivityReading
+  items: ActivityRead[]
+}
+
 export interface AccountTheaterFollows {
   username: string
   revision: string
@@ -26,10 +43,12 @@ export interface SaveAccountTheaterFollow {
 }
 
 export interface AccountActivityItem extends TheaterActivityItem {
+  consulted: boolean
   theater: Pick<Theater, 'id' | 'slug' | 'name' | 'city' | 'provider'>
 }
 
 export interface AccountActivityResponse {
+  reading: ActivityReading
   username: string
   follows_revision: string
   followed_theater_count: number

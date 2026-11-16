@@ -16,11 +16,20 @@ const {
   groups,
   refresh,
   loadMore,
+  readingPending,
+  readingError,
+  saveReadingMode,
+  toggleConsulted,
+  markAllConsulted,
 } = useAccountActivity()
 const visit = useActivityVisit(
   'followed',
   () => response.value?.items ?? [],
-  () => !!response.value && !loading.value && !error.value,
+  () =>
+    !!response.value &&
+    !loading.value &&
+    !error.value &&
+    !response.value.reading.manual_reading,
 )
 </script>
 
@@ -59,6 +68,60 @@ const visit = useActivityVisit(
         </button>
       </div>
       <template v-else-if="response">
+        <div class="mb-8 max-w-5xl border-b border-ink/20 pb-6">
+          <label
+            class="flex min-h-11 w-fit cursor-pointer items-center gap-3 font-bold"
+          >
+            <input
+              type="checkbox"
+              class="size-5 accent-ink"
+              :checked="response.reading.manual_reading"
+              :disabled="!!readingPending || morePending || account.writesBlocked.value"
+              aria-describedby="activity-reading-help"
+              @change="saveReadingMode(($event.target as HTMLInputElement).checked)"
+            >
+            Marquage manuel des nouveautés
+          </label>
+          <p
+            id="activity-reading-help"
+            class="mt-1 max-w-prose text-sm text-muted"
+          >
+            {{
+              response.reading.manual_reading
+              ? 'Les nouveautés restent marquées jusqu’à votre action. Cliquez sur « Nouveau » sur une affiche pour marquer l’activité comme consultée, puis sur « Consultée » pour annuler.'
+              : 'En mode automatique, les activités sont marquées comme consultées à l’ouverture de cette page.'
+            }}
+          </p>
+          <div
+            v-if="response.reading.manual_reading && response.items.length"
+            class="mt-3"
+          >
+            <button
+              type="button"
+              class="account-secondary"
+              :disabled="!!readingPending || morePending || account.writesBlocked.value"
+              @click="markAllConsulted"
+            >
+              {{
+                readingPending === 'all' ? 'Enregistrement…' : 'Tout marquer comme consulté'
+              }}
+            </button>
+            <p class="mt-2 text-xs text-muted">
+              Inclut les activités plus anciennes, même non affichées. Les
+              nouveautés reçues ensuite restent marquées.
+            </p>
+          </div>
+          <p
+            v-if="readingPending === 'mode'"
+            role="status"
+            class="mt-2 text-sm text-muted"
+          >
+            Enregistrement du mode…
+          </p>
+          <p v-if="readingError" role="alert" class="account-alert mt-3">
+            {{ readingError }}
+          </p>
+        </div>
         <div
           v-if="newActivityAvailable"
           role="status"
@@ -100,10 +163,14 @@ const visit = useActivityVisit(
             :groups="groups"
             :date-heading-level="2"
             :previous-last-event-id="visit.previousLastEventID.value"
+            :manual-reading="response.reading.manual_reading"
+            :reading-disabled="!!readingPending || morePending || account.writesBlocked.value"
+            :reading-pending="readingPending"
             label="Activité des cinémas suivis"
+            @toggle-consulted="toggleConsulted"
           />
           <ActivityVisitStatus
-            v-if="response.items.length"
+            v-if="response.items.length && !response.reading.manual_reading"
             :failed="visit.error.value"
             @retry="visit.retry"
           />
@@ -127,7 +194,7 @@ const visit = useActivityVisit(
             <button
               type="button"
               class="account-secondary"
-              :disabled="morePending || account.writesBlocked.value"
+              :disabled="morePending || !!readingPending || account.writesBlocked.value"
               @click="loadMore"
             >
               <LoaderCircle
