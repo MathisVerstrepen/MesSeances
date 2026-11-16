@@ -208,6 +208,67 @@ func TestFullRecognizedEmptyCensusAndFailedAcquisition(t *testing.T) {
 	}
 }
 
+func TestContradictoryEmptyProgrammeReacquiredOnce(t *testing.T) {
+	for _, mode := range []string{"filled", "empty", "persistent", "transport", "identity", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			g := newFixtureGetter()
+			g.change = func(id, route string, body []byte) ([]byte, error) {
+				if id != "597" || route != "seances" {
+					return body, nil
+				}
+				g.mu.Lock()
+				n := g.calls[id+"/"+route]
+				g.mu.Unlock()
+				if n == 1 || mode == "persistent" {
+					if mode == "canceled" {
+						cancel()
+					}
+					return fixturePage(id, `<p>Programme en cours de mise à jour</p>`, "1 rue Source, 59000 Lille"), nil
+				}
+				switch mode {
+				case "empty":
+					return fixturePage(id, "", "1 rue Source, 59000 Lille"), nil
+				case "transport":
+					return nil, context.DeadlineExceeded
+				case "identity":
+					return fixturePage("592", "", "1 rue Source, 59000 Lille"), nil
+				}
+				return body, nil
+			}
+			d, _, err := Sync(ctx, g, SyncOptions{From: "2026-10-16", Now: fixtureNow})
+			calls := g.calls["597/seances"]
+			if mode == "filled" || mode == "empty" {
+				want := 4
+				if mode == "empty" {
+					want = 2
+				}
+				if err != nil || calls != 2 || len(d.Theaters) != 37 || len(d.Showtimes) != want {
+					t.Fatal("replacement not fully validated", calls, err)
+				}
+				return
+			}
+			if err == nil || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+				t.Fatal("invalid replacement published")
+			}
+			if mode == "canceled" {
+				if !errors.Is(err, context.Canceled) || calls != 1 {
+					t.Fatal("cancellation lost or retried", calls, err)
+				}
+			} else if calls != 2 || !strings.Contains(err.Error(), "cinema 597") {
+				t.Fatal("unbounded retry or missing cinema diagnostic", calls, err)
+			}
+			if mode == "persistent" && (!errors.Is(err, errEmptyProgramme) || !errors.Is(err, errShape)) {
+				t.Fatal("parser cause lost", err)
+			}
+			if mode == "persistent" && (!strings.Contains(err.Error(), "elements=2 text=true day_headers=0 clocks=0") || strings.Contains(err.Error(), "mise à jour")) {
+				t.Fatal("missing structural counters or leaked provider text", err)
+			}
+		})
+	}
+}
+
 func TestMetadataPrecedenceSentinelAndFailure(t *testing.T) {
 	g := newFixtureGetter()
 	g.change = func(id, route string, b []byte) ([]byte, error) {

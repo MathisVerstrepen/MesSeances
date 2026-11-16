@@ -18,6 +18,7 @@ import (
 )
 
 var errShape = errors.New("invalid Cineode programme structure")
+var errEmptyProgramme = fmt.Errorf("%w: empty programme", errShape)
 
 type programme struct {
 	theater   schedule.TheaterRecord
@@ -92,8 +93,11 @@ func parseProgramme(body []byte, id, from string, now time.Time, location *time.
 	}
 	p.through = from
 	if len(blocks) == 0 {
-		if len(nodes(container, func(n *html.Node) bool { return n != container && n.Type == html.ElementNode })) != 1 || clean(nodeText(container)) != "" || len(byClass(doc, "nom_jour")) != 0 || len(byClass(doc, "hor")) != 0 {
-			return p, fmt.Errorf("%w: empty programme", errShape)
+		elements := len(nodes(container, func(n *html.Node) bool { return n != container && n.Type == html.ElementNode }))
+		hasText := clean(nodeText(container)) != ""
+		headers, clocks := len(byClass(doc, "nom_jour")), len(byClass(doc, "hor"))
+		if elements != 1 || hasText || headers != 0 || clocks != 0 {
+			return p, fmt.Errorf("%w: elements=%d text=%t day_headers=%d clocks=%d", errEmptyProgramme, elements, hasText, headers, clocks)
 		}
 		return p, nil
 	}

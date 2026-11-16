@@ -73,11 +73,12 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	for _, s := range d.Showtimes {
 		counts[s.TheaterID]++
 	}
-	empty := 0
+	empty, refetches := 0, 0
 	for _, th := range d.Theaters {
-		if !want[th.ProviderID] || g.programmes[th.ProviderID] != 1 {
-			t.Fatal("unexpected or duplicate cinema identity/request")
+		if !want[th.ProviderID] || g.programmes[th.ProviderID] < 1 || g.programmes[th.ProviderID] > 2 {
+			t.Fatal("unexpected cinema identity or unbounded programme requests")
 		}
+		refetches += g.programmes[th.ProviderID] - 1
 		delete(want, th.ProviderID)
 		if counts[th.ID] == 0 {
 			empty++
@@ -89,5 +90,5 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	if len(want) != 0 || len(d.Theaters) != 37 || len(g.programmes) != 37 || g.invalid {
 		t.Fatal("incomplete cinema census or invalid routes")
 	}
-	t.Logf("cinemas=%d movies=%d showtimes=%d empty_cinemas=%d requests=%d", summary.Cinemas, summary.Movies, summary.Showtimes, empty, summary.Requests)
+	t.Logf("cinemas=%d movies=%d showtimes=%d empty_cinemas=%d requests=%d programme_refetches=%d", summary.Cinemas, summary.Movies, summary.Showtimes, empty, summary.Requests, refetches)
 }
