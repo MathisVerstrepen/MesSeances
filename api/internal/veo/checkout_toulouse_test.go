@@ -26,7 +26,7 @@ func toulouseEntryPage(start time.Time) CheckoutResult {
 // Run the same binding, parser-attestation and retry controls for each admitted
 // cinema. All pages remain synthetic; only the cinema identity differs.
 func TestBoundEntryCheckouts(t *testing.T) {
-	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}, {"P1028", "castelnaudary"}, {"P0792", "decazeville"}} {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}, {"W0065", "caussade"}, {"P6864", "colomiers"}, {"P1028", "castelnaudary"}, {"P0792", "decazeville"}, {"P3863", "fronton"}} {
 		t.Run(cinema.id, func(t *testing.T) {
 			row := func(i int) schedule.ShowtimeRecord {
 				r := retryTestRow(i)
@@ -133,12 +133,12 @@ func testEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T, retryTestRow
 		}},
 		{"public id", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.ID = "veo-showing-forged" }},
 		{"source cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
-			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "fronton")
+			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "other-cinema")
 		}},
 		{"source and response slug", func(r *schedule.ShowtimeRecord, p *CheckoutResult) {
-			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "fronton")
-			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "fronton")
-			p.Body = []byte(strings.ReplaceAll(string(p.Body), slug, "fronton"))
+			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "other-cinema")
+			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "other-cinema")
+			p.Body = []byte(strings.ReplaceAll(string(p.Body), slug, "other-cinema"))
 		}},
 		{"source query", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.BookingURL += "?" }},
 		{"source canonical", func(r *schedule.ShowtimeRecord, p *CheckoutResult) { r.BookingURL = p.canonicalURL }},
@@ -150,7 +150,7 @@ func testEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T, retryTestRow
 		{"canonical missing", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) { p.canonicalURL = "" }},
 		{"canonical alias", func(r *schedule.ShowtimeRecord, p *CheckoutResult) { p.canonicalURL = r.BookingURL }},
 		{"canonical wrong cinema", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) {
-			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "fronton")
+			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "other-cinema")
 		}},
 		{"canonical host case", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) {
 			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "achat.", "ACHAT.")
@@ -199,7 +199,7 @@ func testEntryNearMissesRemainStrict(t *testing.T, retryTestRow func(int) schedu
 		strings.ReplaceAll(toulouseEntryAction, "https:", "http:"), strings.ReplaceAll(toulouseEntryAction, "https:", "HTTPS:"),
 		strings.ReplaceAll(toulouseEntryAction, "achat.", "ACHAT."), strings.ReplaceAll(toulouseEntryAction, u.Host, u.Host+":443"),
 		strings.ReplaceAll(toulouseEntryAction, "https://", "https://user@"), strings.ReplaceAll(toulouseEntryAction, slug, fmt.Sprintf("%%%02x%s", slug[0], slug[1:])),
-		strings.ReplaceAll(toulouseEntryAction, slug, "fronton"), strings.ReplaceAll(toulouseEntryAction, slug, strings.ToUpper(slug)),
+		strings.ReplaceAll(toulouseEntryAction, slug, "other-cinema"), strings.ReplaceAll(toulouseEntryAction, slug, strings.ToUpper(slug)),
 		toulouseEntryAction + "r/1", toulouseEntryAction + "F123/", toulouseEntryAction + "../", " " + toulouseEntryAction,
 	} {
 		t.Run(fmt.Sprintf("action-%d", i), func(t *testing.T) {
@@ -315,7 +315,7 @@ func TestToulouseEntryConcurrentAtomicMapAndCancellation(t *testing.T) {
 }
 
 func TestSyncToulouseEntryGapPreservesFullAtomicDataset(t *testing.T) {
-	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0792", "decazeville"}} {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0792", "decazeville"}, {"P3863", "fronton"}} {
 		t.Run(cinema.id, func(t *testing.T) {
 			testSyncEntryGapPreservesFullAtomicDataset(t, cinema.id, cinema.slug)
 		})
