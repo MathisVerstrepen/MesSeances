@@ -23,6 +23,9 @@ import type {
   AccountActivityResponse,
   ActivityVisit,
   ActivityNotification,
+  ActivityReading,
+  ActivityRead,
+  ActivityReadingSnapshot,
 } from '~/types/cinemaFollows'
 import type {
   AccountWatchlist,
@@ -186,6 +189,41 @@ export function useAccountApi() {
         '/account/activity/notification',
         undefined,
         'GET',
+        signal,
+      ),
+    activityReading: (ids: string[], signal?: AbortSignal) =>
+      request<ActivityReadingSnapshot>(
+        `/account/activity/reading${ids.length ? `?${ids.map((id) => `event_id=${encodeURIComponent(id)}`).join('&')}` : ''}`,
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveActivityReading: (
+      input: { expected_username: string; manual_reading: 'true' | 'false' },
+      signal?: AbortSignal,
+    ) =>
+      request<ActivityReading>(
+        '/account/activity/reading',
+        input,
+        'POST',
+        signal,
+      ),
+    saveActivityRead: (
+      input: {
+        expected_username: string
+        event_id: string
+        consulted: 'true' | 'false'
+      },
+      signal?: AbortSignal,
+    ) => request<ActivityRead>('/account/activity/read', input, 'POST', signal),
+    markAllActivityConsulted: (
+      input: { expected_username: string; last_event_id: string },
+      signal?: AbortSignal,
+    ) =>
+      request<ActivityVisit>(
+        '/account/activity/read-all',
+        input,
+        'POST',
         signal,
       ),
     watchlist: (signal?: AbortSignal) =>

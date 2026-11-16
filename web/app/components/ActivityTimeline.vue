@@ -20,13 +20,19 @@ const props = defineProps<{
   dateHeadingLevel: 2 | 3
   theaterId?: string
   previousLastEventId?: string | null
+  manualReading?: boolean
+  readingDisabled?: boolean
+  readingPending?: string
 }>()
+
+defineEmits<{ toggleConsulted: [eventID: string] }>()
 
 function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
   return 'theater' in item ? item.theater.id : props.theaterId!
 }
 
 function isNewActivity(item: TheaterActivityItem) {
+  if (props.manualReading && 'consulted' in item) return !item.consulted
   return (
     props.previousLastEventId != null &&
     BigInt(item.event_id) > BigInt(props.previousLastEventId)
@@ -34,7 +40,7 @@ function isNewActivity(item: TheaterActivityItem) {
 }
 
 const firstOlderEventId = computed(() =>
-  props.previousLastEventId == null
+  props.manualReading || props.previousLastEventId == null
     ? undefined
     : props.groups
         .flatMap((group) => group.items)
@@ -94,7 +100,7 @@ const firstOlderEventId = computed(() =>
           v-for="item in group.items"
           :key="item.event_id"
           :data-event-id="item.event_id"
-          :data-activity-status="previousLastEventId == null ? undefined : isNewActivity(item) ? 'new' : 'old'"
+          :data-activity-status="!manualReading && previousLastEventId == null ? undefined : isNewActivity(item) ? 'new' : 'old'"
           class="flex min-w-0 items-start gap-4 sm:gap-6 relative"
         >
           <div
@@ -108,32 +114,52 @@ const firstOlderEventId = computed(() =>
             <span class="shrink-0">Avant votre dernière visite</span>
             <span class="h-px min-w-0 flex-1 bg-ink/30" />
           </div>
-          <NuxtLink
-            :to="cinemaMovieTarget(item.movie.slug, eventTheaterId(item))"
-            :aria-label="item.movie.title"
-            :aria-description="isNewActivity(item) ? 'Nouvelle activité' : undefined"
-            class="relative block w-18 shrink-0 focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink sm:w-24 lg:w-28"
-          >
-            <PosterImage
-              :src="item.movie.poster_url"
-              alt=""
-              sizes="(min-width: 1024px) 112px, (min-width: 640px) 96px, 72px"
-              :reset-key="item.event_id"
-              fallback-variant="icon-only"
-              fallback-marker="activity"
-              :fallback-icon-size="30"
-              class="aspect-[2/3] bg-ink/5"
-              image-class="size-full object-cover"
-              fallback-class="text-zinc-600"
-            />
-            <WatchedBadge :slug="item.movie.slug" />
-            <span
-              v-if="isNewActivity(item)"
-              aria-hidden="true"
-              class="pointer-events-none absolute bottom-1 left-1 bg-[#facc15] px-1.5 py-0.5 text-xs font-bold leading-4 text-ink"
-              >Nouveau</span
+          <div class="relative w-18 shrink-0 sm:w-24 lg:w-28">
+            <NuxtLink
+              :to="cinemaMovieTarget(item.movie.slug, eventTheaterId(item))"
+              :aria-label="item.movie.title"
+              :aria-description="isNewActivity(item) ? 'Nouvelle activité' : undefined"
+              class="relative block focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink"
             >
-          </NuxtLink>
+              <PosterImage
+                :src="item.movie.poster_url"
+                alt=""
+                sizes="(min-width: 1024px) 112px, (min-width: 640px) 96px, 72px"
+                :reset-key="item.event_id"
+                fallback-variant="icon-only"
+                fallback-marker="activity"
+                :fallback-icon-size="30"
+                class="aspect-[2/3] bg-ink/5"
+                image-class="size-full object-cover"
+                fallback-class="text-zinc-600"
+              />
+              <WatchedBadge :slug="item.movie.slug" />
+              <span
+                v-if="!manualReading && isNewActivity(item)"
+                aria-hidden="true"
+                class="pointer-events-none absolute bottom-1 left-1 bg-[#facc15] px-1.5 py-0.5 text-xs font-bold leading-4 text-ink"
+                >Nouveau</span
+              >
+            </NuxtLink>
+            <button
+              v-if="manualReading"
+              type="button"
+              class="absolute inset-x-0 bottom-0 flex min-h-11 items-end p-1 text-left focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink disabled:cursor-wait"
+              :aria-label="`Marquer l’activité de « ${item.movie.title} » comme ${isNewActivity(item) ? 'consultée' : 'non consultée'}`"
+              :aria-pressed="!isNewActivity(item)"
+              :aria-busy="readingPending === item.event_id"
+              :disabled="readingDisabled"
+              @click="$emit('toggleConsulted', item.event_id)"
+            >
+              <span
+                class="max-w-full px-1 py-0.5 text-[11px] font-bold leading-4 sm:px-1.5 sm:text-xs"
+                :class="[isNewActivity(item) ? 'bg-[#facc15] text-ink' : 'bg-surface text-muted border border-ink/20', readingPending === item.event_id ? 'opacity-60' : '']"
+                >{{
+                  isNewActivity(item) ? 'Nouveau' : 'Consultée'
+                }}</span
+              >
+            </button>
+          </div>
           <div class="min-w-0 flex-1">
             <NuxtLink
               v-if="'theater' in item"

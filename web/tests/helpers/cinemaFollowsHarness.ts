@@ -13,6 +13,7 @@ import type {
 } from '../../app/types/cinemaFollows.ts'
 import * as errors from '../../app/utils/accountState.ts'
 import * as activity from '../../app/utils/cinemaActivity.ts'
+import * as visits from '../../app/utils/activityVisit.ts'
 
 export function session(username = 'alice'): AccountSession {
   return {
@@ -41,6 +42,7 @@ export function feed(
 ): AccountActivityResponse {
   return {
     username,
+    reading: { username, manual_reading: false, last_read_event_id: '0' },
     follows_revision: revision,
     followed_theater_count: 2,
     generated_at: '2026-10-03T08:00:00Z',
@@ -55,6 +57,7 @@ export function feed(
     next_cursor: cursor,
     items: eventIds.map((event_id, index) => ({
       event_id,
+      consulted: false,
       type: 'added_to_program',
       detected_at: `2026-10-03T08:00:00.00000${index}Z`,
       first_screening_date: '2026-10-03',
@@ -100,6 +103,7 @@ export async function fixture(client = true, restoredPages = 1) {
   }
   const posts: SaveAccountTheaterFollow[] = []
   const cursors: (string | undefined)[] = []
+  const readingPosts: { path: string; input: Record<string, string> }[] = []
   const scopes: ReturnType<typeof effectScope>[] = []
   const starts = new Set<() => void>()
   const arrivals = new Set<() => void>()
@@ -111,6 +115,32 @@ export async function fixture(client = true, restoredPages = 1) {
   let read = async () => value
   let sessionRead = async () => admitted
   let activityRead = async (_cursor?: string) => feed()
+  let reading = {
+    username: 'alice',
+    manual_reading: false,
+    last_read_event_id: '0',
+  }
+  const consulted = new Map<string, boolean>()
+  let readingRead = async (ids: string[]) => ({
+    reading,
+    items: ids.map((event_id) => ({
+      username: reading.username,
+      event_id,
+      consulted: consulted.get(event_id) ?? false,
+    })),
+  })
+  let saveRead = async (input: {
+    expected_username: string
+    event_id: string
+    consulted: string
+  }) => {
+    consulted.set(input.event_id, input.consulted === 'true')
+    return {
+      username: input.expected_username,
+      event_id: input.event_id,
+      consulted: input.consulted === 'true',
+    }
+  }
   let write = async (input: SaveAccountTheaterFollow) => {
     value = snapshot(
       String(BigInt(input.expected_revision) + 1n),
@@ -141,6 +171,7 @@ export async function fixture(client = true, restoredPages = 1) {
       return states.get(key)
     },
     useNuxtApp: () => app,
+    useActivityNotification: () => ({ refresh: async () => {} }),
     onMounted: (fn: () => void) => mounted.push(fn),
     onBeforeUnmount: (fn: () => void) => unmounted.push(fn),
     useRoute: () => ({ path: '/compte/activite' }),
@@ -160,20 +191,54 @@ export async function fixture(client = true, restoredPages = 1) {
         cursors.push(cursor)
         return activityRead(cursor)
       },
+      activityReading: (ids: string[]) => readingRead(ids),
+      saveActivityReading: async (input: {
+        expected_username: string
+        manual_reading: string
+      }) => {
+        readingPosts.push({ path: 'reading', input })
+        reading = {
+          ...reading,
+          username: input.expected_username,
+          manual_reading: input.manual_reading === 'true',
+        }
+        return reading
+      },
+      saveActivityRead: (input: {
+        expected_username: string
+        event_id: string
+        consulted: string
+      }) => {
+        readingPosts.push({ path: 'read', input })
+        return saveRead(input)
+      },
+      markAllActivityConsulted: async (input: {
+        expected_username: string
+        last_event_id: string
+      }) => {
+        readingPosts.push({ path: 'read-all', input })
+        return {
+          username: input.expected_username,
+          scope: 'followed',
+          previous_last_event_id: reading.last_read_event_id,
+        }
+      },
     }),
     require: (id: string) =>
       id === '~/utils/cinemaActivity'
         ? activity
-        : id === '~/utils/activityPageDepth'
-          ? {
-              activityPageDepth: () => ({
-                target: restoredPages,
-                record: (pages: number) => {
-                  recordedPages = pages
-                },
-              }),
-            }
-          : errors,
+        : id === '~/utils/activityVisit'
+          ? visits
+          : id === '~/utils/activityPageDepth'
+            ? {
+                activityPageDepth: () => ({
+                  target: restoredPages,
+                  record: (pages: number) => {
+                    recordedPages = pages
+                  },
+                }),
+              }
+            : errors,
   }
   async function compile<T>(name: string, extra = {}): Promise<T> {
     const source = await readFile(
@@ -215,6 +280,7 @@ export async function fixture(client = true, restoredPages = 1) {
     messages,
     states,
     cursors,
+    readingPosts,
     starts,
     arrivals,
     get gets() {
@@ -229,6 +295,12 @@ export async function fixture(client = true, restoredPages = 1) {
     },
     setActivity: (fn: typeof activityRead) => {
       activityRead = fn
+    },
+    setReading: (fn: typeof readingRead) => {
+      readingRead = fn
+    },
+    setSaveRead: (fn: typeof saveRead) => {
+      saveRead = fn
     },
     setSessionRead: (fn: typeof sessionRead) => {
       sessionRead = fn
