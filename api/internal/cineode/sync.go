@@ -2,6 +2,7 @@ package cineode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -43,8 +44,20 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 			return programme{}, err
 		}
 		p, err := parseProgramme(body, id, options.From, options.Now, location)
+		// Reacquire a contradictory empty page once. Only a fully validated
+		// replacement may contribute to the dataset; persistent failures remain
+		// atomic and must never clear this cinema's previously stored sessions.
+		if errors.Is(err, errEmptyProgramme) {
+			if err := ctx.Err(); err != nil {
+				return programme{}, err
+			}
+			body, err = getter.Page(ctx, id, "seances")
+			if err == nil {
+				p, err = parseProgramme(body, id, options.From, options.Now, location)
+			}
+		}
 		if err != nil {
-			return programme{}, err
+			return programme{}, fmt.Errorf("cineode cinema %s programme: %w", id, err)
 		}
 		if p.theater.Address == "" {
 			for _, route := range []string{"infos-cine", "contact"} {

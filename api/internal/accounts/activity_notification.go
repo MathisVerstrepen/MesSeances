@@ -49,7 +49,8 @@ func (s *Service) ActivityNotification(ctx context.Context, rawSession string) (
 		 JOIN public_movies p ON p.id=s.public_movie_id
 		 JOIN public_movies c ON c.id=coalesce(p.redirect_to_id,p.id) AND c.redirect_to_id IS NULL
 		 WHERE e.superseded_by_id IS NULL AND e.kind<>'baseline'
-		 AND e.id>coalesce((SELECT last_event_id FROM account_activity_visits WHERE account_id=$2 AND scope='followed'),0)
+		 AND NOT coalesce((SELECT consulted FROM account_activity_reads WHERE account_id=$2 AND event_id=e.id),
+		 e.id<=coalesce((SELECT last_event_id FROM account_activity_visits WHERE account_id=$2 AND scope='followed'),0))
 		)`, follows.TheaterIDs, a.id).Scan(&view.HasNewActivity)
 		if err != nil {
 			return ErrUnavailable

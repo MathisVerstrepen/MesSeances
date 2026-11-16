@@ -235,6 +235,8 @@ func (tx *followHTTPTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Ro
 		return followHTTPRow{values: []any{int64(1), now, now.Add(time.Hour), now, scope}}
 	case strings.Contains(sql, "FROM account_theater_follows"):
 		return followHTTPRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "FROM account_activity_preferences"):
+		return followHTTPRow{values: []any{false, int64(0)}}
 	case sql == "SELECT transaction_timestamp()":
 		return followHTTPRow{values: []any{now}}
 	default:

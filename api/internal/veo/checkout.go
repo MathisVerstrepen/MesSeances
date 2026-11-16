@@ -570,6 +570,8 @@ func entryCheckoutAction(theaterID string) string {
 		return "https://achat.veocinemas.fr/castelnaudary/reserver/"
 	case "veo-P0792":
 		return "https://achat.veocinemas.fr/decazeville/reserver/"
+	case "veo-P3863":
+		return "https://achat.veocinemas.fr/fronton/reserver/"
 	case "veo-G06DB":
 		return "https://achat.cinema-senechal.com/reserver/"
 	default:
