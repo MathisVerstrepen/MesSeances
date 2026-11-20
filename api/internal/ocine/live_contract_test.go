@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,51 +39,50 @@ func TestProxyProgramAndCheckoutContractIntegration(t *testing.T) {
 	loc, _ := time.LoadLocation(schedule.Timezone)
 	now := time.Now()
 	from := now.In(loc).Format(time.DateOnly)
-	var selected *schedule.ShowtimeRecord
-	films, sessions := 0, 0
-	for _, id := range cinemaIDs {
-		body, err := client.Page(ctx, id, "seances")
+	if os.Getenv("OCINE_LIVE_FULL") == "1" {
+		ctx, cancel := context.WithTimeout(t.Context(), 25*time.Minute)
+		defer cancel()
+		_, s, err := Sync(ctx, client, SyncOptions{From: from, Now: now})
 		if err != nil {
-			t.Fatal("programme unavailable")
+			t.Fatalf("full Ocine sync failed: %v, requests=%d", err, s.Requests)
 		}
-		p, err := parseProgramme(body, id, from, now, loc)
+		t.Logf("cinemas=%d films=%d showtimes=%d ends=%d transient=%d requests=%d", s.Cinemas, s.Movies, s.Showtimes, s.EndsRecovered, s.CheckoutTransientFailures, s.Requests)
+		return
+	}
+	films, sessions, ends, transient := 0, 0, 0, 0
+	for _, id := range cinemaIDs {
+		p, err := loadBoxofficeProgramme(ctx, client, id, from, loc)
 		if err != nil {
-			t.Fatal("programme rejected")
+			t.Fatalf("programme %s rejected: %v", id, err)
 		}
 		films += len(p.movies)
 		sessions += len(p.showtimes)
-		body, err = client.Page(ctx, id, "plan-d-acces")
-		if err != nil {
-			t.Fatal("address unavailable")
-		}
-		if _, _, _, err := parseAddress(body, id); err != nil {
-			t.Fatal("address rejected")
-		}
-		if id == "310" {
-			for _, r := range p.showtimes {
-				if r.StartTime.After(now) && r.BookingURL != "" {
-					copy := r
-					selected = &copy
+		for _, row := range p.showtimes {
+			if !row.StartTime.After(now.Add(3*time.Hour)) || row.BookingURL == "" {
+				continue
+			}
+			body, canonical, err := client.CheckoutBoxoffice(ctx, row, id)
+			if err != nil {
+				var requestErr *RequestError
+				if ctx.Err() == nil && errors.As(err, &requestErr) && (requestErr.Kind == syncproxy.FailureTransport || requestErr.Kind == syncproxy.FailureResponseRead || requestErr.Kind == syncproxy.FailureServer) {
+					transient++
 					break
 				}
+				t.Fatalf("checkout %s unavailable: %v", id, err)
 			}
+			film, epoch, _, _, ok := canonicalCheckoutParts(canonical, id)
+			if !ok || !strings.HasPrefix(row.BookingURL, "https://achat.ocine.fr/") {
+				t.Fatalf("checkout %s binding rejected", id)
+			}
+			end, _, err := parseCheckoutFacts(body, row, id, film, epoch, loc)
+			if err != nil {
+				t.Fatalf("checkout %s rejected: %v", id, err)
+			}
+			if end.After(row.StartTime) {
+				ends++
+			}
+			break
 		}
 	}
-	if selected == nil {
-		t.Fatal("no future Saint-Omer checkout to verify")
-	}
-	body, err := client.Checkout(ctx, selected.BookingURL)
-	if err != nil {
-		var requestErr *RequestError
-		if ctx.Err() == nil && errors.As(err, &requestErr) && (requestErr.Kind == syncproxy.FailureTransport || requestErr.Kind == syncproxy.FailureResponseRead || requestErr.Kind == syncproxy.FailureServer) {
-			t.Logf("cinemas=3 films=%d showtimes=%d checkout_transient=true requests=%d", films, sessions, client.RequestCount())
-			return
-		}
-		t.Fatal("checkout unavailable")
-	}
-	end, room, err := parseCheckout(body, *selected, "310", loc)
-	if err != nil {
-		t.Fatal("checkout rejected")
-	}
-	t.Logf("cinemas=3 films=%d showtimes=%d end_published=%t room_present=%t requests=%d", films, sessions, end.After(selected.StartTime), room != "", client.RequestCount())
+	t.Logf("cinemas=3 films=%d showtimes=%d ends=%d transient=%d requests=%d", films, sessions, ends, transient, client.RequestCount())
 }

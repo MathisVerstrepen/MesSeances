@@ -481,6 +481,7 @@ test('Saint-Affrique six-key relay keeps strict frontend and crawler parity', ()
     raw.replaceAll(',', '%2C'),
     raw.replace('code=VF', 'code=%56%46'),
     raw.replace('code=VF', 'code=VO'),
+    raw.replace('code=VF', 'code=VO%3B%20SUBTITLE'),
   ]) {
     parity(value, 'booking', id, 'veo-P0793')
     parity(value, null)
@@ -494,6 +495,7 @@ test('Saint-Affrique six-key relay keeps strict frontend and crawler parity', ()
     raw + '\n',
     raw.replace('&code=VF', ''),
     raw.replace('code=VF', 'code=VOSTF'),
+    raw.replace('code=VF', 'code=VO%3B+SUBTITLE'),
     raw.replace('P0793', 'P1394'),
     raw.replace('20261105', '20260229'),
     raw.replace('20:30', '24:00'),

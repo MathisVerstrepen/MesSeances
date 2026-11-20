@@ -431,6 +431,22 @@ test('Ociné supplied safe SVG preserves artwork, ratio, sizing and one accessib
 
 test('Ociné checkout binds original URL bytes to manifest cinema, film, epoch and repeated hall', async () => {
   for (const [cinema, slug] of Object.entries(ocineSlugs)) {
+    const native = `https://achat.ocine.fr/${slug}/r/12345`
+    const nativeId = `ocine-showing-${cinema}-631242-1792238400-r12345`
+    assert.deepEqual(
+      safeBookingUrl(native, 'ocine', nativeId, `ocine-${cinema}`),
+      { provider: 'ocine', url: native, kind: 'booking' },
+    )
+    for (const bad of [
+      native + '/',
+      native + '?x=1',
+      native.replace(slug, 'other-cinema'),
+      native.replace('/12345', '/12346'),
+    ])
+      assert.equal(
+        safeBookingUrl(bad, 'ocine', nativeId, `ocine-${cinema}`),
+        null,
+      )
     for (const film of ['631242', '636416', 'atelier-local', 'cars-2006']) {
       const id = `ocine-showing-${cinema}-${film}-1792238400-9586`
       const numericFilm = /^\d+$/.test(film) ? film : '636416'
@@ -518,6 +534,7 @@ test('Ociné compact selections round-trip full composite identities without acc
     '309-631242-1792238400-9586',
     '309-636416-1792238400-9586',
     '310-cars-2006-1792238400-9586',
+    '310-631242-1792238400-r12345',
     '461-atelier-local-1792238400-past',
   ]
   const keys = parts.map((id) => `ocine:ocine-showing-${id}`).sort()

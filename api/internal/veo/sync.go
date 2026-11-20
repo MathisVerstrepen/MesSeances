@@ -84,14 +84,18 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 		}
 		cinemas, err := parseCinemas(b, origin)
 		if err != nil {
-			return schedule.Dataset{}, err
+			return schedule.Dataset{}, payloadError(OperationCinemas, "", err)
 		}
 		programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: min(WorkerCount, len(cinemas))}, func(ctx context.Context, c cinema) (map[string][]string, error) {
 			b, err := g.Get(ctx, OperationProgram, programURL(c.origin, c.sourceID()))
 			if err != nil {
 				return nil, err
 			}
-			return parseProgram(b, o.From, loc)
+			p, err := parseProgram(b, o.From, loc)
+			if err != nil {
+				return nil, payloadError(OperationProgram, c.ID, err)
+			}
+			return p, nil
 		})
 		if err != nil {
 			return schedule.Dataset{}, err
@@ -125,18 +129,18 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 				}
 				items, err := parseMovies(b)
 				if err != nil {
-					return schedule.Dataset{}, err
+					return schedule.Dataset{}, payloadError(OperationMovies, "", err)
 				}
 				if len(items) != len(batch) {
-					return schedule.Dataset{}, errSnapshotChanged
+					return schedule.Dataset{}, payloadError(OperationMovies, "", errSnapshotChanged)
 				}
 				for _, id := range batch {
 					m, ok := items[id]
 					if !ok {
-						return schedule.Dataset{}, errSnapshotChanged
+						return schedule.Dataset{}, payloadError(OperationMovies, "", errSnapshotChanged)
 					}
 					if prior, ok := seenMovies[id]; ok && !reflect.DeepEqual(prior, m) {
-						return schedule.Dataset{}, errSnapshotChanged
+						return schedule.Dataset{}, payloadError(OperationMovies, "", errSnapshotChanged)
 					}
 					seenMovies[id] = m
 					movies[id] = m
@@ -164,14 +168,17 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 				return result{}, err
 			}
 			rows, unknown, err := parseSchedule(b, c, p, movies, loc, allowMissing, o.From, through)
-			return result{rows, schedule.ProgramCoverage("veo-"+c.ID, p, unknown)}, err
+			if err != nil {
+				return result{}, payloadError(OperationSchedule, c.ID, err)
+			}
+			return result{rows, schedule.ProgramCoverage("veo-"+c.ID, p, unknown)}, nil
 		})
 		if err != nil {
 			return schedule.Dataset{}, err
 		}
 		for i, c := range cinemas {
 			if seenTheaters[c.ID] {
-				return schedule.Dataset{}, errShape
+				return schedule.Dataset{}, payloadError(OperationCinemas, c.ID, errShape)
 			}
 			seenTheaters[c.ID] = true
 			dates, through := programDates(programs[i])
@@ -192,7 +199,7 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 	}
 	t, rows, err := parseCastelia(b, o.From, loc)
 	if err != nil {
-		return schedule.Dataset{}, err
+		return schedule.Dataset{}, payloadError(OperationCastelia, "EMS1361", err)
 	}
 	d.Theaters = append(d.Theaters, t)
 	d.Showtimes = append(d.Showtimes, rows...)
@@ -218,6 +225,7 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 	})
 	return d, nil
 }
+
 func programDates(p map[string][]string) ([]string, string) {
 	set := map[string]bool{}
 	for _, dates := range p {

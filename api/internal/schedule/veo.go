@@ -46,7 +46,7 @@ func ValidVeoGueretRelayURL(raw string) bool {
 }
 
 // ValidVeoSaintAffriqueRelayURL keeps Le Moderne's six-key source route scoped
-// to its own cinema. The extra code is the source VF/VO version.
+// to its own cinema. The extra code carries the source version and subtitle flag.
 func ValidVeoSaintAffriqueRelayURL(raw string) bool {
 	return validVeoRelayURL(raw, "P0793", true)
 }
@@ -63,6 +63,10 @@ func validVeoRelayURL(raw, theater string, withCode bool) bool {
 		if !ok || values[key] != "" || !validKey {
 			return false
 		}
+		if key == "code" && value == "VO%3B%20SUBTITLE" {
+			values[key] = "VO; SUBTITLE"
+			continue
+		}
 		// No plus-as-space, encoded delimiters, Unicode, double decoding or
 		// parameter injection. Opaque values have no inferred ID semantics.
 		decoded, err := url.QueryUnescape(value)
@@ -76,7 +80,7 @@ func validVeoRelayURL(raw, theater string, withCode bool) bool {
 	count := 5
 	if withCode {
 		count++
-		if values["code"] != "VF" && values["code"] != "VO" {
+		if code := values["code"]; code != "VF" && code != "VO" && code != "VO; SUBTITLE" {
 			return false
 		}
 	}
