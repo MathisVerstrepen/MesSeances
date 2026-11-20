@@ -9,6 +9,22 @@ import (
 	"messeances/api/internal/schedule"
 )
 
+// Boxoffice publishes the subtitle code with a literal space. Encode only this
+// exact parameter before using the URL in an HTTP request or publishing it.
+func normalizeSaintAffriqueBooking(raw string) string {
+	base, query, ok := strings.Cut(raw, "?")
+	if !ok || base != "https://relay.mvtx.us/ticketing/dbz" {
+		return raw
+	}
+	pairs := strings.Split(query, "&")
+	for i, pair := range pairs {
+		if pair == "code=VO; SUBTITLE" {
+			pairs[i] = "code=VO%3B%20SUBTITLE"
+		}
+	}
+	return base + "?" + strings.Join(pairs, "&")
+}
+
 func saintAffriqueSourceBinding(raw string, start time.Time, tags []string) bool {
 	if !schedule.ValidVeoSaintAffriqueRelayURL(raw) {
 		return false
@@ -23,7 +39,8 @@ func saintAffriqueSourceBinding(raw string, start time.Time, tags []string) bool
 			code = "VO"
 		}
 		original, _ := url.Parse(raw)
-		return err == nil && original.Query().Get("code") == code
+		actual := original.Query().Get("code")
+		return err == nil && (actual == code || code == "VO" && actual == "VO; SUBTITLE" && contains(tags, "Showtime.Accessibility.Subtitled"))
 	}
 	return true
 }
@@ -39,7 +56,7 @@ func saintAffriqueRoot(u *url.URL) bool {
 	kept := make([]string, 0, len(pairs))
 	codes := 0
 	for _, pair := range pairs {
-		if pair == "code=VF" || pair == "code=VO" {
+		if pair == "code=VF" || pair == "code=VO" || pair == "code=VO%3B+SUBTITLE" {
 			codes++
 		} else {
 			kept = append(kept, pair)

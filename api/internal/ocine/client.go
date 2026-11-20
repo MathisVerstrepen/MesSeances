@@ -37,7 +37,7 @@ func NewClient(config ClientConfig) (*Client, error) {
 	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
 		return nil, fmt.Errorf("ocine requires proxies and a timeout between 5s and 60s")
 	}
-	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
+	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, checkoutRedirect)
 	if err != nil {
 		return nil, fmt.Errorf("invalid Ocine proxy transport")
 	}
@@ -54,6 +54,15 @@ func allowedURL(u *url.URL) bool {
 			return true
 		}
 		if _, _, _, _, ok := schedule.OcineBookingParts(u.String(), id); ok {
+			return true
+		}
+		if _, ok := schedule.OcineEntryID(u.String(), id); ok {
+			return true
+		}
+		if _, _, _, _, ok := canonicalCheckoutParts(u.String(), id); ok {
+			return true
+		}
+		if boxofficeURL(u, id) {
 			return true
 		}
 	}
@@ -77,14 +86,25 @@ func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 	return c.get(ctx, "https://www.ocine.fr/"+schedule.OcineSlug(id)+"/"+route+"/")
 }
 
-func (c *Client) Checkout(ctx context.Context, raw string) ([]byte, error) { return c.get(ctx, raw) }
+func (c *Client) Checkout(ctx context.Context, raw string) ([]byte, error) {
+	for _, id := range cinemaIDs {
+		if _, _, _, _, ok := schedule.OcineBookingParts(raw, id); ok {
+			return c.get(ctx, raw)
+		}
+	}
+	return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+}
 
 func (c *Client) get(ctx context.Context, raw string) ([]byte, error) {
+	return c.fetch(ctx, raw, []string{"text/html", "application/xhtml+xml"}, false)
+}
+
+func (c *Client) fetch(ctx context.Context, raw string, media []string, checkout bool) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.String() != raw || !allowedURL(u) {
 		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
 	}
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, MediaTypes: []string{"text/html", "application/xhtml+xml"}, NoRedirect: true}, syncproxy.ResponsePolicy{
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, MediaTypes: media, NoRedirect: !checkout, AllowRedirect: checkout}, syncproxy.ResponsePolicy{
 		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
 			if status == 403 || status == 429 {
 				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false

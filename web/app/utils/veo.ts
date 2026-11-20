@@ -84,6 +84,10 @@ function validVeoRelay(raw: string, theater: string): boolean {
       ].includes(key)
     )
       return false
+    if (key === 'code' && value === 'VO%3B%20SUBTITLE') {
+      values.set(key, 'VO; SUBTITLE')
+      continue
+    }
     if (
       !/^[A-Za-z0-9._~,:%-]{1,3072}$/.test(value) ||
       /[^A-Za-z0-9._~,:%-]/.test(value)
@@ -106,7 +110,8 @@ function validVeoRelay(raw: string, theater: string): boolean {
   const clock = values.get('perft') ?? ''
   if (
     values.size !== (saintAffrique ? 6 : 5) ||
-    (saintAffrique && !['VF', 'VO'].includes(values.get('code') ?? '')) ||
+    (saintAffrique &&
+      !['VF', 'VO', 'VO; SUBTITLE'].includes(values.get('code') ?? '')) ||
     values.get('code_theater') !== (saintAffrique ? 'P0793' : 'P1394') ||
     !/^[0-9]{8}$/.test(day) ||
     day.length !== 8 ||

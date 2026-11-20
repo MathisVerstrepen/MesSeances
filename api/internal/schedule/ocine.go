@@ -23,7 +23,8 @@ func OcineSlug(id string) string {
 
 var ocineMovie = regexp.MustCompile(`^([1-9][0-9]*|[a-z][a-z0-9]*(-[a-z0-9]+)*)$`)
 var ocineBooking = regexp.MustCompile(`^https://www\.ocine\.fr/(maubeuge|st-omer|dunkerque)/reserver/F([1-9][0-9]*)/D([1-9][0-9]*)/(VF|VO)/([1-9][0-9]*)/$`)
-var ocinePoster = regexp.MustCompile(`^https://fr\.web\.img[0-9]*\.acsta\.net/(img|medias|pictures)/[A-Za-z0-9_./-]+\.(jpg|jpeg|png|webp)$`)
+var ocineEntry = regexp.MustCompile(`^https://achat\.ocine\.fr/(maubeuge|st-omer|dunkerque)/r/([1-9][0-9]*)$`)
+var ocinePoster = regexp.MustCompile(`^https://(fr\.web\.img[0-9]*|all\.web\.img)\.acsta\.net/(img|medias|pictures)/[A-Za-z0-9_./-]+\.(jpg|jpeg|png|webp|JPG|PNG)$`)
 
 func ValidOcineIdentity(kind, value string) bool {
 	switch kind {
@@ -32,8 +33,9 @@ func ValidOcineIdentity(kind, value string) bool {
 	case "movie":
 		return len(value) <= maxIdentityLength-len("ocine-film-") && ocineMovie.MatchString(value)
 	case "showing":
-		t, m, epoch, hall, ok := ocineShowingParts(value)
-		return ok && ValidOcineIdentity("theater", t) && ValidOcineIdentity("movie", m) && canonicalEpoch(epoch) && (hall == "past" || validPositiveDecimal(hall))
+		t, m, epoch, suffix, ok := ocineShowingParts(value)
+		bookingID, _ := strings.CutPrefix(suffix, "r")
+		return ok && ValidOcineIdentity("theater", t) && ValidOcineIdentity("movie", m) && canonicalEpoch(epoch) && (suffix == "past" || validPositiveDecimal(bookingID))
 	default:
 		return false
 	}
@@ -71,6 +73,15 @@ func OcineBookingParts(raw, theater string) (film, epoch, version, hall string, 
 	return m[2], m[3], m[4], m[5], true
 }
 
+// OcineEntryID returns the native reservation identity from the cinema's own route.
+func OcineEntryID(raw, theater string) (string, bool) {
+	m := ocineEntry.FindStringSubmatch(raw)
+	if len(raw) > maxURLLength || len(m) != 3 || m[1] != OcineSlug(theater) {
+		return "", false
+	}
+	return m[2], true
+}
+
 func ValidOcineBookingURL(raw, theater, showing string) bool {
 	t, movie, epoch, hall, ok := ocineShowingParts(showing)
 	if !ok || !ValidOcineIdentity("showing", showing) || t != theater {
@@ -78,6 +89,10 @@ func ValidOcineBookingURL(raw, theater, showing string) bool {
 	}
 	if hall == "past" {
 		return raw == ""
+	}
+	if bookingID, native := strings.CutPrefix(hall, "r"); native {
+		actual, ok := OcineEntryID(raw, theater)
+		return ok && actual == bookingID
 	}
 	f, e, _, h, valid := OcineBookingParts(raw, theater)
 	return valid && e == epoch && h == hall && (movie[0] < '0' || movie[0] > '9' || f == movie)
@@ -95,6 +110,9 @@ func validOcineShowing(s ShowtimeRecord, theater string) bool {
 	validVersion := s.Language == LanguageVF && s.ProviderVersion == "VF" || s.Language == LanguageVOSTFR && s.ProviderVersion == "VOSTF"
 	if hall == "past" {
 		return s.EndTime.Equal(s.StartTime) && (validVersion || s.Language == "" && s.ProviderVersion == "")
+	}
+	if strings.HasPrefix(hall, "r") {
+		return validVersion || s.Language == LanguageVFSTF && s.ProviderVersion == "VFSTF"
 	}
 	_, _, version, _, _ := OcineBookingParts(s.BookingURL, theater)
 	return validVersion && (version == "VF") == (s.Language == LanguageVF)

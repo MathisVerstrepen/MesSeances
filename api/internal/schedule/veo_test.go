@@ -149,7 +149,7 @@ func TestVeoDatasetTimingAndPlatformChecks(t *testing.T) {
 func TestVeoSaintAffriqueRelayStructuralPolicy(t *testing.T) {
 	const raw = "https://relay.mvtx.us/ticketing/dbz?code_theater=P0793&gid_entity=synthetic_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261105&perft=20:30&code=VF"
 	id := VeoShowingID("P0793", "synthetic")
-	for _, value := range []string{raw, strings.ReplaceAll(raw, ",", "%2C"), strings.ReplaceAll(raw, "code=VF", "code=%56%46"), strings.ReplaceAll(raw, "code=VF", "code=VO")} {
+	for _, value := range []string{raw, strings.ReplaceAll(raw, ",", "%2C"), strings.ReplaceAll(raw, "code=VF", "code=%56%46"), strings.ReplaceAll(raw, "code=VF", "code=VO"), strings.ReplaceAll(raw, "code=VF", "code=VO%3B%20SUBTITLE")} {
 		if !ValidVeoBookingURL(value, "P0793", id) || !ValidVeoCheckoutURL(value) || ValidVeoGueretRelayURL(value) {
 			t.Fatal("valid source rejected or escaped scope")
 		}
