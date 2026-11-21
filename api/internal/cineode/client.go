@@ -74,7 +74,13 @@ func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
 	}
 	raw := "https://www.cineode.fr/" + schedule.CineodeSlug(id) + "/" + route + "/"
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, MediaTypes: []string{"text/html", "application/xhtml+xml"}, NoRedirect: true}, syncproxy.ResponsePolicy{
+	var headers http.Header
+	if route == "seances" {
+		// The source can temporarily serve an obsolete or contradictory grid.
+		// Ask caches to revalidate, including on the parser's bounded retry.
+		headers = http.Header{"Cache-Control": {"no-cache"}}
+	}
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, Headers: headers, MediaTypes: []string{"text/html", "application/xhtml+xml"}, NoRedirect: true}, syncproxy.ResponsePolicy{
 		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
 			if status == 403 || status == 429 {
 				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false

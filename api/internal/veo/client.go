@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/net/html/charset"
 
+	"messeances/api/internal/boxoffice"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/sourcepages"
 	"messeances/api/internal/syncproxy"
@@ -26,7 +27,7 @@ const (
 	MainOrigin         = "https://veocinemas.fr"
 	SeteOrigin         = "https://sete.veocinemas.fr"
 	GueretOrigin       = "https://www.cinema-senechal.com"
-	CatalogPath        = "/page-data/sq/d/2506275789.json"
+	CatalogPath        = boxoffice.CatalogPath
 	CasteliaURL        = "https://castelginest.miracinemas.fr/"
 	ProgramURL         = "https://ws.ticketingcine.com/site"
 	MaxResponseBytes   = 16 << 20
@@ -67,6 +68,26 @@ func (e *RequestError) Error() string {
 	return fmt.Sprintf("Véo %s request failed (category %d, status %d)", op, e.Kind, e.StatusCode)
 }
 func (e *RequestError) Unwrap() error { return e.cause }
+
+// PayloadError records which validated acquisition operation rejected a response.
+type PayloadError struct {
+	operation Operation
+	cinema    string
+	cause     error
+}
+
+func (e *PayloadError) Operation() Operation { return e.operation }
+func (e *PayloadError) Error() string {
+	if e.cinema != "" {
+		return fmt.Sprintf("Véo %s cinema %s: %v", e.operation, e.cinema, e.cause)
+	}
+	return fmt.Sprintf("Véo %s: %v", e.operation, e.cause)
+}
+func (e *PayloadError) Unwrap() error { return e.cause }
+
+func payloadError(op Operation, cinema string, cause error) error {
+	return &PayloadError{operation: op, cinema: cinema, cause: cause}
+}
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -521,19 +542,10 @@ func operationMatchesURL(op Operation, u *url.URL) bool {
 	}
 	return false
 }
-func programURL(origin, id string) string {
-	return origin + "/api/gatsby-source-boxofficeapi/scheduledMovies?" + url.Values{"theaterId": {id}}.Encode()
-}
-func moviesURL(origin string, ids []string) string {
-	return origin + "/api/gatsby-source-boxofficeapi/movies?" + url.Values{"ids": ids}.Encode()
-}
+func programURL(origin, id string) string          { return boxoffice.ProgramURL(origin, id) }
+func moviesURL(origin string, ids []string) string { return boxoffice.MoviesURL(origin, ids) }
 func scheduleURL(origin, id, from, through string) string {
-	t, _ := json.Marshal(struct {
-		ID       string `json:"id"`
-		TimeZone string `json:"timeZone"`
-	}{id, schedule.Timezone})
-	end, _ := time.Parse(time.DateOnly, through)
-	return origin + "/api/gatsby-source-boxofficeapi/schedule?" + url.Values{"theaters": {string(t)}, "includeAllMovies": {"true"}, "from": {from + "T03:00:00"}, "to": {end.AddDate(0, 0, 1).Format(time.DateOnly) + "T03:00:00"}}.Encode()
+	return boxoffice.ScheduleURL(origin, id, from, through)
 }
 
 func (c *Client) MoviePageIndex(ctx context.Context) ([]byte, error) {

@@ -924,24 +924,29 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 		}
 	case TargetVeo:
 		var requestErr *veo.RequestError
+		var payloadErr *veo.PayloadError
+		var op veo.Operation
 		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case veo.OperationCinemas:
-				details.Operation = operationCinemas
-			case veo.OperationProgram, veo.OperationCastelia:
-				details.Operation = operationProgram
-			case veo.OperationMovies:
-				details.Operation = operationMovies
-			case veo.OperationSchedule, veo.OperationCheckout:
-				details.Operation = operationShowings
-			}
+			op = requestErr.Operation
 			details.Category = safeMegaramaCategory(requestErr.Kind)
 			details.HTTPStatus = requestErr.StatusCode
+		} else if errors.As(err, &payloadErr) {
+			op, details.Category = payloadErr.Operation(), categoryInvalidPayload
 		} else {
 			var rejected *veo.CheckoutParseError
 			if errors.As(err, &rejected) {
 				details.Operation, details.Category = operationShowings, categoryInvalidPayload
 			}
+		}
+		switch op {
+		case veo.OperationCinemas:
+			details.Operation = operationCinemas
+		case veo.OperationProgram, veo.OperationCastelia:
+			details.Operation = operationProgram
+		case veo.OperationMovies:
+			details.Operation = operationMovies
+		case veo.OperationSchedule, veo.OperationCheckout:
+			details.Operation = operationShowings
 		}
 	case TargetMK2:
 		var requestErr *mk2.RequestError

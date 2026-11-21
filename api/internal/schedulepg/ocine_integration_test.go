@@ -88,6 +88,33 @@ func TestOcineRoundTripConstraintsAndIsolationIntegration(t *testing.T) {
 		t.Fatal("failed replacement changed snapshot", err)
 	}
 }
+func TestOcineBoxofficePersistenceIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	store := NewStore(pool)
+	d := ocineTestDataset()
+	row := &d.Showtimes[0]
+	row.ProviderShowingID = "309-123-" + strconv.FormatInt(row.StartTime.Unix(), 10) + "-r765"
+	row.ID = "ocine-showing-" + row.ProviderShowingID
+	row.Language, row.ProviderVersion = schedule.LanguageVF, "VF"
+	row.BookingURL = "https://achat.ocine.fr/maubeuge/r/765"
+	row.Movie.PosterURL = "https://all.web.img.acsta.net/img/ab/cd/poster.jpg"
+	if _, err := store.Replace(t.Context(), []Dataset{d}); err != nil {
+		t.Fatal(err)
+	}
+	data, _, err := store.Load(t.Context())
+	if err != nil || len(data.Showtimes) != 1 || data.Showtimes[0].BookingURL != row.BookingURL || data.Showtimes[0].Movie.PosterURL != row.Movie.PosterURL {
+		t.Fatal("native entry or poster lost", err)
+	}
+	for _, query := range []string{
+		`UPDATE showtimes SET booking_url='https://achat.ocine.fr/maubeuge/r/766' WHERE provider='ocine'`,
+		`UPDATE screening_history_showtimes SET booking_url='https://achat.ocine.fr/st-omer/r/765' WHERE provider='ocine'`,
+	} {
+		if _, err := pool.Exec(t.Context(), query); err == nil {
+			t.Fatal("accepted an unbound native booking")
+		}
+	}
+}
+
 func TestOcineEmptyCensusReloadIntegration(t *testing.T) {
 	pool := newHistoryPool(t)
 	store := NewStore(pool)

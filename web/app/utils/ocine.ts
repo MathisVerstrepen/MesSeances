@@ -13,7 +13,7 @@ export function ocineShowingParts(value: string): {
 } | null {
   if (value.length > 128 - 'ocine-showing-'.length) return null
   const match =
-    /^(309|310|461)-([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)-([1-9][0-9]*)-([1-9][0-9]*|past)$/.exec(
+    /^(309|310|461)-([1-9][0-9]*|[a-z][a-z0-9]*(?:-[a-z0-9]+)*)-([1-9][0-9]*)-(r?[1-9][0-9]*|past)$/.exec(
       value,
     )
   if (!match || match[0] !== value || BigInt(match[3]!) > 9223372036854775807n)
@@ -38,6 +38,10 @@ export function safeOcineBooking(
   const parts = ocineShowingParts(showtimeId.slice('ocine-showing-'.length))
   if (!parts || parts.hall === 'past' || theaterId !== `ocine-${parts.theater}`)
     return null
+  if (parts.hall.startsWith('r')) {
+    const native = `https://achat.ocine.fr/${ocineSlugs[parts.theater]}/r/${parts.hall.slice(1)}`
+    return raw === native ? { url: raw, kind: 'booking' } : null
+  }
   const match =
     /^https:\/\/www\.ocine\.fr\/(maubeuge|st-omer|dunkerque)\/reserver\/F([1-9][0-9]*)\/D([1-9][0-9]*)\/(VF|VO)\/([1-9][0-9]*)\/$/.exec(
       raw,

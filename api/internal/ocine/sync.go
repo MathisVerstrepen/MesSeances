@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/boxoffice"
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
@@ -52,7 +53,18 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 	if err != nil || from.Format(time.DateOnly) != o.From || o.Now.IsZero() || o.From != o.Now.In(loc).Format(time.DateOnly) {
 		return result, summary, fmt.Errorf("invalid Ocine sync date")
 	}
+	source, native := g.(boxofficeGetter)
 	programmes, err := parallel.MapOrdered(ctx, cinemaIDs[:], parallel.Options{Workers: 2}, func(ctx context.Context, id string) (programme, error) {
+		if native {
+			p, err := loadBoxofficeProgramme(ctx, source, id, o.From, loc)
+			if errors.Is(err, boxoffice.ErrSnapshotChanged) && ctx.Err() == nil {
+				p, err = loadBoxofficeProgramme(ctx, source, id, o.From, loc)
+			}
+			if err != nil {
+				return programme{}, fmt.Errorf("cinema Ociné %s: %w", id, err)
+			}
+			return p, nil
+		}
 		body, err := g.Page(ctx, id, "seances")
 		if err != nil {
 			return programme{}, err
@@ -137,7 +149,15 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 	}
 	checkouts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: 2}, func(ctx context.Context, i int) (checkout, error) {
 		s := d.Showtimes[i]
-		body, err := g.Checkout(ctx, s.BookingURL)
+		var body []byte
+		var canonical string
+		var err error
+		id := strings.TrimPrefix(s.TheaterID, "ocine-")
+		if native {
+			body, canonical, err = source.CheckoutBoxoffice(ctx, s, id)
+		} else {
+			body, err = g.Checkout(ctx, s.BookingURL)
+		}
 		if err != nil {
 			observedAt := clock()
 			if ctx.Err() != nil {
@@ -156,7 +176,17 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 			}
 			return checkout{}, err
 		}
-		end, room, err := parseCheckout(body, s, strings.TrimPrefix(s.TheaterID, "ocine-"), loc)
+		var end time.Time
+		var room string
+		if native {
+			film, epoch, _, _, ok := canonicalCheckoutParts(canonical, id)
+			if !ok {
+				return checkout{}, fmt.Errorf("%w: checkout destination", errShape)
+			}
+			end, room, err = parseCheckoutFacts(body, s, id, film, epoch, loc)
+		} else {
+			end, room, err = parseCheckout(body, s, id, loc)
+		}
 		return checkout{end: end, room: room}, err
 	})
 	if err != nil {

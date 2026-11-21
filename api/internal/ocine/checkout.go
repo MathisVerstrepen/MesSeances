@@ -11,16 +11,20 @@ import (
 )
 
 func parseCheckout(body []byte, s schedule.ShowtimeRecord, id string, loc *time.Location) (time.Time, string, error) {
+	film, epoch, _, _, ok := schedule.OcineBookingParts(s.BookingURL, id)
+	if !ok {
+		return time.Time{}, "", errShape
+	}
+	return parseCheckoutFacts(body, s, id, film, epoch, loc)
+}
+
+func parseCheckoutFacts(body []byte, s schedule.ShowtimeRecord, id, film, epoch string, loc *time.Location) (time.Time, string, error) {
 	doc, _, err := document(body)
 	if err != nil {
 		return time.Time{}, "", err
 	}
 	if _, err = identity(doc, id); err != nil {
 		return time.Time{}, "", err
-	}
-	film, epoch, _, _, ok := schedule.OcineBookingParts(s.BookingURL, id)
-	if !ok {
-		return time.Time{}, "", errShape
 	}
 	actual, err := jsonField(doc, "movieID")
 	if err != nil || actual != film {

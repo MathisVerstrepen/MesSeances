@@ -420,6 +420,7 @@ func TestFourteenDayProgramme(t *testing.T) {
 func TestSyncPreservesPublishedPosterVariants(t *testing.T) {
 	for _, tc := range []struct{ source, want string }{
 		{"https://fr.web.img6.acsta.net/r_180_240/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG", "https://fr.web.img6.acsta.net/img/86/7c/867cc81bac4d9a831c12cac0b7e0ff85.JPG"},
+		{"https://fr.web.img4.acsta.net/r_180_240/img/aa/poster.PNG", "https://fr.web.img4.acsta.net/img/aa/poster.PNG"},
 		{"https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG", "https://static.cotecine.fr/tb/Affiches/180x240/COMPETITION%20DE%20COURTS%20METRAGES.JPG"},
 	} {
 		g := newFixtureGetter()
