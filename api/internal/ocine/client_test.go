@@ -102,7 +102,7 @@ func TestClientSafeRoutesRetriesAndRedaction(t *testing.T) {
 			if calls != want {
 				t.Fatal("request count", calls, want)
 			}
-			var requestErr *RequestError
+			var requestErr *syncproxy.RequestError
 			if !errors.As(err, &requestErr) {
 				t.Fatal("lost request category")
 			}

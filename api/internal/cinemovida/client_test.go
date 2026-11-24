@@ -162,7 +162,7 @@ func TestTransportRetriesChallengeLimitsAndCancellation(t *testing.T) {
 			return response(r, tc.status, tc.body, "application/json"), nil
 		}), 4)
 		_, err := c.Get(t.Context(), OperationCinemas, CinemasURL)
-		var failure *RequestError
+		var failure *syncproxy.RequestError
 		if !errors.As(err, &failure) || failure.Kind != tc.kind || calls != tc.want {
 			t.Fatal("classification or retry", failure, calls, tc.kind, tc.want)
 		}

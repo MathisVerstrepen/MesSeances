@@ -66,7 +66,7 @@ func TestMajesticTransportFailuresAreBoundedAndSanitized(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = c.Program(t.Context(), sites[0])
-		var requestErr *RequestError
+		var requestErr *syncproxy.RequestError
 		want := 1
 		if status == 500 {
 			want = 4

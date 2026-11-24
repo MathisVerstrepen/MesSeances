@@ -40,7 +40,7 @@ type boxofficeGetter interface {
 func (c *Client) GetBoxoffice(ctx context.Context, raw string) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil || !slices.ContainsFunc(cinemaIDs[:], func(id string) bool { return boxofficeURL(u, id) }) {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, operationPage)
 	}
 	return c.fetch(ctx, raw, nil, false)
 }
@@ -303,7 +303,7 @@ func (c *Client) CheckoutBoxoffice(ctx context.Context, row schedule.ShowtimeRec
 	if _, ok := schedule.OcineEntryID(row.BookingURL, id); !ok ||
 		!schedule.OcineShowingMatches(row.ProviderShowingID, id, row.Movie.ProviderID, row.StartTime) ||
 		!schedule.ValidOcineBookingURL(row.BookingURL, id, row.ProviderShowingID) {
-		return nil, "", &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, "", syncproxy.InvalidRequest(sourceName, operationPage)
 	}
 	binding := &checkoutBinding{id: id, source: row.BookingURL, row: row}
 	body, err := c.fetch(context.WithValue(ctx, checkoutBindingKey{}, binding), row.BookingURL, []string{"text/html", "application/xhtml+xml"}, true)

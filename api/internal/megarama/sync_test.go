@@ -135,7 +135,7 @@ func TestSyncPosterFallbackOnceAndFailures(t *testing.T) {
 		err  error
 		fail bool
 	}{
-		{nil, false}, {&RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, false}, {&RequestError{Kind: syncproxy.FailureTransport}, false}, {&RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}, true}, {&RequestError{Kind: syncproxy.FailureCanceled, cause: context.Canceled}, true},
+		{nil, false}, {&syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, false}, {&syncproxy.RequestError{Kind: syncproxy.FailureTransport}, false}, {&syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}, true}, {syncproxy.NewRequestError(sourceName, OperationPoster, "GET", "https://www.ticketingcine.com/", &syncproxy.Failure{Kind: syncproxy.FailureCanceled, Cause: context.Canceled}), true},
 	} {
 		g := syncFixture()
 		addSecondCinema(g, false)

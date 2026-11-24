@@ -9,6 +9,8 @@ import (
 
 	"messeances/api/internal/majestic"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/veo"
 )
 
 func TestProviderRegistryCoversEverySourceProviderOnce(t *testing.T) {
@@ -108,5 +110,35 @@ func TestProductionExecutorMissingConnectorFailsClientCreation(t *testing.T) {
 	_, err = executor.Run(t.Context(), "combined", Window{From: "2026-08-17"})
 	if !errors.As(err, &runErr) || runErr.Stage != StageOrchestration {
 		t.Fatalf("invalid target err=%v", err)
+	}
+}
+
+func TestClassifyProxyRequestMapsPhases(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		classify     func(error, *logFailure)
+		err          error
+		wantOp       logOperation
+		wantCategory logCategory
+		wantStatus   int
+	}{
+		{"cinemas", classifyProxy, &syncproxy.RequestError{Operation: syncproxy.Operation{Phase: syncproxy.PhaseCinemas}, Kind: syncproxy.FailureChallenge, StatusCode: 403}, operationCinemas, categoryChallenge, 403},
+		{"movies", classifyProxy, &syncproxy.RequestError{Operation: syncproxy.Operation{Phase: syncproxy.PhaseMovies}, Kind: syncproxy.FailureTransport}, operationMovies, categoryTransport, 0},
+		{"showings", classifyProxy, &syncproxy.RequestError{Operation: syncproxy.Operation{Phase: syncproxy.PhaseShowings}, Kind: syncproxy.FailureServer, StatusCode: 503}, operationShowings, categoryHTTPStatus, 503},
+		{"unnamed phase stays unknown", classifyProxy, &syncproxy.RequestError{Kind: syncproxy.FailureRedirect}, operationUnknown, categoryRedirect, 0},
+		{"parse failure stays unknown", classifyProxy, errors.New("parse"), operationUnknown, categoryUnknown, 0},
+		{"default program phase", classifyProgramProxy, &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, operationProgram, categoryHTTPStatus, 404},
+		{"program proxy parse failure", classifyProgramProxy, errors.New("parse"), operationUnknown, categoryUnknown, 0},
+		{"program pages parse failure", classifyProgramPages, errors.New("parse"), operationProgram, categoryInvalidPayload, 0},
+		{"program pages request", classifyProgramPages, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge}, operationProgram, categoryChallenge, 0},
+		{"veo errors are not shared errors", classifyProxy, &veo.RequestError{Operation: veo.OperationCheckout, Kind: syncproxy.FailureChallenge}, operationUnknown, categoryUnknown, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			details := logFailure{Operation: operationUnknown, Category: categoryUnknown}
+			test.classify(test.err, &details)
+			if details.Operation != test.wantOp || details.Category != test.wantCategory || details.HTTPStatus != test.wantStatus {
+				t.Fatalf("details=%+v", details)
+			}
+		})
 	}
 }

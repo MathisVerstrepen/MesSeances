@@ -99,7 +99,7 @@ func TestCinewestExecutorMetricsAndFailures(t *testing.T) {
 		t.Fatal("Cinewest execution", err)
 	}
 	cinewestOf(e).sync = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
-		return schedule.Dataset{}, cinewest.SyncSummary{}, &cinewest.RequestError{Operation: "program", Kind: syncproxy.FailureChallenge, StatusCode: 403}
+		return schedule.Dataset{}, cinewest.SyncSummary{}, &syncproxy.RequestError{Operation: syncproxy.Operation{Phase: syncproxy.PhaseProgram}, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCinewest, window)
 	var re *RunError

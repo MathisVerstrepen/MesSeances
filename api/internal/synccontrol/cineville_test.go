@@ -127,7 +127,7 @@ func TestCinevilleExecutorManualMetricsAndFailures(t *testing.T) {
 		stage FailureStage
 	}{{syncproxy.FailureStatus, StageProviderFetch}, {syncproxy.FailureInvalidJSON, StageProviderFetch}} {
 		cinevilleOf(e).sync = func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
-			return schedule.Dataset{}, cineville.SyncSummary{}, &cineville.RequestError{Operation: cineville.OperationCinema, Kind: v.kind, StatusCode: 503}
+			return schedule.Dataset{}, cineville.SyncSummary{}, &syncproxy.RequestError{Operation: cineville.OperationCinema, Kind: v.kind, StatusCode: 503}
 		}
 		_, err := e.Run(t.Context(), TargetCineville, window)
 		var re *RunError

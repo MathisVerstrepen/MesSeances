@@ -102,7 +102,7 @@ func TestBoundedRetriesChallengesRedirectsAndSanitizedErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = c.Page(t.Context(), "4640", "seances")
-			var requestErr *RequestError
+			var requestErr *syncproxy.RequestError
 			if !errors.As(err, &requestErr) || calls != tc.want || requestErr.Kind != tc.kind || strings.Contains(err.Error(), "PRIVATE") {
 				t.Fatal("retry/error policy", calls, err)
 			}

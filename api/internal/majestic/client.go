@@ -15,17 +15,11 @@ import (
 const ProgramURL = "https://ws.ticketingcine.com/site"
 const MaxResponseBytes = 16 << 20
 
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
+// sourceName labels Majestic request errors.
+const sourceName = "Majestic"
 
-func (e *RequestError) Error() string {
-	return fmt.Sprintf("Majestic program request failed (category %d, status %d)", e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// operationProgram is the only Majestic request: one ticketingcine programme.
+var operationProgram = syncproxy.Operation{Name: "program", Phase: syncproxy.PhaseProgram}
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -34,8 +28,8 @@ type ClientConfig struct {
 type Client struct{ executor *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("majestic requires proxies and a timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("majestic", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
 	if err != nil {
@@ -54,7 +48,7 @@ func newClient(clients []*http.Client, sleep func(context.Context, time.Duration
 func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	if !schedule.ValidMajesticIdentity("theater", id) {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, operationProgram)
 	}
 	body, _ := json.Marshal(struct {
 		JSONRPC string            `json:"jsonrpc"`
@@ -62,32 +56,9 @@ func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 		Params  map[string]string `json:"params"`
 		ID      int               `json:"id"`
 	}{"2.0", "get_prog", map[string]string{"site_id": id}, 1})
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodPost, URL: ProgramURL, Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {"https://www.ticketingcine.com/"}}, NoRedirect: true}, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodPost, URL: ProgramURL, Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {"https://www.ticketingcine.com/"}}, NoRedirect: true}, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodPost, ProgramURL, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		err.cause = failure.Cause
-	}
-	return nil, err
+	return nil, syncproxy.NewRequestError(sourceName, operationProgram, http.MethodPost, ProgramURL, failure)
 }

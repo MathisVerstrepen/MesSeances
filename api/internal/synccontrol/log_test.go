@@ -10,14 +10,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"messeances/api/internal/ocine"
 	"messeances/api/internal/syncproxy"
 )
 
 func TestAdminFailureDetailSurvivesStatusPersistence(t *testing.T) {
 	started := time.Date(2026, 10, 23, 1, 30, 0, 0, time.UTC)
 	finished := started.Add(time.Minute)
-	cause := &ocine.RequestError{
+	cause := &syncproxy.RequestError{
 		Kind: syncproxy.FailureTransport,
 		RequestDiagnostic: syncproxy.NewRequestDiagnostic("GET", "https://www.ocine.fr/maubeuge/seances/", &syncproxy.Failure{
 			Attempt: 4, Cause: errors.New("proxyconnect tcp: connection refused"),

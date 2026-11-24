@@ -27,35 +27,19 @@ const (
 	WorkerCount        = 16
 )
 
-type Operation string
+// Operation names one kind of request; its phase drives sync classification.
+type Operation = syncproxy.Operation
 
-const (
-	OperationCinemas  Operation = "cinemas"
-	OperationProgram  Operation = "scheduled movies"
-	OperationSchedule Operation = "schedule"
-	OperationMovies   Operation = "movies"
-	OperationCheckout Operation = "checkout"
+var (
+	OperationCinemas  = syncproxy.Operation{Name: "cinemas", Phase: syncproxy.PhaseCinemas}
+	OperationProgram  = syncproxy.Operation{Name: "scheduled movies", Phase: syncproxy.PhaseProgram}
+	OperationSchedule = syncproxy.Operation{Name: "schedule", Phase: syncproxy.PhaseShowings}
+	OperationMovies   = syncproxy.Operation{Name: "movies", Phase: syncproxy.PhaseMovies}
+	OperationCheckout = syncproxy.Operation{Name: "checkout", Phase: syncproxy.PhaseShowings}
 )
 
-// RequestError keeps request diagnostics for the admin journal separately from
-// its generic Error text and context cancellation chain.
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Operation  Operation
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
-
-func (e *RequestError) Error() string {
-	op := "unknown"
-	switch e.Operation {
-	case OperationCinemas, OperationProgram, OperationSchedule, OperationMovies, OperationCheckout:
-		op = string(e.Operation)
-	}
-	return fmt.Sprintf("Ciné-Movida %s request failed (category %d, status %d)", op, e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// sourceName labels Ciné-Movida request errors.
+const sourceName = "Ciné-Movida"
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -64,8 +48,8 @@ type ClientConfig struct {
 type Client struct{ json, checkout *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("cinemovida requires proxies and timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("cinemovida", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
 	if err != nil {
@@ -111,7 +95,7 @@ func (c *Client) RequestCount() int { return c.json.RequestCount() + c.checkout.
 func (c *Client) Get(ctx context.Context, op Operation, raw string) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.String() != raw || strings.Contains(raw, "#") || !allowedURL(u) || !jsonOperationMatchesURL(op, u) {
-		return nil, &RequestError{Operation: op, Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, op)
 	}
 	return request(ctx, c.json, op, syncproxy.Request{Method: http.MethodGet, URL: raw})
 }
@@ -119,40 +103,17 @@ func (c *Client) Checkout(ctx context.Context, raw string, start time.Time) ([]b
 	b := checkoutBinding{source: raw, start: start}
 	u, err := url.Parse(raw)
 	if err != nil || !originalCheckoutURL(u) || !boundCheckoutURL(u, b) || start.IsZero() || start.Nanosecond() != 0 {
-		return nil, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, OperationCheckout)
 	}
 	ctx = context.WithValue(ctx, checkoutKey{}, b)
 	return request(ctx, c.checkout, OperationCheckout, syncproxy.Request{Method: http.MethodGet, URL: raw, AllowRedirect: true, MediaTypes: []string{"text/html", "application/xhtml+xml"}, Headers: http.Header{"Accept": {"text/html"}}})
 }
 func request(ctx context.Context, e *syncproxy.Executor, op Operation, r syncproxy.Request) ([]byte, error) {
-	body, failure := e.Do(ctx, r, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != 200 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := e.Do(ctx, r, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(r.Method, r.URL, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		err.cause = ctx.Err()
-	}
-	return nil, err
+	return nil, syncproxy.NewRequestError(sourceName, op, r.Method, r.URL, failure)
 }
 
 func safeURL(u *url.URL) bool {

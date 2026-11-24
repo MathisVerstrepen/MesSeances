@@ -263,21 +263,22 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 	return data, len(usedMovies), nil
 }
 func payloadError(op Operation) error {
-	return &RequestError{Operation: op, Kind: syncproxy.FailureInvalidJSON, cause: schedule.ErrDatasetValidation}
+	return syncproxy.SafeRequestError(sourceName, op, syncproxy.FailureInvalidJSON, 0, schedule.ErrDatasetValidation)
 }
 func typedError(err error, op Operation) error {
-	safe := &RequestError{Operation: op, Kind: syncproxy.FailureTransport}
-	var re *RequestError
+	kind, status := syncproxy.FailureTransport, 0
+	var re *syncproxy.RequestError
 	if errors.As(err, &re) {
-		safe.Kind, safe.StatusCode = re.Kind, re.StatusCode
+		kind, status = re.Kind, re.StatusCode
 	}
+	var cause error
 	switch {
 	case errors.Is(err, context.Canceled):
-		safe.Kind, safe.cause = syncproxy.FailureCanceled, context.Canceled
+		kind, cause = syncproxy.FailureCanceled, context.Canceled
 	case errors.Is(err, context.DeadlineExceeded):
-		safe.Kind, safe.cause = syncproxy.FailureCanceled, context.DeadlineExceeded
+		kind, cause = syncproxy.FailureCanceled, context.DeadlineExceeded
 	case errors.Is(err, schedule.ErrDatasetValidation):
-		safe.cause = schedule.ErrDatasetValidation
+		cause = schedule.ErrDatasetValidation
 	}
-	return safe
+	return syncproxy.SafeRequestError(sourceName, op, kind, status, cause)
 }

@@ -321,7 +321,7 @@ func (f *scheduleFetcher) window(ctx context.Context, p map[string][]string, fro
 }
 func (f *scheduleFetcher) fetch(ctx context.Context, p map[string][]string, from, through string) ([]schedule.ShowtimeRecord, error) {
 	records, err := f.window(ctx, p, from, through)
-	var r *RequestError
+	var r *syncproxy.RequestError
 	if err == nil || from == through || !errors.As(err, &r) || r.Kind != syncproxy.FailureServer {
 		return records, err
 	}

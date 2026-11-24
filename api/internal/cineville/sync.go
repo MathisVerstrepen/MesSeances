@@ -49,7 +49,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (schedule.D
 				}
 			}
 			if err != nil {
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if attempt == 0 && errors.As(err, &re) && (re.Kind == syncproxy.FailureContentType || re.Kind == syncproxy.FailureInvalidJSON || (re.Kind == syncproxy.FailureStatus && re.StatusCode == 404)) {
 					freshBuild, freshCatalog, refreshErr := bootstrap(ctx, fetcher)
 					if refreshErr != nil {
@@ -97,27 +97,27 @@ func bootstrap(ctx context.Context, fetcher Fetcher) (string, []cinema, error) {
 	return build, catalog, nil
 }
 func payloadError(op Operation) error {
-	return &RequestError{Operation: op, Kind: syncproxy.FailureInvalidJSON}
+	return syncproxy.SafeRequestError(sourceName, op, syncproxy.FailureInvalidJSON, 0, nil)
 }
 func typedError(err error, op Operation) error {
-	var re *RequestError
-	if errors.As(err, &re) {
-		safe := &RequestError{Operation: op, Kind: re.Kind, StatusCode: re.StatusCode}
-		if errors.Is(err, context.Canceled) {
-			safe.cause = context.Canceled
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			safe.cause = context.DeadlineExceeded
-		}
-		return safe
-	}
+	var cause error
 	if errors.Is(err, context.Canceled) {
-		return &RequestError{Operation: op, Kind: syncproxy.FailureCanceled, cause: context.Canceled}
+		cause = context.Canceled
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return &RequestError{Operation: op, Kind: syncproxy.FailureCanceled, cause: context.DeadlineExceeded}
+	var re *syncproxy.RequestError
+	if errors.As(err, &re) {
+		if errors.Is(err, context.DeadlineExceeded) {
+			cause = context.DeadlineExceeded
+		}
+		return syncproxy.SafeRequestError(sourceName, op, re.Kind, re.StatusCode, cause)
 	}
-	return &RequestError{Operation: op, Kind: syncproxy.FailureTransport}
+	if cause == nil && errors.Is(err, context.DeadlineExceeded) {
+		cause = context.DeadlineExceeded
+	}
+	if cause != nil {
+		return syncproxy.SafeRequestError(sourceName, op, syncproxy.FailureCanceled, 0, cause)
+	}
+	return syncproxy.SafeRequestError(sourceName, op, syncproxy.FailureTransport, 0, nil)
 }
 func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options SyncOptions) (schedule.Dataset, int, error) {
 	data := schedule.Dataset{Provider: schedule.ProviderCineville, SchemaVersion: schedule.SchemaVersion, Scope: schedule.ScopeAll, Timezone: schedule.Timezone, GeneratedAt: options.Now.UTC(), Window: schedule.Window{From: options.From, Through: options.From}}

@@ -89,7 +89,7 @@ func TestClientResponseSafetyAndMedia(t *testing.T) {
 	} {
 		c := testClient(t, func(*http.Request) (*http.Response, error) { return response(test.status, test.media, test.body), nil })
 		_, err := c.Program(t.Context(), "EMS0565", "https://bordeaux.megarama.fr/")
-		var requestErr *RequestError
+		var requestErr *syncproxy.RequestError
 		if !errors.As(err, &requestErr) || requestErr.Kind != test.kind || c.RequestCount() != test.count || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("safe response classification: %v", err)
 		}

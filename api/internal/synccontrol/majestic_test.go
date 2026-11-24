@@ -56,7 +56,7 @@ func TestMajesticExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 		t.Fatal("publication/metrics", out, err)
 	}
 	majesticOf(e).sync = func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error) {
-		return schedule.Dataset{}, majestic.SyncSummary{}, &majestic.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+		return schedule.Dataset{}, majestic.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetMajestic, w)
 	var re *RunError

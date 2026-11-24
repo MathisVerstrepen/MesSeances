@@ -67,7 +67,7 @@ func TestOcineExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 		t.Fatal("publication/metrics", out, err)
 	}
 	ocineOf(e).sync = func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error) {
-		return schedule.Dataset{}, ocine.SyncSummary{}, &ocine.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+		return schedule.Dataset{}, ocine.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetOcine, w)
 	var re *RunError

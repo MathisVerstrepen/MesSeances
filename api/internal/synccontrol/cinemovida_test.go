@@ -79,7 +79,7 @@ func TestCinemovidaExecutorPublicationUnknownRuntimeAndSafeFailure(t *testing.T)
 		t.Fatal("publication/metrics", out, err)
 	}
 	cinemovidaOf(e).sync = func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
-		return schedule.Dataset{}, cinemovida.SyncSummary{}, &cinemovida.RequestError{Operation: cinemovida.OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
+		return schedule.Dataset{}, cinemovida.SyncSummary{}, &syncproxy.RequestError{Operation: cinemovida.OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCinemovida, w)
 	var re *RunError

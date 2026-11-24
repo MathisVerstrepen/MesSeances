@@ -65,7 +65,7 @@ func TestCineodeExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 		t.Fatal("publication/metrics", out, err)
 	}
 	cineodeOf(e).sync = func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error) {
-		return schedule.Dataset{}, cineode.SyncSummary{}, &cineode.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+		return schedule.Dataset{}, cineode.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCineode, w)
 	var re *RunError

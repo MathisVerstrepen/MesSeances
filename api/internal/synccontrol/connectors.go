@@ -24,6 +24,13 @@ import (
 	"messeances/api/internal/veo"
 )
 
+// Shared classifiers for providers built on syncproxy.RequestError.
+var (
+	classifyProxy        = classifyProxyRequest(syncproxy.PhaseUnknown, false)
+	classifyProgramProxy = classifyProxyRequest(syncproxy.PhaseProgram, false)
+	classifyProgramPages = classifyProxyRequest(syncproxy.PhaseProgram, true)
+)
+
 // providerRegistry holds the static traits of every synchronized provider.
 // Run order comes from schedule.SourceProviders, not from this table.
 var providerRegistry = [...]providerTraits{
@@ -31,17 +38,17 @@ var providerRegistry = [...]providerTraits{
 	{target: TargetKinepolis, classify: classifyKinepolis, typedFetchError: isKinepolisRequestError},
 	{target: TargetPathe, classify: classifyPathe},
 	{target: TargetCGR, classify: classifyCGR},
-	{target: TargetMegarama, enrichUnknownRuntime: true, classify: classifyMegarama},
-	{target: TargetCineville, enrichUnknownRuntime: true, classify: classifyCineville},
-	{target: TargetMK2, enrichUnknownRuntime: true, classify: classifyMK2},
-	{target: TargetCinewest, enrichUnknownRuntime: true, classify: classifyCinewest},
-	{target: TargetGrandEcran, enrichUnknownRuntime: true, classify: classifyGrandEcran},
-	{target: TargetNoeCinemas, enrichUnknownRuntime: true, classify: classifyNoeCinemas},
+	{target: TargetMegarama, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetCineville, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetMK2, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetCinewest, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetGrandEcran, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetNoeCinemas, enrichUnknownRuntime: true, classify: classifyProxy},
 	{target: TargetVeo, enrichUnknownRuntime: true, retainLogs: true, classify: classifyVeo, logArgs: veoFetchLogArgs},
-	{target: TargetMajestic, enrichUnknownRuntime: true, classify: classifyMajestic},
-	{target: TargetCineode, budget: fetchBudgetOperation, enrichUnknownRuntime: true, classify: classifyCineode},
-	{target: TargetCinemovida, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyCinemovida},
-	{target: TargetOcine, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyOcine},
+	{target: TargetMajestic, enrichUnknownRuntime: true, classify: classifyProgramProxy},
+	{target: TargetCineode, budget: fetchBudgetOperation, enrichUnknownRuntime: true, classify: classifyProgramPages},
+	{target: TargetCinemovida, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetOcine, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProgramPages},
 }
 
 // sourceOutcome maps the summary counters most providers share.
@@ -295,129 +302,44 @@ func classifyCGR(err error, details *logFailure) {
 	}
 }
 
-// proxyFailure records the syncproxy failure facts shared by providers built
-// on syncproxy.Executor.
-func proxyFailure(details *logFailure, operation logOperation, kind syncproxy.FailureKind, status int) {
-	details.Operation = operation
-	details.Category = safeMegaramaCategory(kind)
-	details.HTTPStatus = status
-}
-
-func classifyMegarama(err error, details *logFailure) {
-	var requestErr *megarama.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case megarama.OperationConfig:
-			operation = operationCinemas
-		case megarama.OperationProgram:
-			operation = operationProgram
-		case megarama.OperationPoster:
-			operation = operationMovies
+// classifyProxyRequest classifies the shared syncproxy.RequestError by its
+// operation phase. defaultPhase applies when the error names no phase;
+// payloadOnParse reports every other failure (parser rejections) as an
+// invalid payload of that phase.
+func classifyProxyRequest(defaultPhase syncproxy.Phase, payloadOnParse bool) func(error, *logFailure) {
+	return func(err error, details *logFailure) {
+		if payloadOnParse {
+			details.Operation = phaseOperation(defaultPhase)
 		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
+		var requestErr *syncproxy.RequestError
+		if errors.As(err, &requestErr) {
+			phase := requestErr.Operation.Phase
+			if phase == syncproxy.PhaseUnknown {
+				phase = defaultPhase
+			}
+			if operation := phaseOperation(phase); operation != operationUnknown {
+				details.Operation = operation
+			}
+			details.Category = safeMegaramaCategory(requestErr.Kind)
+			details.HTTPStatus = requestErr.StatusCode
+		} else if payloadOnParse {
+			details.Category = categoryInvalidPayload
+		}
 	}
 }
 
-func classifyCineville(err error, details *logFailure) {
-	var requestErr *cineville.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case cineville.OperationBootstrap:
-			operation = operationCinemas
-		case cineville.OperationCinema:
-			operation = operationProgram
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyMK2(err error, details *logFailure) {
-	var requestErr *mk2.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case mk2.OperationCinemas:
-			operation = operationCinemas
-		case mk2.OperationFilms:
-			operation = operationMovies
-		case mk2.OperationComplex:
-			operation = operationProgram
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyCinewest(err error, details *logFailure) {
-	var requestErr *cinewest.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case "cinemas":
-			operation = operationCinemas
-		case "movies":
-			operation = operationMovies
-		case "showtimes":
-			operation = operationShowings
-		case "program":
-			operation = operationProgram
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyGrandEcran(err error, details *logFailure) {
-	var requestErr *grandecran.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case grandecran.OperationCinemas, grandecran.OperationDiscovery:
-			operation = operationCinemas
-		case grandecran.OperationProgram:
-			operation = operationProgram
-		case grandecran.OperationMovies:
-			operation = operationMovies
-		case grandecran.OperationSchedule, grandecran.OperationRoom:
-			operation = operationShowings
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyNoeCinemas(err error, details *logFailure) {
-	var requestErr *noecinemas.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case noecinemas.OperationCinemas:
-			operation = operationCinemas
-		case noecinemas.OperationProgram:
-			operation = operationProgram
-		case noecinemas.OperationMovies:
-			operation = operationMovies
-		case noecinemas.OperationSchedule, noecinemas.OperationRoom:
-			operation = operationShowings
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyCinemovida(err error, details *logFailure) {
-	var requestErr *cinemovida.RequestError
-	if errors.As(err, &requestErr) {
-		operation := details.Operation
-		switch requestErr.Operation {
-		case cinemovida.OperationCinemas:
-			operation = operationCinemas
-		case cinemovida.OperationProgram:
-			operation = operationProgram
-		case cinemovida.OperationMovies:
-			operation = operationMovies
-		case cinemovida.OperationSchedule, cinemovida.OperationCheckout:
-			operation = operationShowings
-		}
-		proxyFailure(details, operation, requestErr.Kind, requestErr.StatusCode)
+func phaseOperation(phase syncproxy.Phase) logOperation {
+	switch phase {
+	case syncproxy.PhaseCinemas:
+		return operationCinemas
+	case syncproxy.PhaseProgram:
+		return operationProgram
+	case syncproxy.PhaseMovies:
+		return operationMovies
+	case syncproxy.PhaseShowings:
+		return operationShowings
+	default:
+		return operationUnknown
 	}
 }
 
@@ -446,33 +368,6 @@ func classifyVeo(err error, details *logFailure) {
 		details.Operation = operationMovies
 	case veo.OperationSchedule, veo.OperationCheckout:
 		details.Operation = operationShowings
-	}
-}
-
-func classifyMajestic(err error, details *logFailure) {
-	var requestErr *majestic.RequestError
-	if errors.As(err, &requestErr) {
-		proxyFailure(details, operationProgram, requestErr.Kind, requestErr.StatusCode)
-	}
-}
-
-func classifyCineode(err error, details *logFailure) {
-	var requestErr *cineode.RequestError
-	details.Operation = operationProgram
-	if errors.As(err, &requestErr) {
-		proxyFailure(details, operationProgram, requestErr.Kind, requestErr.StatusCode)
-	} else {
-		details.Category = categoryInvalidPayload
-	}
-}
-
-func classifyOcine(err error, details *logFailure) {
-	var requestErr *ocine.RequestError
-	details.Operation = operationProgram
-	if errors.As(err, &requestErr) {
-		proxyFailure(details, operationProgram, requestErr.Kind, requestErr.StatusCode)
-	} else {
-		details.Category = categoryInvalidPayload
 	}
 }
 

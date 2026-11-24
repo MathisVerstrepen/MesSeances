@@ -201,7 +201,7 @@ func movieID(cinemaID, id string) string {
 }
 
 func optionalPosterFailure(err error) bool {
-	var requestErr *RequestError
+	var requestErr *syncproxy.RequestError
 	if !errors.As(err, &requestErr) {
 		return false
 	}
