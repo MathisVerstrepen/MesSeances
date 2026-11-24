@@ -72,6 +72,7 @@ func (q ListQuery) Valid() bool {
 type Repository interface {
 	List(context.Context, ListQuery) ([]Theater, int, error)
 	Current(context.Context, Identity) (Record, error)
+	CurrentImages(context.Context) (map[string]PublicImage, error)
 	Save(context.Context, Identity, int64, Record) (Record, string, error)
 	Remove(context.Context, Identity, int64) (Record, string, error)
 	References(context.Context, []string) (map[string]bool, error)

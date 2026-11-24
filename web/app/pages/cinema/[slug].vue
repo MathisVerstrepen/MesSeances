@@ -10,7 +10,6 @@ import {
   LoaderCircle,
   MapPin,
   RefreshCw,
-  Ticket,
 } from '@lucide/vue'
 import type {
   CatalogMovie,
@@ -699,20 +698,12 @@ useHead(() => ({
               ? 'min-h-[240px] items-end bg-[#f8f7f2] [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] lg:min-h-[380px]'
               : 'min-h-[200px] items-center bg-[#f1efe8] lg:min-h-[288px]'"
         >
-          <div
+          <Clapperboard
             v-if="!hasCinemaImage"
+            :stroke-width="1"
+            class="pointer-events-none absolute top-4 right-4 size-28 -rotate-8 text-ink opacity-[0.12] sm:top-1/2 sm:right-8 sm:size-52 sm:-translate-y-1/2 lg:right-12 lg:size-64"
             aria-hidden="true"
-            class="pointer-events-none absolute -right-8 top-0 flex h-full w-48 items-center justify-center text-ink/10 sm:right-4 sm:w-64 lg:right-6 lg:w-80"
-          >
-            <Clapperboard
-              :stroke-width="1"
-              class="size-48 -rotate-12 sm:size-64 lg:size-80"
-            />
-            <Ticket
-              :stroke-width="1.5"
-              class="absolute bottom-4 right-6 size-20 rotate-12 fill-highlight/40 text-ink/10 sm:bottom-6 sm:size-24 lg:right-0"
-            />
-          </div>
+          />
           <img
             v-if="hasCinemaImage"
             :key="cinemaImageUrl"

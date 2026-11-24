@@ -531,8 +531,10 @@ for (const imageState of ['photo', 'missing', 'failed']) {
       longName,
     )
     const photo = header.locator('img[fetchpriority="high"]')
+    const placeholder = header.locator('svg.lucide-clapperboard')
     if (imageLoads) {
       await expect(photo).toBeVisible()
+      await expect(placeholder).toHaveCount(0)
       await expect(photo).toHaveJSProperty('complete', true)
       expect(
         await photo.evaluate((image) =>
@@ -541,6 +543,8 @@ for (const imageState of ['photo', 'missing', 'failed']) {
       ).toBeGreaterThan(0)
     } else {
       await expect(photo).toHaveCount(0)
+      await expect(placeholder).toHaveCSS('stroke', 'rgb(39, 39, 42)')
+      await expect(placeholder).toHaveCSS('opacity', '0.12')
     }
     await expectHeaderLayout(
       header,

@@ -47,10 +47,37 @@ func (api *API) timeline(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) theaters(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	writeJSON(w, http.StatusOK, api.schedule.Theaters(schedule.TheaterCatalogQuery{
+	theaters := api.schedule.Theaters(schedule.TheaterCatalogQuery{
 		City:  query.Get("city"),
 		Chain: schedule.Provider(query.Get("chain")),
-	}))
+	})
+	var images map[string]cinemaimage.PublicImage
+	if len(theaters) > 0 && api.publicTheaterImages != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+		current, err := api.publicTheaterImages.PublicImages(ctx)
+		if err == nil && ctx.Err() == nil {
+			images = current
+		}
+	}
+	if len(images) == 0 {
+		writeJSON(w, http.StatusOK, theaters)
+		return
+	}
+	out := make([]publicTheaterCatalogItem, 0, len(theaters))
+	for _, theater := range theaters {
+		item := publicTheaterCatalogItem{TheaterCatalogItem: theater}
+		if image, ok := images[theater.ID]; ok {
+			item.Image = &image
+		}
+		out = append(out, item)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type publicTheaterCatalogItem struct {
+	schedule.TheaterCatalogItem
+	Image *cinemaimage.PublicImage `json:"image,omitempty"`
 }
 
 type publicTheaterShowtimes struct {
