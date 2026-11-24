@@ -287,7 +287,8 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 		if provider == ProviderCinewest && showing.ProviderVersion == "VERSION_MUET" && !silent {
 			return fmt.Errorf("invalid Cinewest silent version")
 		}
-		unknownVersion := provider == ProviderOcine && showing.Language == "" && showing.ProviderVersion == "" && showing.BookingURL == "" && strings.HasSuffix(showing.ProviderShowingID, "-past")
+		unknownVersion := showing.Language == "" && showing.ProviderVersion == "" &&
+			(provider == ProviderMK2 || provider == ProviderOcine && showing.BookingURL == "" && strings.HasSuffix(showing.ProviderShowingID, "-past"))
 		if expectedDate != showing.ServiceDate || !validLanguage(showing.Language) && !silent && !unknownVersion || !validFormat(showing.Format) || strings.TrimSpace(showing.ProviderVersion) == "" && !unknownVersion || provider == ProviderMK2 && showing.ProviderVersion == "Muet" && !silent {
 			return fmt.Errorf("invalid showing attributes")
 		}

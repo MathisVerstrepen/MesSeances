@@ -1072,7 +1072,7 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 			t.Fatalf("MK2 roundtrip theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
 		}
 		for _, r := range loaded.Showtimes {
-			if r.Provider == schedule.ProviderMK2 && (r.Movie.RuntimeMinutes != 0 || r.Language != "" || r.Room != "" || !r.EndTime.Equal(r.StartTime)) {
+			if r.Provider == schedule.ProviderMK2 && (r.Movie.RuntimeMinutes != 0 || r.Language != "" || r.ProviderVersion != mk2.Showtimes[0].ProviderVersion || r.Room != "" || !r.EndTime.Equal(r.StartTime)) {
 				t.Fatal("MK2 source facts overwritten")
 			}
 		}
@@ -1110,10 +1110,15 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal(err)
 	}
 	assertMK2(123)
+	mk2.Showtimes[0].ProviderVersion = ""
 	if _, err := store.Replace(ctx, []Dataset{mk2}); err != nil {
 		t.Fatal(err)
 	}
 	assertMK2(123)
+	var historyVersion string
+	if err := pool.QueryRow(ctx, `SELECT provider_version FROM screening_history_showtimes WHERE provider='mk2' AND provider_showing_id=$1 AND start_time=$2`, mk2.Showtimes[0].ProviderShowingID, mk2.Showtimes[0].StartTime).Scan(&historyVersion); err != nil || historyVersion != "" {
+		t.Fatal("MK2 history did not retain the missing version", err)
+	}
 	_, beforeRevision, err := store.Load(ctx)
 	if err != nil {
 		t.Fatal(err)

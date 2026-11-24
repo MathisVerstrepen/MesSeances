@@ -105,7 +105,7 @@ func TestOfficeVOFVersionConflicts(t *testing.T) {
 			if reverse {
 				version, conflict = conflict, version
 			}
-			s := officeShow{Language: "1", Format: "2", Options: []struct {
+			s := officeShow{Language: "1", Format: new(sourceID("2")), Options: []struct {
 				Option officeRef `json:"mediaoptionsid"`
 			}{{Option: officeRef{ID: "3"}}}}
 			if _, _, _, err := officeAttributes(s, map[sourceID]string{"1": version, "2": "PICTURE_2K", "3": conflict}); err == nil {
@@ -113,7 +113,7 @@ func TestOfficeVOFVersionConflicts(t *testing.T) {
 			}
 		}
 	}
-	if _, _, _, err := officeAttributes(officeShow{Language: "1", Format: "2"}, map[sourceID]string{"1": "vof", "2": "PICTURE_2K"}); err == nil {
+	if _, _, _, err := officeAttributes(officeShow{Language: "1", Format: new(sourceID("2"))}, map[sourceID]string{"1": "vof", "2": "PICTURE_2K"}); err == nil {
 		t.Fatal("lowercase version accepted")
 	}
 }

@@ -100,7 +100,7 @@ type officeShow struct {
 	End      string    `json:"showend"`
 	ThreeD   bool      `json:"threed"`
 	Language sourceID  `json:"languagemediaoptionsid"`
-	Format   sourceID  `json:"formatmediaoptionsid"`
+	Format   *sourceID `json:"formatmediaoptionsid"`
 	Options  []struct {
 		Option officeRef `json:"mediaoptionsid"`
 	} `json:"showsMediaoptionsCollection"`

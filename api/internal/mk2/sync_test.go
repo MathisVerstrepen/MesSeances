@@ -603,14 +603,16 @@ func TestSyncLanguageAttributes(t *testing.T) {
 		tokens   []string
 		language schedule.Language
 		version  string
+		invalid  bool
 	}{
-		{[]string{"2D", "STFR"}, schedule.LanguageVOSTFR, "VO+STFR"},
-		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR"},
-		{[]string{"2D", "Muet"}, "", "Muet"},
-		{[]string{"2D", "Muet", "STFR"}, schedule.LanguageVOSTFR, "Muet+STFR"},
-		{[]string{"STFR", "Muet", "2D", "STFR", "Muet"}, schedule.LanguageVOSTFR, "Muet+STFR"},
-		{[]string{"2D", "Muet", "VF", "VO"}, "", ""},
-		{[]string{"2D", "STFR", "VF", "VO"}, "", ""},
+		{[]string{"2D", "STFR"}, schedule.LanguageVOSTFR, "VO+STFR", false},
+		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR", false},
+		{[]string{"2D", "Muet"}, "", "Muet", false},
+		{[]string{"2D", "Muet", "STFR"}, schedule.LanguageVOSTFR, "Muet+STFR", false},
+		{[]string{"STFR", "Muet", "2D", "STFR", "Muet"}, schedule.LanguageVOSTFR, "Muet+STFR", false},
+		{[]string{"2D"}, "", "", false},
+		{[]string{"2D", "Muet", "VF", "VO"}, "", "", true},
+		{[]string{"2D", "STFR", "VF", "VO"}, "", "", true},
 	} {
 		t.Run(strings.Join(tc.tokens, "+"), func(t *testing.T) {
 			f, p, options := fixture(t)
@@ -621,7 +623,7 @@ func TestSyncLanguageAttributes(t *testing.T) {
 			}
 			f.pages[p.Slug] = encode(t, p)
 			d, summary, err := Sync(t.Context(), f, options)
-			if tc.version == "" {
+			if tc.invalid {
 				if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) {
 					t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
 				}
@@ -672,7 +674,7 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		}
 	}
 	for _, names := range [][]string{
-		{}, {"VF"}, {"2D"}, {"vf", "2D"}, {"vo", "2D"}, {"vof", "2D"}, {"muet", "2D"},
+		{}, {"VF"}, {"vf", "2D"}, {"vo", "2D"}, {"vof", "2D"}, {"muet", "2D"},
 		{"VF", "VO", "2D"}, {"VF", "VOF", "2D"}, {"VO", "VOF", "2D"},
 		{"Muet", "VF", "VO", "2D"}, {"Muet", "VF", "VOF", "2D"}, {"Muet", "VO", "VOF", "2D"},
 		{"Muet", "STFR"}, {"Muet", "STFR", "2D", "3D"}, {"Muet", "STFR", "IMAX", "4DX"}, {"VF", "IMAX", "4DX"}, {"VF", "2D", "3D"}, {"VF", "UNKNOWN"},

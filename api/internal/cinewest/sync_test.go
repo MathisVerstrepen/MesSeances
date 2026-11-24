@@ -59,7 +59,7 @@ func newFixture() *fixtureFetcher {
 		f.catalogs[c.Token+"/media"] = jsonFixture([]officeMovie{{ID: "1", CinemaID: slug, Title: "Office film", Duration: 5400}})
 		f.catalogs[c.Token+"/screens"] = jsonFixture([]officeScreen{{ID: "1", CinemaID: slug, Number: 1}})
 		f.catalogs[c.Token+"/mediaoptions"] = jsonFixture([]officeOption{{ID: "1", CinemaID: slug, Label: "VERSION_LOCAL"}, {ID: "2", CinemaID: slug, Label: "PICTURE_2K"}})
-		s := officeShow{ID: "1", CinemaID: slug, Movie: officeRef{ID: "1"}, Screen: officeRef{ID: "1"}, Language: "1", Format: "2", Start: "2026-09-14T20:00:00.123456+0200", End: "2026-09-14T23:07:00.123456+0200"}
+		s := officeShow{ID: "1", CinemaID: slug, Movie: officeRef{ID: "1"}, Screen: officeRef{ID: "1"}, Language: "1", Format: new(sourceID("2")), Start: "2026-09-14T20:00:00.123456+0200", End: "2026-09-14T23:07:00.123456+0200"}
 		f.catalogs[c.Token+"/shows"] = jsonFixture([]officeShow{s})
 	}
 	f.catalogs["synthetic-company/cinemas"] = jsonFixture(cs)
@@ -176,6 +176,47 @@ func TestSyncThirteenVenuesAndPlatformEnds(t *testing.T) {
 		if c.ProviderID == "cineoffice-royanlelido" && len(c.AvailableDates) != 0 {
 			t.Fatal("empty dates")
 		}
+	}
+}
+
+func TestOfficeNullPrimaryFormatPreservesSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		flag   string
+		threeD bool
+		want   schedule.Format
+	}{
+		{name: "fallback", want: schedule.Format2D},
+		{name: "explicit 3D", threeD: true, want: schedule.Format3D},
+		{name: "screen option", flag: "PICTURE_IMAX", want: schedule.FormatIMAX},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture()
+			const venue = "royanlelido"
+			const key = "synthetic-" + venue + "/"
+			rows := fixtureOfficeShows(t, f, venue)
+			rows[0].Format, rows[0].ThreeD = nil, tc.threeD
+			if tc.flag != "" {
+				f.catalogs[key+"mediaoptions"] = jsonFixture([]officeOption{{ID: "1", CinemaID: venue, Label: "VERSION_LOCAL"}, {ID: "2", CinemaID: venue, Label: tc.flag}})
+				if err := json.Unmarshal([]byte(`[{"mediaoptionsid":{"id":2}}]`), &rows[0].Options); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.catalogs[key+"shows"] = jsonFixture(rows)
+			d, err := syncFixture(t, f)
+			if err != nil || len(d.Showtimes) != 13 {
+				t.Fatalf("incomplete Cinewest data: %v", err)
+			}
+			for _, s := range d.Showtimes {
+				if s.TheaterID == "cinewest-cineoffice-"+venue {
+					if s.Format != tc.want || s.Language != schedule.LanguageVF || s.EndTime.Sub(s.StartTime) != 187*time.Minute {
+						t.Fatalf("wrong formats or lost source facts: %+v", s)
+					}
+					return
+				}
+			}
+			t.Fatal("missing venue session")
+		})
 	}
 }
 func TestSyncRejectsIncompleteCatalogsAtomically(t *testing.T) {
@@ -321,8 +362,8 @@ func TestOfficeOrphanSessionsStillRejectMalformedDataAtomically(t *testing.T) {
 		"end before start":       func(s *officeShow) { s.End = "2026-09-14T19:00:00+0200" },
 		"missing language":       func(s *officeShow) { s.Language = "" },
 		"orphan language":        func(s *officeShow) { s.Language = "154" },
-		"missing format":         func(s *officeShow) { s.Format = "" },
-		"orphan format":          func(s *officeShow) { s.Format = "150" },
+		"empty format":           func(s *officeShow) { s.Format = new(sourceID("")) },
+		"orphan format":          func(s *officeShow) { s.Format = new(sourceID("150")) },
 		"orphan extra option": func(s *officeShow) {
 			if err := json.Unmarshal([]byte(`[{"mediaoptionsid":{"id":99}}]`), &s.Options); err != nil {
 				panic(err)
@@ -436,12 +477,12 @@ func TestTimeAndLanguageContracts(t *testing.T) {
 		code string
 		want schedule.Language
 	}{{"VERSION_LOCAL", schedule.LanguageVF}, {"VERSION_ORIGINAL_LOCAL", schedule.LanguageVF}, {"VERSION_ORIGINAL", schedule.LanguageVOSTFR}, {"VERSION_MUET", ""}} {
-		l, version, format, err := officeAttributes(officeShow{Language: "1", Format: "2"}, map[sourceID]string{"1": v.code, "2": "PICTURE_SCREENX"})
+		l, version, format, err := officeAttributes(officeShow{Language: "1", Format: new(sourceID("2"))}, map[sourceID]string{"1": v.code, "2": "PICTURE_SCREENX"})
 		if err != nil || l != v.want || version != v.code || format != schedule.FormatScreenX {
 			t.Fatal("office attributes")
 		}
 	}
-	if _, _, _, err := officeAttributes(officeShow{Language: "1", Format: "2"}, map[sourceID]string{"1": "VERSION_UNKNOWN", "2": "PICTURE_2K"}); err == nil {
+	if _, _, _, err := officeAttributes(officeShow{Language: "1", Format: new(sourceID("2"))}, map[sourceID]string{"1": "VERSION_UNKNOWN", "2": "PICTURE_2K"}); err == nil {
 		t.Fatal("unknown version accepted")
 	}
 }
