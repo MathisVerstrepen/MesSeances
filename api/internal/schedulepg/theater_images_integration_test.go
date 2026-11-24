@@ -58,6 +58,10 @@ func TestTheaterImagesPublicationIntegration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	images, e := service.PublicImages(ctx)
+	if e != nil || len(images) != 1 || images["ugc-25"] != (cinemaimage.PublicImage{URL: "/api/v1/theaters/ugc/25/image/1", Width: 32, Height: 16}) {
+		t.Fatal("catalog image metadata", images, e)
+	}
 	stored, e := service.Read(ctx, id, 1)
 	if e != nil {
 		t.Fatal(e)
@@ -113,6 +117,9 @@ func TestTheaterImagesPublicationIntegration(t *testing.T) {
 	}
 	if _, e = repo.Current(ctx, id); !errors.Is(e, cinemaimage.ErrNotFound) {
 		t.Fatal(e)
+	}
+	if images, e = service.PublicImages(ctx); e != nil || len(images) != 0 {
+		t.Fatal("catalog exposed absent theater's image", images, e)
 	}
 	if _, e = media.Read(ctx, record.Key, record.Width, record.Height, record.Size); e != nil {
 		t.Fatal("absent cinema lost bytes", e)

@@ -30,7 +30,7 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 				providerChanges = captureProviderConstraintChanges(t, ctx, pool)
 				before = vofLanguageMigrationState(t, ctx, pool, relations, providerChanges...)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
@@ -73,10 +73,10 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			// The rerun must preserve constraints on all relations now present, too.
 			relations = vofLanguageMigrationRelations(t, ctx, pool)
 			before = vofLanguageMigrationState(t, ctx, pool, relations)
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			var once bool
 			if err := pool.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(applied_at=$1) FROM movieflow_schema_migrations WHERE version=42`, applied).Scan(&once); err != nil || !once {
 				t.Fatal("migration 042 reapplied", err)
@@ -98,7 +98,7 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			}
 			relations := vofLanguageMigrationRelations(t, ctx, pool)
 			before := vofLanguageMigrationState(t, ctx, pool, relations)
-			if err := RunMigrations(ctx, pool); err == nil || err.Error() != "database migration 042 failed" {
+			if err := migrateToPreRegistry(ctx, pool); err == nil || err.Error() != "database migration 042 failed" {
 				t.Fatalf("expected transactional 042 failure: %v", err)
 			}
 			assertCompleteMigrationHistory(t, ctx, pool, requireMigrationPrefix(t, migrations, 41, "041_movie_original_language.sql"))

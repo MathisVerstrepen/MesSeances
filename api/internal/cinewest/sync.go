@@ -105,16 +105,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (result sch
 		dataset.Theaters = append(dataset.Theaters, p.theater)
 	}
 	sort.Slice(dataset.Theaters, func(i, j int) bool { return dataset.Theaters[i].ID < dataset.Theaters[j].ID })
-	sort.Slice(dataset.Showtimes, func(i, j int) bool {
-		a, b := dataset.Showtimes[i], dataset.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
+	schedule.SortShowtimes(dataset.Showtimes)
 	if err := schedule.ValidateDataset(dataset, true); err != nil {
 		return result, summary, fmt.Errorf("%w: invalid synchronized Cinewest dataset", schedule.ErrDatasetValidation)
 	}

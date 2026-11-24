@@ -14,6 +14,7 @@ import (
 
 type ActivityReader interface {
 	TheaterActivity(context.Context, schedule.TheaterActivityQuery) (schedule.TheaterActivity, error)
+	ActivityPreview(context.Context, []string) ([]schedule.ActivityPreviewItem, error)
 }
 
 func (api *API) theaterActivity(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"time"
 
 	"messeances/api/internal/parallel"
@@ -31,13 +30,9 @@ type SyncSummary struct {
 func Sync(ctx context.Context, getter Getter, options SyncOptions) (result schedule.Dataset, summary SyncSummary, resultErr error) {
 	defer func() { summary.Requests = getter.RequestCount() }()
 	summary.GeneratedAt = options.Now.UTC()
-	location, err := time.LoadLocation(schedule.Timezone)
+	location, err := schedule.SyncLocation(options.From)
 	if err != nil {
-		return result, summary, fmt.Errorf("load schedule timezone")
-	}
-	from, err := time.ParseInLocation("2006-01-02", options.From, location)
-	if err != nil || from.Format("2006-01-02") != options.From {
-		return result, summary, fmt.Errorf("invalid from date")
+		return result, summary, err
 	}
 	body, err := getter.Config(ctx)
 	if err != nil {
@@ -74,33 +69,17 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 	if err != nil {
 		return result, summary, err
 	}
-	movies := map[string]schedule.MovieRecord{}
+	builder := schedule.NewDatasetBuilder(schedule.ProviderMegarama, options.From, options.Now, schedule.BuilderOptions{})
 	for i, p := range programs {
 		for _, e := range p.Events {
 			id := movieID(cinemas[i].ID, e.ID)
-			m := schedule.MovieRecord{Provider: schedule.ProviderMegarama, ProviderID: id, Slug: "megarama-film-" + id, Title: e.Title, RuntimeMinutes: int(e.Duration), PosterURL: posterURL(e.BillURL, e.ID)}
-			if prior, ok := movies[id]; ok {
-				if prior.Title != m.Title || prior.RuntimeMinutes != 0 && m.RuntimeMinutes != 0 && prior.RuntimeMinutes != m.RuntimeMinutes {
-					return result, summary, fmt.Errorf("%w: conflicting Megarama film metadata", schedule.ErrDatasetValidation)
-				}
-				if prior.RuntimeMinutes == 0 {
-					prior.RuntimeMinutes = m.RuntimeMinutes
-				}
-				if prior.PosterURL == "" {
-					prior.PosterURL = m.PosterURL
-				}
-				m = prior
+			if !builder.MergeMovie(schedule.MovieRecord{Provider: schedule.ProviderMegarama, ProviderID: id, Slug: "megarama-film-" + id, Title: e.Title, RuntimeMinutes: int(e.Duration), PosterURL: posterURL(e.BillURL, e.ID)}) {
+				return result, summary, fmt.Errorf("%w: conflicting Megarama film metadata", schedule.ErrDatasetValidation)
 			}
-			movies[id] = m
 		}
 	}
-	ids := make([]string, 0, len(movies))
-	for id := range movies {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		m := movies[id]
+	for _, id := range builder.MovieIDs() {
+		m := builder.Movie(id)
 		if m.PosterURL != "" || !globalID.MatchString(id) {
 			continue
 		}
@@ -112,10 +91,9 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 			continue
 		}
 		m.PosterURL = parsePoster(body, id)
-		movies[id] = m
+		builder.UpdateMovie(m)
 	}
-	summary.Movies = len(movies)
-	dataset := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderMegarama, Scope: schedule.ScopeAll, GeneratedAt: options.Now.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: options.From, Through: options.From}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
+	summary.Movies = builder.MovieCount()
 	seen := map[string]bool{}
 	for i, p := range programs {
 		if err := ctx.Err(); err != nil {
@@ -123,10 +101,10 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 		}
 		c := cinemas[i]
 		theaterID := "megarama-" + c.ID
-		dates := map[string]bool{}
 		for _, e := range p.Events {
-			m := movies[movieID(c.ID, e.ID)]
+			m := builder.Movie(movieID(c.ID, e.ID))
 			for _, s := range e.Sessions {
+				// Duplicates are rejected before date filtering, past sessions included.
 				if seen[s.ID] {
 					return result, summary, fmt.Errorf("%w: duplicate Megarama showing", schedule.ErrDatasetValidation)
 				}
@@ -158,36 +136,21 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 				if !schedule.ValidMegaramaBookingURL(booking, c.ID, s.ID) {
 					return result, summary, fmt.Errorf("%w: session booking URL", errShape)
 				}
-				dates[date] = true
-				if actual := start.Format("2006-01-02"); actual > dataset.Window.Through {
-					dataset.Window.Through = actual
-				}
+				builder.ExtendWindow(start.Format("2006-01-02"))
 				version := string(language)
 				if clean(s.Version) == "VOF" || clean(s.Version) == "VOST" {
 					version = clean(s.Version)
 				}
-				dataset.Showtimes = append(dataset.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderMegarama, ID: "megarama-showing-" + s.ID, ProviderShowingID: s.ID, TheaterID: theaterID, ServiceDate: date, Movie: m, StartTime: start, EndTime: end, FirstPartDurationMinutes: int(s.FirstPartDuration), Language: language, ProviderVersion: version, Format: format, Room: clean(s.HallName), BookingURL: booking})
+				if err := builder.AddShowtime(schedule.ShowtimeRecord{Provider: schedule.ProviderMegarama, ID: "megarama-showing-" + s.ID, ProviderShowingID: s.ID, TheaterID: theaterID, ServiceDate: date, Movie: m, StartTime: start, EndTime: end, FirstPartDurationMinutes: int(s.FirstPartDuration), Language: language, ProviderVersion: version, Format: format, Room: clean(s.HallName), BookingURL: booking}); err != nil {
+					return result, summary, fmt.Errorf("%w: duplicate Megarama showing", schedule.ErrDatasetValidation)
+				}
 			}
 		}
-		available := make([]string, 0, len(dates))
-		for date := range dates {
-			available = append(available, date)
-		}
-		sort.Strings(available)
-		dataset.Theaters = append(dataset.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderMegarama, ID: theaterID, ProviderID: c.ID, Slug: theaterID, Name: fallback(p.Name, c.Name), Address: fallback(p.Address, c.Address.Street), City: fallback(p.City, c.Address.City), PostalCode: fallback(p.ZipCode, c.Address.ZipCode), AvailableDates: available, AcceptedPasses: []string{}})
+		builder.AddTheater(schedule.TheaterRecord{Provider: schedule.ProviderMegarama, ID: theaterID, ProviderID: c.ID, Slug: theaterID, Name: fallback(p.Name, c.Name), Address: fallback(p.Address, c.Address.Street), City: fallback(p.City, c.Address.City), PostalCode: fallback(p.ZipCode, c.Address.ZipCode), AcceptedPasses: []string{}})
 	}
-	sort.Slice(dataset.Showtimes, func(i, j int) bool {
-		a, b := dataset.Showtimes[i], dataset.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
-	if err := schedule.ValidateDataset(dataset, true); err != nil {
-		return result, summary, fmt.Errorf("%w: invalid synchronized Megarama dataset", schedule.ErrDatasetValidation)
+	dataset, err := builder.Build("Megarama")
+	if err != nil {
+		return result, summary, err
 	}
 	summary.Showtimes = len(dataset.Showtimes)
 	return dataset, summary, nil
@@ -201,7 +164,7 @@ func movieID(cinemaID, id string) string {
 }
 
 func optionalPosterFailure(err error) bool {
-	var requestErr *RequestError
+	var requestErr *syncproxy.RequestError
 	if !errors.As(err, &requestErr) {
 		return false
 	}

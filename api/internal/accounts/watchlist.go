@@ -123,6 +123,32 @@ func (s *Service) Watchlist(ctx context.Context, raw string) (WatchlistView, err
 	return view, nil
 }
 
+// WatchlistScreeningMembership reads only the canonical identities needed by the homepage.
+func (s *Service) WatchlistScreeningMembership(ctx context.Context, raw string) (string, []string, error) {
+	var username string
+	var slugs []string
+	err := s.store.withTransaction(ctx, func(tx pgx.Tx) error {
+		a, _, err := s.authorize(ctx, tx, raw, true)
+		if err != nil {
+			return err
+		}
+		username = *a.username
+		rows, err := tx.Query(ctx, watchlistResolution+`SELECT DISTINCT 'film-' || id::text FROM resolved WHERE redirect_to_id IS NULL`, a.id)
+		if err != nil {
+			return ErrWatchlistUnavailable
+		}
+		slugs, err = pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return ErrWatchlistUnavailable
+		}
+		return nil
+	})
+	if err != nil {
+		return "", nil, watchlistError(err)
+	}
+	return username, slugs, nil
+}
+
 func resolveWatchlistMovie(ctx context.Context, tx pgx.Tx, slug string) (int64, error) {
 	if !theaterPreferenceID.MatchString(slug) {
 		return 0, ErrInvalidInput

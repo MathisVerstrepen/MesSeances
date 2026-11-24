@@ -10,7 +10,7 @@ func TestUpcomingMoviesUpgradeFrom031Integration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, _ := newMigrationTestPool(t, ctx, "upcoming_upgrade_")
-	migrations := installMigrationPrefix(t, ctx, pool, 31, "031_megarama_provider.sql")
+	installMigrationPrefix(t, ctx, pool, 31, "031_megarama_provider.sql")
 	seed := []string{
 		`INSERT INTO public_movies(identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,confirmed_tmdb_id) VALUES('ugc','10','Existing',90,42)`,
 		`INSERT INTO movie_slug_aliases(slug,public_movie_id,alias_kind) VALUES('tmdb-film-42',1,'tmdb')`,
@@ -30,10 +30,10 @@ func TestUpcomingMoviesUpgradeFrom031Integration(t *testing.T) {
 	if err := pool.QueryRow(ctx, existing).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	assertCompleteMigrationHistory(t, ctx, pool, migrations)
+	assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 	var after string
 	// Exclude additive nullable public-row fields; all preexisting bytes retain their values.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(s)) FROM showtimes s),(SELECT jsonb_agg(to_jsonb(a)) FROM movie_slug_aliases a),(SELECT jsonb_agg(to_jsonb(o)) FROM public_movie_metadata_overrides o),(SELECT jsonb_agg(to_jsonb(m)-'identity_anchor_tmdb_id'-'original_language'-'metacritic_id') FROM public_movies m))::text`).Scan(&after); err != nil || after != before {
@@ -67,7 +67,7 @@ func TestUpcomingMoviesUpgradeFrom031Integration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO tmdb_upcoming_movies(tmdb_id,public_movie_id,active,verified_at) VALUES(99,2,false,now())`); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal("migration not idempotent")
 	}
 }

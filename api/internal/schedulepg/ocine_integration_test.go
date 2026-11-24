@@ -73,7 +73,10 @@ func TestOcineRoundTripConstraintsAndIsolationIntegration(t *testing.T) {
 		historyCount(t, pool, "SELECT count(*) FROM "+table, want)
 	}
 	historyCount(t, pool, `SELECT count(*) FROM cinema_activity_coverage WHERE provider='ocine' AND status='complete'`, 0)
-	for _, sql := range []string{`UPDATE showtimes SET booking_url=booking_url || '?booking=1' WHERE provider='ocine'`, `UPDATE screening_history_showtimes SET end_time=start_time+interval '1 minute' WHERE provider='ocine' AND booking_url=''`, `UPDATE showtimes SET booking_url=replace(booking_url,'/maubeuge/','/dunkerque/') WHERE provider='ocine' AND booking_url<>''`, `UPDATE showtimes SET booking_url=replace(booking_url,'/F123/','/F124/') WHERE provider='ocine' AND booking_url<>''`, `UPDATE showtimes SET language='VF' WHERE provider='ocine' AND booking_url<>''`, `UPDATE showtimes SET movie_provider_id='other-film' WHERE provider='ocine'`, `UPDATE showtimes SET first_part_duration_minutes=10 WHERE provider='ocine'`, `UPDATE showtimes SET service_date=service_date-1 WHERE provider='ocine'`, `UPDATE movies SET poster_url='https://evil.example/poster.jpg' WHERE provider='ocine'`, `UPDATE public_movie_sources SET source_slug='invented' WHERE source_provider='ocine'`, `UPDATE theaters SET provider_id='9999' WHERE provider='ocine'`, `UPDATE cinema_activity_coverage SET status='complete',basis='date_response' WHERE provider='ocine'`} {
+	// Provider-specific booking, poster, slug, version, first-part and coverage
+	// rules are enforced by schedule.ValidateDataset since migration 083; the
+	// database keeps generic invariants and foreign keys.
+	for _, sql := range []string{`UPDATE showtimes SET movie_provider_id='other-film' WHERE provider='ocine'`, `UPDATE showtimes SET service_date=service_date-1 WHERE provider='ocine'`, `UPDATE theaters SET provider_id='9999' WHERE provider='ocine'`} {
 		if _, err := pool.Exec(t.Context(), sql); err == nil {
 			t.Fatal("unsafe SQL accepted", sql)
 		}
@@ -105,13 +108,13 @@ func TestOcineBoxofficePersistenceIntegration(t *testing.T) {
 	if err != nil || len(data.Showtimes) != 1 || data.Showtimes[0].BookingURL != row.BookingURL || data.Showtimes[0].Movie.PosterURL != row.Movie.PosterURL {
 		t.Fatal("native entry or poster lost", err)
 	}
-	for _, query := range []string{
-		`UPDATE showtimes SET booking_url='https://achat.ocine.fr/maubeuge/r/766' WHERE provider='ocine'`,
-		`UPDATE screening_history_showtimes SET booking_url='https://achat.ocine.fr/st-omer/r/765' WHERE provider='ocine'`,
-	} {
-		if _, err := pool.Exec(t.Context(), query); err == nil {
-			t.Fatal("accepted an unbound native booking")
-		}
+	// Booking/showing binding is enforced by schedule.ValidateDataset since
+	// migration 083; a tampered row is rejected when the snapshot is loaded.
+	if _, err := pool.Exec(t.Context(), `UPDATE showtimes SET booking_url='https://achat.ocine.fr/maubeuge/r/766' WHERE provider='ocine'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Load(t.Context()); err == nil {
+		t.Fatal("loaded an unbound native booking")
 	}
 }
 

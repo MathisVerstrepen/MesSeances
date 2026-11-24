@@ -53,7 +53,7 @@ func TestClientPoliciesRetriesAndRedaction(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if !errors.As(err, &re) || re.Kind != tc.want || strings.Contains(err.Error(), "secret") {
 					t.Fatalf("err=%v", err)
 				}

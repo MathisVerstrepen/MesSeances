@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"sort"
 	"time"
 
 	"messeances/api/internal/boxoffice"
@@ -42,12 +41,8 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 	if clock == nil {
 		clock = time.Now
 	}
-	loc, err := time.LoadLocation(schedule.Timezone)
-	if err != nil {
-		return result, summary, err
-	}
-	from, err := time.ParseInLocation(time.DateOnly, o.From, loc)
-	if err != nil || from.Format(time.DateOnly) != o.From || o.Now.IsZero() || o.From != o.Now.In(loc).Format(time.DateOnly) {
+	loc, err := schedule.SyncLocation(o.From)
+	if err != nil || o.Now.IsZero() || o.From != o.Now.In(loc).Format(time.DateOnly) {
 		return result, summary, fmt.Errorf("invalid Ocine sync date")
 	}
 	source, native := g.(boxofficeGetter)
@@ -81,36 +76,21 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 		return result, summary, err
 	}
 	summary.Cinemas = len(programmes)
-	movies := map[string]schedule.MovieRecord{}
+	builder := schedule.NewDatasetBuilder(schedule.ProviderOcine, o.From, o.Now, schedule.BuilderOptions{RejectPosterConflicts: true})
 	for _, p := range programmes {
 		for _, m := range p.movies {
-			if prior, ok := movies[m.ProviderID]; ok {
-				if prior.Title != m.Title || prior.RuntimeMinutes != 0 && m.RuntimeMinutes != 0 && prior.RuntimeMinutes != m.RuntimeMinutes || prior.PosterURL != "" && m.PosterURL != "" && prior.PosterURL != m.PosterURL {
-					return result, summary, fmt.Errorf("%w: conflicting movie metadata", errShape)
-				}
-				if prior.RuntimeMinutes == 0 {
-					prior.RuntimeMinutes = m.RuntimeMinutes
-				}
-				if prior.PosterURL == "" {
-					prior.PosterURL = m.PosterURL
-				}
-				m = prior
+			if !builder.MergeMovie(m) {
+				return result, summary, fmt.Errorf("%w: conflicting movie metadata", errShape)
 			}
-			movies[m.ProviderID] = m
 		}
 	}
-	summary.Movies = len(movies)
-	d := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderOcine, Scope: schedule.ScopeAll, GeneratedAt: o.Now.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: o.From, Through: o.From}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
-	seen := map[string]schedule.ShowtimeRecord{}
+	summary.Movies = builder.MovieCount()
 	bookingOwners := map[string]string{}
 	for _, p := range programmes {
-		if p.through > d.Window.Through {
-			d.Window.Through = p.through
-		}
-		dates := map[string]bool{}
+		builder.ExtendWindow(p.through)
 		for _, s := range p.showtimes {
-			s.Movie = movies[s.Movie.ProviderID]
-			if prior, ok := seen[s.ProviderShowingID]; ok {
+			s.Movie = builder.Movie(s.Movie.ProviderID)
+			if prior, ok := builder.Showtime(s.ProviderShowingID); ok {
 				if !reflect.DeepEqual(prior, s) {
 					return result, summary, fmt.Errorf("%w: conflicting duplicate showing", errShape)
 				}
@@ -122,34 +102,21 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 				}
 				bookingOwners[s.BookingURL] = s.ProviderShowingID
 			}
-			seen[s.ProviderShowingID] = s
-			dates[s.ServiceDate] = true
-			d.Showtimes = append(d.Showtimes, s)
+			if err := builder.AddShowtime(s); err != nil {
+				return result, summary, fmt.Errorf("%w: conflicting duplicate showing", errShape)
+			}
 		}
-		for date := range dates {
-			p.theater.AvailableDates = append(p.theater.AvailableDates, date)
-		}
-		sort.Strings(p.theater.AvailableDates)
-		d.Theaters = append(d.Theaters, p.theater)
+		builder.AddTheater(p.theater)
 	}
-	if err := enrichCheckouts(ctx, g, d.Showtimes, &summary, clock, loc); err != nil {
+	if err := enrichCheckouts(ctx, g, builder.Showtimes(), &summary, clock, loc); err != nil {
 		return result, summary, err
 	}
-	sort.Slice(d.Showtimes, func(i, j int) bool {
-		a, b := d.Showtimes[i], d.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
 	if err := ctx.Err(); err != nil {
 		return result, summary, err
 	}
-	if err := schedule.ValidateDataset(d, true); err != nil {
-		return result, summary, fmt.Errorf("%w: invalid synchronized Ocine dataset", schedule.ErrDatasetValidation)
+	d, err := builder.Build("Ocine")
+	if err != nil {
+		return result, summary, err
 	}
 	summary.Showtimes = len(d.Showtimes)
 	return d, summary, nil

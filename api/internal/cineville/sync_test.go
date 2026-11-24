@@ -287,7 +287,7 @@ func TestSyncRejectsAlternateVADLookalikes(t *testing.T) {
 			page := wireProgramPage(t, c, []json.RawMessage{standard}, []json.RawMessage{test.raw})
 			client := wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page})
 			data, summary, err := Sync(t.Context(), client, fixtureOptions())
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
 				t.Fatalf("lookalike classification: %v", err)
 			}
@@ -368,7 +368,7 @@ func TestSyncRejectsInvalidShowtimesSentinels(t *testing.T) {
 			page := wireProgramPage(t, c, []json.RawMessage{standard}, []json.RawMessage{event})
 			client := wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page})
 			data, summary, err := Sync(t.Context(), client, fixtureOptions())
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
 				t.Fatalf("invalid sentinel classification: %v", err)
 			}
@@ -469,7 +469,7 @@ func TestSyncRejectsInvalidDatesSentinels(t *testing.T) {
 				}
 				client := wireProgramClient(t, []cinema{c, c2}, pages)
 				data, summary, err := Sync(t.Context(), client, fixtureOptions())
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
 					t.Fatalf("invalid dates classification: %v", err)
 				}
@@ -737,22 +737,22 @@ func TestSyncDynamicCatalogAliasesAndScopedIDs(t *testing.T) {
 func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 	for _, test := range []struct {
 		name       string
-		failure    RequestError
+		failure    syncproxy.RequestError
 		sameBuild  bool
 		persistent bool
 		wantError  bool
 	}{
-		{name: "404 new build", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}},
-		{name: "404 same build", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, sameBuild: true, wantError: true},
-		{name: "second 404", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, persistent: true, wantError: true},
-		{name: "content type new build", failure: RequestError{Kind: syncproxy.FailureContentType}},
-		{name: "content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true},
-		{name: "persistent content type new build", failure: RequestError{Kind: syncproxy.FailureContentType}, persistent: true, wantError: true},
-		{name: "persistent content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true, persistent: true, wantError: true},
-		{name: "invalid JSON new build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}},
-		{name: "invalid JSON same build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true},
-		{name: "persistent invalid JSON new build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, persistent: true, wantError: true},
-		{name: "persistent invalid JSON same build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true, persistent: true, wantError: true},
+		{name: "404 new build", failure: syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}},
+		{name: "404 same build", failure: syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, sameBuild: true, wantError: true},
+		{name: "second 404", failure: syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, persistent: true, wantError: true},
+		{name: "content type new build", failure: syncproxy.RequestError{Kind: syncproxy.FailureContentType}},
+		{name: "content type same build", failure: syncproxy.RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true},
+		{name: "persistent content type new build", failure: syncproxy.RequestError{Kind: syncproxy.FailureContentType}, persistent: true, wantError: true},
+		{name: "persistent content type same build", failure: syncproxy.RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true, persistent: true, wantError: true},
+		{name: "invalid JSON new build", failure: syncproxy.RequestError{Kind: syncproxy.FailureInvalidJSON}},
+		{name: "invalid JSON same build", failure: syncproxy.RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true},
+		{name: "persistent invalid JSON new build", failure: syncproxy.RequestError{Kind: syncproxy.FailureInvalidJSON}, persistent: true, wantError: true},
+		{name: "persistent invalid JSON same build", failure: syncproxy.RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true, persistent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			c := fixtureCinema()
@@ -787,7 +787,7 @@ func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 				t.Fatalf("calls=%v want=%v", f.calls, wantCalls)
 			}
 			if test.wantError {
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if !errors.As(err, &re) || re.Kind != test.failure.Kind || re.StatusCode != test.failure.StatusCode || re.Operation != OperationCinema {
 					t.Fatalf("err=%v", err)
 				}
@@ -850,7 +850,7 @@ func TestSyncPagePayloadRecovery(t *testing.T) {
 						t.Fatalf("unexpected recovery requests: %v", calls)
 					}
 					if persistent {
-						var re *RequestError
+						var re *syncproxy.RequestError
 						if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
 							t.Fatalf("payload classification: %v", err)
 						}
@@ -884,7 +884,7 @@ func TestSyncPagePayloadRefreshBootstrapFailsClosed(t *testing.T) {
 		return response(http.StatusOK, "application/json", `{"pageProps":null}`), nil
 	})
 	data, summary, err := Sync(t.Context(), client, fixtureOptions())
-	var re *RequestError
+	var re *syncproxy.RequestError
 	if !errors.As(err, &re) || re.Operation != OperationBootstrap || re.Kind != syncproxy.FailureInvalidJSON {
 		t.Fatalf("refresh classification: %v", err)
 	}
@@ -914,7 +914,7 @@ func TestSyncContentTypeRecoveryFailsClosed(t *testing.T) {
 				return response(test.status, test.media, test.body), nil
 			})
 			data, summary, err := Sync(t.Context(), client, fixtureOptions())
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != test.kind {
 				t.Fatalf("err=%v", err)
 			}
@@ -1000,13 +1000,13 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 				t.Fatal("partial dataset or unexpected retry")
 			}
 			if name == "empty dataset" {
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if !errors.Is(err, schedule.ErrDatasetValidation) || errors.As(err, &re) {
 					t.Fatalf("final validation err=%v", err)
 				}
 				return
 			}
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || errors.Is(err, schedule.ErrDatasetValidation) {
 				t.Fatalf("err=%v", err)
 			}
@@ -1016,7 +1016,7 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 
 func TestSyncMalformedResponsesArePayloadFailures(t *testing.T) {
 	for _, op := range []Operation{OperationBootstrap, OperationCinema} {
-		t.Run(string(op), func(t *testing.T) {
+		t.Run(op.Name, func(t *testing.T) {
 			client := testClient(t, func(r *http.Request) (*http.Response, error) {
 				if r.URL.String() == BootstrapURL {
 					body := "<html>synthetic-private-body</html>"
@@ -1028,7 +1028,7 @@ func TestSyncMalformedResponsesArePayloadFailures(t *testing.T) {
 				return response(http.StatusOK, "application/json", `{"pageProps":{"cinemaId":"synthetic-private-body"}}`), nil
 			})
 			data, summary, err := Sync(t.Context(), client, fixtureOptions())
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Operation != op || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 || errors.Is(err, schedule.ErrDatasetValidation) {
 				t.Fatalf("payload classification: %v", err)
 			}
@@ -1054,7 +1054,7 @@ func TestSyncCancellationAndErrorRedaction(t *testing.T) {
 		t.Fatal("cancellation")
 	}
 	f.fail = func(string, string) error {
-		return fmt.Errorf("synthetic-private-body: %w", &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404})
+		return fmt.Errorf("synthetic-private-body: %w", &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404})
 	}
 	f.builds = append(f.builds, "build-1")
 	if _, _, err := Sync(t.Context(), f, fixtureOptions()); err == nil || strings.Contains(err.Error(), "synthetic-private-body") {

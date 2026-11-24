@@ -18,32 +18,17 @@ const MaxBodySize = 32 << 20
 
 var complexSlug = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-type Operation string
+// Operation names one kind of request; its phase drives sync classification.
+type Operation = syncproxy.Operation
 
-const (
-	OperationCinemas Operation = "cinemas"
-	OperationFilms   Operation = "films"
-	OperationComplex Operation = "complex"
+var (
+	OperationCinemas = syncproxy.Operation{Name: "cinemas", Phase: syncproxy.PhaseCinemas}
+	OperationFilms   = syncproxy.Operation{Name: "films", Phase: syncproxy.PhaseMovies}
+	OperationComplex = syncproxy.Operation{Name: "complex", Phase: syncproxy.PhaseProgram}
 )
 
-// RequestError keeps request diagnostics for the admin journal separately from
-// its generic Error text and context cancellation chain.
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Operation  Operation
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
-
-func (e *RequestError) Error() string {
-	op := "unknown"
-	if e.Operation == OperationCinemas || e.Operation == OperationFilms || e.Operation == OperationComplex {
-		op = string(e.Operation)
-	}
-	return fmt.Sprintf("mk2 %s request failed (category %d, status %d)", op, e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// sourceName labels MK2 request errors.
+const sourceName = "mk2"
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -52,8 +37,8 @@ type ClientConfig struct {
 type Client struct{ executor *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("mk2 requires proxies and timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("mk2", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
 	if err != nil {
@@ -125,39 +110,16 @@ func (c *Client) FetchFilms(ctx context.Context) ([]byte, error) {
 }
 func (c *Client) FetchComplex(ctx context.Context, slug string) ([]byte, error) {
 	if !validComplexSlug(slug) {
-		return nil, &RequestError{Operation: OperationComplex, Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, OperationComplex)
 	}
 	return c.request(ctx, OperationComplex, APIURL+"/cinema-complex/"+slug)
 }
 func (c *Client) request(ctx context.Context, op Operation, target string) ([]byte, error) {
-	body, failure := c.executor.Get(ctx, target, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := c.executor.Get(ctx, target, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, target, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		err.cause = ctx.Err()
-	}
-	return nil, err
+	return nil, syncproxy.NewRequestError(sourceName, op, http.MethodGet, target, failure)
 }
 func validComplexSlug(slug string) bool { return len(slug) <= 128 && complexSlug.MatchString(slug) }
 func allowedURL(u *url.URL) bool {

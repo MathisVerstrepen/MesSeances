@@ -137,9 +137,9 @@ func TestSyncDriftAndFailureAtomicity(t *testing.T) {
 				case mode == "unexpected-film" && op == OperationSchedule:
 					return []byte(strings.ReplaceAll(string(b), `"cEvent_1"`, `"cOther"`)), nil
 				case mode == "room-challenge" && op == OperationRoom:
-					return nil, &RequestError{Kind: syncproxy.FailureChallenge}
+					return nil, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge}
 				case mode == "room-404" && op == OperationRoom:
-					return nil, &RequestError{StatusCode: 404, Kind: syncproxy.FailureStatus}
+					return nil, &syncproxy.RequestError{StatusCode: 404, Kind: syncproxy.FailureStatus}
 				}
 				return b, nil
 			}
@@ -223,7 +223,7 @@ func TestScheduleServerSplitBoundsAndExpiry(t *testing.T) {
 				t.Fatal("unexpected operation")
 			}
 			if alwaysFail || to != start.AddDate(0, 0, 1).Format(time.DateOnly) {
-				return nil, &RequestError{Kind: syncproxy.FailureServer, StatusCode: 503}
+				return nil, &syncproxy.RequestError{Kind: syncproxy.FailureServer, StatusCode: 503}
 			}
 			r := base
 			r.ID = "session-" + from

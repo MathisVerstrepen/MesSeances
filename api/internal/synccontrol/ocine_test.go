@@ -20,8 +20,8 @@ func (unusedOcineGetter) Checkout(context.Context, string) ([]byte, error)     {
 func (unusedOcineGetter) RequestCount() int                                    { return 27 }
 func configureOcineTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newOcine = func() (ocine.Getter, error) { return unusedOcineGetter{}, nil }
-	e.syncOcine = func(ctx context.Context, _ ocine.Getter, o ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error) {
+	ocineOf(e).newClient = func() (ocine.Getter, error) { return unusedOcineGetter{}, nil }
+	ocineOf(e).sync = func(ctx context.Context, _ ocine.Getter, o ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error) {
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) < 24*time.Minute || o.From != w.From || o.Now.IsZero() {
 			t.Error("missing provider-specific crawl bound/options")
@@ -56,7 +56,7 @@ func TestOcineExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 			t.Fatal("wrong publication")
 		}
 		return 4, nil
-	}), NewOcine: func() (ocine.Getter, error) { return unusedOcineGetter{}, nil }, Now: time.Now, Logger: slog.New(slog.DiscardHandler), OperationTimeout: time.Second})
+	}), Connectors: []Connector{OcineConnector(func() (ocine.Getter, error) { return unusedOcineGetter{}, nil })}, Now: time.Now, Logger: slog.New(slog.DiscardHandler), OperationTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +66,8 @@ func TestOcineExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 	if err != nil || writes != 1 || out[TargetOcine].Sync.Requests != 27 || out[TargetOcine].Sync.Version != 4 {
 		t.Fatal("publication/metrics", out, err)
 	}
-	e.syncOcine = func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error) {
-		return schedule.Dataset{}, ocine.SyncSummary{}, &ocine.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+	ocineOf(e).sync = func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error) {
+		return schedule.Dataset{}, ocine.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetOcine, w)
 	var re *RunError

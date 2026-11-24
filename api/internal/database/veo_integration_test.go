@@ -208,10 +208,10 @@ INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(
 					watchedBefore = watchedVeoUpgradeSnapshot(t, ctx, pool)
 				}
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			var n int
 			if baseline != 0 {
 				assertProviderConstraintChanges(t, ctx, pool, changes)
@@ -278,7 +278,7 @@ INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(
 			if err := pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM movieflow_schema_migrations m`).Scan(&historyBefore); err != nil {
 				t.Fatal(err)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			var historyAfter string

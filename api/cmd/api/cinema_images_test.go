@@ -135,6 +135,10 @@ func (*runtimePublicCinemaImages) PublicImage(context.Context, cinemaimage.Ident
 	return nil, nil
 }
 
+func (*runtimePublicCinemaImages) PublicImages(context.Context) (map[string]cinemaimage.PublicImage, error) {
+	return nil, nil
+}
+
 func (f *runtimePublicCinemaImages) Read(_ context.Context, id cinemaimage.Identity, revision int64) ([]byte, error) {
 	f.calls++
 	if id != (cinemaimage.Identity{Provider: "ugc", ProviderTheaterID: "25"}) || revision != 1 {

@@ -25,10 +25,10 @@ func TestNoeCinemasMigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 37, "037_grandecran_provider.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90),(1,'grandecran','cEvent_1','grandecran-film-cEvent_1','Existing',0)`)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			var n int
 			if upgrade {
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE title='Existing'`).Scan(&n); err != nil || n != 2 {
@@ -104,7 +104,7 @@ func TestNoeCinemasMigrationIntegration(t *testing.T) {
 				}
 			}
 			mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'noecinemas',$1::text,'noecinemas-film-'||$1::text,'Boundary',0)`, "c"+strings.Repeat("a", 111))
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 		})

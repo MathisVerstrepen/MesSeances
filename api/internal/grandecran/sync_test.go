@@ -135,12 +135,12 @@ func TestDiscoveryFallbackRetryAndCoverageAtomicity(t *testing.T) {
 					cinemas.Add(1)
 					if raw == CinemasURL && mode != "coverage" {
 						if mode == "block" {
-							return nil, &RequestError{Kind: syncproxy.FailureChallenge}
+							return nil, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge}
 						}
-						return nil, &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
+						return nil, &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
 					}
 					if mode == "stale" {
-						return nil, &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
+						return nil, &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
 					}
 				}
 				if op == OperationDiscovery {
@@ -184,7 +184,7 @@ func TestSplitWindowTerminatesAndCaches(t *testing.T) {
 		to, _ := time.Parse("2006-01-02T15:04:05", u.Query().Get("to"))
 		if op == OperationSchedule && to.Sub(from) > 24*time.Hour {
 			full.Add(1)
-			return nil, &RequestError{Kind: syncproxy.FailureServer, StatusCode: 500}
+			return nil, &syncproxy.RequestError{Kind: syncproxy.FailureServer, StatusCode: 500}
 		}
 		if op == OperationSchedule {
 			single.Add(1)
@@ -218,10 +218,10 @@ func TestRoomParsingCacheLimitsAndCancellation(t *testing.T) {
 			defer cancel()
 			g := &fakeGetter{get: func(ctx context.Context, _ Operation, _ string) ([]byte, error) {
 				if mode == "block" {
-					return nil, &RequestError{Kind: syncproxy.FailureChallenge}
+					return nil, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge}
 				}
 				if mode == "ordinary" {
-					return nil, &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
+					return nil, &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
 				}
 				if mode == "parent" {
 					cancel()

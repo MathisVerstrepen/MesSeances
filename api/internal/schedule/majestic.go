@@ -50,22 +50,7 @@ func ValidMajesticBookingURL(raw, theater, showing string) bool {
 	if raw == root {
 		return true
 	}
-	if !ValidMajesticIdentity("showing", showing) || !megaramaShowingMatchesTheater(showing, theater) {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host != "www.ticketingcine.com" || u.User != nil || u.Opaque != "" || u.RawPath != "" || u.RawFragment != "" || u.ForceQuery {
-		return false
-	}
-	fragment := "showsession?id=" + showing
-	if u.Fragment != fragment && u.Fragment != fragment+"&ps=ticketingcine" {
-		return false
-	}
-	if u.Path == "" && u.RawQuery == theater {
-		return raw == "https://www.ticketingcine.com?"+theater+"#"+u.Fragment
-	}
-	prefix := "/" + theater + "/FR"
-	return u.RawQuery == "" && strings.HasPrefix(u.Path, prefix) && megaramaGlobalIdentity.MatchString(strings.TrimPrefix(u.Path, prefix)) && raw == "https://www.ticketingcine.com"+u.Path+"#"+u.Fragment
+	return ValidMajesticIdentity("showing", showing) && megaramaShowingMatchesTheater(showing, theater) && ticketingcineSessionURL(raw, theater, showing)
 }
 
 func MajesticBookingMatchesMovie(raw, theater, showing, movie string) bool {
@@ -78,16 +63,7 @@ func MajesticBookingMatchesMovie(raw, theater, showing, movie string) bool {
 	if raw == MajesticWebsite(theater) {
 		return true
 	}
-	u, _ := url.Parse(raw)
-	// The source can use its site/session route for global films as well as local
-	// events. ValidMajesticBookingURL already binds that route to this showing.
-	if u.Path == "" && u.RawQuery == theater {
-		return true
-	}
-	if megaramaGlobalIdentity.MatchString(movie) {
-		return u.Path == "/"+theater+"/FR"+movie && u.RawQuery == ""
-	}
-	return strings.HasPrefix(movie, theater+"-") && u.Path == "" && u.RawQuery == theater
+	return TicketingcineBookingMatchesMovie(raw, theater, movie)
 }
 
 func ValidMajesticPosterURL(raw string) bool {

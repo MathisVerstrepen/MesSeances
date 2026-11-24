@@ -63,7 +63,7 @@ func TestProxyProgramAndCheckoutContractIntegration(t *testing.T) {
 			}
 			body, canonical, err := client.CheckoutBoxoffice(ctx, row, id)
 			if err != nil {
-				var requestErr *RequestError
+				var requestErr *syncproxy.RequestError
 				if ctx.Err() == nil && errors.As(err, &requestErr) && (requestErr.Kind == syncproxy.FailureTransport || requestErr.Kind == syncproxy.FailureResponseRead || requestErr.Kind == syncproxy.FailureServer) {
 					transient++
 					break

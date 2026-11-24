@@ -1577,9 +1577,8 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	if _, err := pool.Exec(ctx, "UPDATE movies SET source_genres=array_fill('x'::text, ARRAY[33]) WHERE provider='ugc' AND provider_id='200'"); err == nil {
 		t.Fatal("oversized source genres accepted")
 	}
-	if _, err := pool.Exec(ctx, "UPDATE theaters SET address='' WHERE provider='ugc'"); err == nil {
-		t.Fatal("empty UGC address accepted")
-	}
+	// Required theater address fields are provider rules enforced by
+	// schedule.ValidateDataset since migration 083.
 
 	if version, err := store.Replace(ctx, []Dataset{kinepolisTestDataset()}); err != nil || version.Version != 2 {
 		t.Fatalf("Kinepolis replacement after repair version=%+v err=%v", version, err)

@@ -9,18 +9,8 @@ import (
 	"time"
 
 	"messeances/api/internal/cgr"
-	"messeances/api/internal/cinemovida"
-	"messeances/api/internal/cineode"
-	"messeances/api/internal/cineville"
-	"messeances/api/internal/cinewest"
 	"messeances/api/internal/enrichment"
-	"messeances/api/internal/grandecran"
 	"messeances/api/internal/kinepolis"
-	"messeances/api/internal/majestic"
-	"messeances/api/internal/megarama"
-	"messeances/api/internal/mk2"
-	"messeances/api/internal/noecinemas"
-	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
@@ -35,22 +25,9 @@ type SyncObserver interface {
 }
 
 type ProductionExecutorOptions struct {
-	Writer            schedule.SnapshotWriter
-	NewUGC            func() (ugc.Getter, error)
-	NewKinepolis      func() (kinepolis.Fetcher, error)
-	NewPathe          func() (pathe.Getter, error)
-	NewCGR            func() (cgr.Getter, error)
-	NewMegarama       func() (megarama.Getter, error)
-	NewCineville      func() (cineville.Fetcher, error)
-	NewMK2            func() (mk2.Fetcher, error)
-	NewCinewest       func() (cinewest.Fetcher, error)
-	NewGrandEcran     func() (grandecran.Getter, error)
-	NewNoeCinemas     func() (noecinemas.Getter, error)
-	NewVeo            func() (veo.Getter, error)
-	NewMajestic       func() (majestic.Getter, error)
-	NewCineode        func() (cineode.Getter, error)
-	NewCinemovida     func() (cinemovida.Getter, error)
-	NewOcine          func() (ocine.Getter, error)
+	Writer schedule.SnapshotWriter
+	// Connectors lists the provider bindings; each target appears at most once.
+	Connectors        []Connector
 	Enrich            EnrichFunc
 	Now               func() time.Time
 	Logger            *slog.Logger
@@ -61,83 +38,57 @@ type ProductionExecutorOptions struct {
 
 type ProductionExecutor struct {
 	writer            schedule.SnapshotWriter
-	newUGC            func() (ugc.Getter, error)
-	newKinepolis      func() (kinepolis.Fetcher, error)
-	newPathe          func() (pathe.Getter, error)
-	newCGR            func() (cgr.Getter, error)
-	newMegarama       func() (megarama.Getter, error)
-	newCineville      func() (cineville.Fetcher, error)
-	newMK2            func() (mk2.Fetcher, error)
-	newCinewest       func() (cinewest.Fetcher, error)
-	newGrandEcran     func() (grandecran.Getter, error)
-	newNoeCinemas     func() (noecinemas.Getter, error)
-	newVeo            func() (veo.Getter, error)
-	newMajestic       func() (majestic.Getter, error)
-	newCineode        func() (cineode.Getter, error)
-	newCinemovida     func() (cinemovida.Getter, error)
-	newOcine          func() (ocine.Getter, error)
+	connectors        map[Target]Connector
 	enrich            EnrichFunc
 	now               func() time.Time
 	logger            *slog.Logger
 	observer          SyncObserver
 	operationTimeout  time.Duration
 	enrichmentTimeout time.Duration
-	syncUGC           func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
-	syncKinepolis     func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
-	syncPathe         func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
-	syncCGR           func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
-	syncMegarama      func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error)
-	syncCineville     func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error)
-	syncMK2           func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error)
-	syncCinewest      func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error)
-	syncGrandEcran    func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error)
-	syncNoeCinemas    func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error)
-	syncVeo           func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error)
-	syncMajestic      func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error)
-	syncCineode       func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error)
-	syncCinemovida    func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error)
-	syncOcine         func(context.Context, ocine.Getter, ocine.SyncOptions) (schedule.Dataset, ocine.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || options.EnrichmentTimeout < 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil && options.NewMajestic == nil && options.NewCineode == nil && options.NewCinemovida == nil && options.NewOcine == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || options.EnrichmentTimeout < 0 || len(options.Connectors) == 0 {
 		return nil, fmt.Errorf("sync executor dependencies are required")
+	}
+	connectors := make(map[Target]Connector, len(options.Connectors))
+	for _, connector := range options.Connectors {
+		if connector == nil || !isProviderTarget(connector.Target()) {
+			return nil, fmt.Errorf("sync executor connector is invalid")
+		}
+		if _, duplicate := connectors[connector.Target()]; duplicate {
+			return nil, fmt.Errorf("sync executor connector is duplicated")
+		}
+		connectors[connector.Target()] = connector
 	}
 	if options.EnrichmentTimeout == 0 {
 		options.EnrichmentTimeout = options.OperationTimeout
 	}
 	return &ProductionExecutor{
-		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe, newCGR: options.NewCGR,
-		newMegarama: options.NewMegarama, syncMegarama: megarama.Sync,
-		newCineville: options.NewCineville, syncCineville: cineville.Sync,
-		newMK2: options.NewMK2, syncMK2: mk2.Sync,
-		newCinewest: options.NewCinewest, syncCinewest: cinewest.Sync,
-		newGrandEcran: options.NewGrandEcran, syncGrandEcran: grandecran.Sync,
-		newNoeCinemas: options.NewNoeCinemas, syncNoeCinemas: noecinemas.Sync,
-		newVeo: options.NewVeo, syncVeo: veo.Sync,
-		newMajestic: options.NewMajestic, syncMajestic: majestic.Sync,
-		newCineode: options.NewCineode, syncCineode: cineode.Sync,
-		newCinemovida: options.NewCinemovida, syncCinemovida: cinemovida.Sync,
-		newOcine: options.NewOcine, syncOcine: ocine.Sync,
+		writer: options.Writer, connectors: connectors,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout, enrichmentTimeout: options.EnrichmentTimeout,
-		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
 }
 
 func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Window) (map[Target]ProviderOutcome, error) {
 	started := time.Now()
-	providers := []Target{target}
-	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine}
-	} else if !ValidTarget(target) {
+	providers := runTargets(target)
+	if !ValidTarget(target) {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	datasets := make([]schedule.Dataset, 0, len(providers))
 	syncOutcomes := make(map[Target]SyncOutcome, len(providers))
 	providerLogs := make(map[Target][]string, len(providers))
+	prepared := make([]Target, 0, len(providers))
 	for _, provider := range providers {
 		lines := []string{lifecycleLog(e.now().UTC(), provider, eventProviderStarted)}
 		data, syncOutcome, err := e.prepare(ctx, provider, window, &lines)
+		if errors.Is(err, ErrNoSources) {
+			// Nothing is configured for this provider: skip it without
+			// publishing or failing the run.
+			e.logger.Info("sync_provider_skipped", "component", "sync", "provider", string(provider), "reason", "no_enabled_sources")
+			continue
+		}
 		if err != nil {
 			var runErr *RunError
 			stage := StageOrchestration
@@ -152,7 +103,12 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 		datasets = append(datasets, data)
 		syncOutcomes[provider] = syncOutcome
 		providerLogs[provider] = lines
+		prepared = append(prepared, provider)
 	}
+	if len(prepared) == 0 {
+		return nil, ErrNoSources
+	}
+	providers = prepared
 	for _, provider := range providers {
 		providerLogs[provider] = append(providerLogs[provider], lifecycleLog(e.now().UTC(), provider, eventPublicationStarted))
 	}
@@ -185,7 +141,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 		syncOutcome.Showtimes = metrics.Showtimes
 		syncOutcome.NewShowtimes = metrics.NewShowtimes
 		outcome := ProviderOutcome{Sync: syncOutcome, Enrichment: e.runEnrichment(ctx, provider, datasets[i])}
-		if provider == TargetVeo {
+		if traits, _ := traitsFor(provider); traits.retainLogs {
 			outcome.logs = append([]string(nil), providerLogs[provider]...)
 		}
 		outcomes[provider] = outcome
@@ -197,246 +153,24 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, window Window, lines *[]string) (schedule.Dataset, SyncOutcome, error) {
 	var data schedule.Dataset
 	var outcome SyncOutcome
-	var err error
-	switch provider {
-	case TargetOcine:
-		if e.newOcine == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newOcine()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary ocine.SyncSummary
-		fetchCtx, cancel := context.WithTimeout(ctx, 25*time.Minute)
-		data, summary, err = e.syncOcine(fetchCtx, client, ocine.SyncOptions{From: window.From, Now: e.now()})
-		cancel()
-		e.logger.Info("ocine_source_summary", "checkouts", summary.EndsAttempted, "ends", summary.EndsRecovered, "missing_rooms", summary.RoomsMissing, "checkout_transient_failures", summary.CheckoutTransientFailures, "checkout_budget_skipped", summary.CheckoutBudgetSkipped)
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetUGC:
-		if e.newUGC == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newUGC()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary ugc.SyncSummary
-		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Now: e.now()})
-		requests := summary.Requests
-		if count := client.RequestCount(); count > requests {
-			requests = count
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
-	case TargetKinepolis:
-		if e.newKinepolis == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newKinepolis()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary kinepolis.SyncSummary
-		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Now: e.now()})
-		requests := 0
-		if counter, ok := client.(interface{ RequestCount() int }); ok {
-			requests = counter.RequestCount()
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetPathe:
-		if e.newPathe == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newPathe()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary pathe.SyncSummary
-		data, summary, err = e.syncPathe(ctx, client, pathe.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetCGR:
-		if e.newCGR == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newCGR()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary cgr.SyncSummary
-		data, summary, err = e.syncCGR(ctx, client, cgr.SyncOptions{From: window.From, Now: e.now()})
-		requests := summary.Requests
-		if count := client.RequestCount(); count > requests {
-			requests = count
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetMegarama:
-		if e.newMegarama == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newMegarama()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary megarama.SyncSummary
-		data, summary, err = e.syncMegarama(ctx, client, megarama.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetCinewest:
-		if e.newCinewest == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newCinewest()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary cinewest.SyncSummary
-		data, summary, err = e.syncCinewest(ctx, client, cinewest.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
-	case TargetGrandEcran:
-		if e.newGrandEcran == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newGrandEcran()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary grandecran.SyncSummary
-		data, summary, err = e.syncGrandEcran(ctx, client, grandecran.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetNoeCinemas:
-		if e.newNoeCinemas == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newNoeCinemas()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary noecinemas.SyncSummary
-		data, summary, err = e.syncNoeCinemas(ctx, client, noecinemas.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetVeo:
-		if e.newVeo == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newVeo()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary veo.SyncSummary
-		data, summary, err = e.syncVeo(ctx, client, veo.SyncOptions{From: window.From, Now: e.now()})
-		if err == nil {
-			for _, entry := range []struct {
-				count    int
-				category logCategory
-			}{
-				{summary.CheckoutTransientFailures, categoryTransport},
-				{summary.CheckoutBudgetSkipped, categoryCanceled},
-				{summary.CheckoutStartMismatches, categoryRedirect},
-			} {
-				if entry.count > 0 {
-					line, ok := serializeLogRecord(logRecord{Timestamp: e.now().UTC(), Provider: TargetVeo, Event: eventCheckoutEnrichmentIncomplete, Stage: StageProviderFetch, Operation: operationShowings, Category: entry.category, Progress: logProgress{Skipped: &entry.count}})
-					if ok {
-						*lines = append(*lines, line)
-					}
-				}
-			}
-		}
-		if args := veoCheckoutRetryLogArgs(summary); len(args) != 0 {
-			e.logger.Info("veo_checkout_retry_summary", args...)
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetMajestic:
-		if e.newMajestic == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newMajestic()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary majestic.SyncSummary
-		data, summary, err = e.syncMajestic(ctx, client, majestic.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetCinemovida:
-		if e.newCinemovida == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newCinemovida()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary cinemovida.SyncSummary
-		// Per-session source ends need a crawl budget, not the short database/metadata operation timeout.
-		fetchCtx, cancel := context.WithTimeout(ctx, 25*time.Minute)
-		data, summary, err = e.syncCinemovida(fetchCtx, client, cinemovida.SyncOptions{From: window.From, Now: e.now()})
-		cancel()
-		e.logger.Info("cinemovida_source_end_summary", "attempted", summary.EndsAttempted, "recovered", summary.EndsRecovered, "unresolved", summary.EndsUnresolved, "budget_skipped", summary.EndsBudgetSkipped)
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetCineode:
-		if e.newCineode == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newCineode()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary cineode.SyncSummary
-		fetchCtx, cancel := context.WithTimeout(ctx, e.operationTimeout)
-		data, summary, err = e.syncCineode(fetchCtx, client, cineode.SyncOptions{From: window.From, Now: e.now()})
-		cancel()
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetMK2:
-		if e.newMK2 == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newMK2()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary mk2.SyncSummary
-		data, summary, err = e.syncMK2(ctx, client, mk2.SyncOptions{From: window.From, Now: e.now()})
-		requests := summary.Requests
-		if counter, ok := client.(interface{ RequestCount() int }); ok {
-			requests = max(requests, counter.RequestCount())
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	case TargetCineville:
-		if e.newCineville == nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
-		}
-		client, clientErr := e.newCineville()
-		if clientErr != nil {
-			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
-		}
-		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
-		var summary cineville.SyncSummary
-		data, summary, err = e.syncCineville(ctx, client, cineville.SyncOptions{From: window.From, Now: e.now()})
-		requests := summary.Requests
-		if counter, ok := client.(interface{ RequestCount() int }); ok {
-			requests = max(requests, counter.RequestCount())
-		}
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
-	default:
+	if !isProviderTarget(provider) {
 		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
+	connector, ok := e.connectors[provider]
+	if !ok {
+		return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+	}
+	data, outcome, err := connector.fetch(ctx, e, window, lines)
+	if errors.Is(err, ErrNoSources) {
+		return data, outcome, err
+	}
+	var runErr *RunError
+	if errors.As(err, &runErr) && runErr.Stage == StageClientCreation {
+		return data, outcome, err
+	}
 	if err != nil {
-		if provider == TargetKinepolis {
-			var requestErr *kinepolis.RequestError
-			if errors.As(err, &requestErr) {
-				return data, outcome, stageError(ctx, provider, StageProviderFetch, FailureProviderSync, err)
-			}
+		if typedProviderFetchError(provider, err) {
+			return data, outcome, stageError(ctx, provider, StageProviderFetch, FailureProviderSync, err)
 		}
 		if errors.Is(err, schedule.ErrDatasetValidation) {
 			*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventFetchSucceeded))
@@ -526,44 +260,8 @@ func providerFetchLogArgs(provider Target, err error) []any {
 	if details.Attempt >= 1 && details.AttemptLimit >= details.Attempt && details.AttemptLimit <= 10 {
 		args = append(args, "attempt", details.Attempt, "attempt_limit", details.AttemptLimit)
 	}
-	if provider == TargetVeo && details.Category == categoryRedirect {
-		var rejected *veo.RequestError
-		if errors.As(err, &rejected) && rejected.Operation == veo.OperationCheckout && rejected.Kind == syncproxy.FailureRedirect {
-			if facts, ok := rejected.RedirectFacts(); ok {
-				args = append(args, safeVeoRedirectLogArgs(facts)...)
-			}
-		}
-	}
-	if provider == TargetVeo && details.Category == categoryInvalidPayload {
-		var rejected *veo.CheckoutParseError
-		if errors.As(err, &rejected) {
-			// Revalidate at the logging boundary, including errors constructed by
-			// callers. No provider strings or error/cause rendering is permitted.
-			switch rejected.Reason {
-			case veo.RejectRoom, veo.RejectBookingForm, veo.RejectClock, veo.RejectEndResolution:
-				args = append(args, "veo_checkout_reason", string(rejected.Reason))
-				if rejected.Reason == veo.RejectBookingForm {
-					if subreason := safeVeoFormSubreason(rejected.FormSubreason()); subreason != "" {
-						args = append(args, "veo_form_subreason", subreason)
-					}
-				}
-				if schedule.ValidVeoIdentity("theater", rejected.CinemaID) && schedule.ValidVeoIdentity("showing", rejected.ShowingID) && strings.HasPrefix(rejected.ShowingID, rejected.CinemaID+"-") {
-					args = append(args, "veo_cinema_id", rejected.CinemaID, "veo_showing_id", rejected.ShowingID)
-					if rejected.Reason == veo.RejectBookingForm && rejected.FormSubreason() == "action_mismatch" {
-						if names := safeVeoActionDifferences(rejected.ActionDifferences()); names != "" {
-							args = append(args, "veo_action_difference_bits", rejected.ActionDifferences(), "veo_action_differences", names)
-						}
-						if facts, ok := rejected.ActionPathFacts(); ok {
-							args = append(args, safeVeoActionPathLogArgs(facts)...)
-						}
-					}
-					index, count := rejected.ClientPoolPosition()
-					if validVeoClientPoolPosition(index, count) {
-						args = append(args, "veo_client_pool_position", index, "veo_client_pool_size", count)
-					}
-				}
-			}
-		}
+	if traits, ok := traitsFor(provider); ok && traits.logArgs != nil {
+		args = append(args, traits.logArgs(err, details)...)
 	}
 	return args
 }
@@ -811,13 +509,19 @@ func attachRunLogs(err error, logs map[Target][]string) error {
 	return err
 }
 
+// typedProviderFetchError reports provider errors that stay fetch failures
+// even when they also wrap cancellation or dataset validation.
+func typedProviderFetchError(provider Target, err error) bool {
+	traits, ok := traitsFor(provider)
+	return ok && traits.typedFetchError != nil && traits.typedFetchError(err)
+}
+
 func failureDetails(provider Target, stage FailureStage, err error, outcome SyncOutcome) logFailure {
 	details := fallbackFailure(stage, FailureInternal)
 	details.Progress = outcomeProgress(outcome)
 	details.Cause = err
-	var kinepolisErr *kinepolis.RequestError
-	hasTypedKinepolisFetchError := provider == TargetKinepolis && stage == StageProviderFetch && errors.As(err, &kinepolisErr)
-	if !hasTypedKinepolisFetchError && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+	typedFetchError := stage == StageProviderFetch && typedProviderFetchError(provider, err)
+	if !typedFetchError && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		details.Category = categoryCanceled
 		return details
 	}
@@ -825,194 +529,8 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 		return details
 	}
 	details = logFailure{Cause: err, Operation: operationUnknown, Category: categoryUnknown, Progress: outcomeProgress(outcome)}
-	switch provider {
-	case TargetUGC:
-		var requestErr *ugc.RequestError
-		if errors.As(err, &requestErr) {
-			details.Operation = safeUGCOperation(requestErr.Operation)
-			details.Category = safeUGCCategory(requestErr.Category)
-			if details.Operation == operationShowings && details.Category == categoryInvalidPayload {
-				details.ParseReason = safeUGCParseReason(requestErr.ParseReason)
-			}
-			details.HTTPStatus = requestErr.StatusCode
-			details.Attempt = requestErr.Attempt
-			details.AttemptLimit = requestErr.AttemptLimit
-		}
-	case TargetKinepolis:
-		if kinepolisErr != nil {
-			details.Operation = safeKinepolisOperation(kinepolisErr.Operation)
-			details.Category = safeKinepolisCategory(kinepolisErr.Category)
-			details.HTTPStatus = kinepolisErr.StatusCode
-		}
-	case TargetPathe:
-		var requestErr *pathe.RequestError
-		if errors.As(err, &requestErr) {
-			details.Operation = safePatheRequestOperation(requestErr.Operation)
-			details.Category = safePatheFetchCategory(requestErr.Category)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetCGR:
-		var requestErr *cgr.RequestError
-		if errors.As(err, &requestErr) {
-			details.Operation = safeCGROperation(requestErr.Operation)
-			details.Category = safeCGRCategory(requestErr.Category)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetCinewest:
-		var requestErr *cinewest.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case "cinemas":
-				details.Operation = operationCinemas
-			case "movies":
-				details.Operation = operationMovies
-			case "showtimes":
-				details.Operation = operationShowings
-			case "program":
-				details.Operation = operationProgram
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetGrandEcran:
-		var requestErr *grandecran.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case grandecran.OperationCinemas, grandecran.OperationDiscovery:
-				details.Operation = operationCinemas
-			case grandecran.OperationProgram:
-				details.Operation = operationProgram
-			case grandecran.OperationMovies:
-				details.Operation = operationMovies
-			case grandecran.OperationSchedule, grandecran.OperationRoom:
-				details.Operation = operationShowings
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetNoeCinemas:
-		var requestErr *noecinemas.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case noecinemas.OperationCinemas:
-				details.Operation = operationCinemas
-			case noecinemas.OperationProgram:
-				details.Operation = operationProgram
-			case noecinemas.OperationMovies:
-				details.Operation = operationMovies
-			case noecinemas.OperationSchedule, noecinemas.OperationRoom:
-				details.Operation = operationShowings
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetCinemovida:
-		var requestErr *cinemovida.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case cinemovida.OperationCinemas:
-				details.Operation = operationCinemas
-			case cinemovida.OperationProgram:
-				details.Operation = operationProgram
-			case cinemovida.OperationMovies:
-				details.Operation = operationMovies
-			case cinemovida.OperationSchedule, cinemovida.OperationCheckout:
-				details.Operation = operationShowings
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetVeo:
-		var requestErr *veo.RequestError
-		var payloadErr *veo.PayloadError
-		var op veo.Operation
-		if errors.As(err, &requestErr) {
-			op = requestErr.Operation
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		} else if errors.As(err, &payloadErr) {
-			op, details.Category = payloadErr.Operation(), categoryInvalidPayload
-		} else {
-			var rejected *veo.CheckoutParseError
-			if errors.As(err, &rejected) {
-				details.Operation, details.Category = operationShowings, categoryInvalidPayload
-			}
-		}
-		switch op {
-		case veo.OperationCinemas:
-			details.Operation = operationCinemas
-		case veo.OperationProgram, veo.OperationCastelia:
-			details.Operation = operationProgram
-		case veo.OperationMovies:
-			details.Operation = operationMovies
-		case veo.OperationSchedule, veo.OperationCheckout:
-			details.Operation = operationShowings
-		}
-	case TargetMK2:
-		var requestErr *mk2.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case mk2.OperationCinemas:
-				details.Operation = operationCinemas
-			case mk2.OperationFilms:
-				details.Operation = operationMovies
-			case mk2.OperationComplex:
-				details.Operation = operationProgram
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetCineville:
-		var requestErr *cineville.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case cineville.OperationBootstrap:
-				details.Operation = operationCinemas
-			case cineville.OperationCinema:
-				details.Operation = operationProgram
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetMajestic:
-		var requestErr *majestic.RequestError
-		if errors.As(err, &requestErr) {
-			details.Operation = operationProgram
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
-	case TargetCineode:
-		var requestErr *cineode.RequestError
-		details.Operation = operationProgram
-		if errors.As(err, &requestErr) {
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		} else {
-			details.Category = categoryInvalidPayload
-		}
-	case TargetOcine:
-		var requestErr *ocine.RequestError
-		details.Operation = operationProgram
-		if errors.As(err, &requestErr) {
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		} else {
-			details.Category = categoryInvalidPayload
-		}
-	case TargetMegarama:
-		var requestErr *megarama.RequestError
-		if errors.As(err, &requestErr) {
-			switch requestErr.Operation {
-			case megarama.OperationConfig:
-				details.Operation = operationCinemas
-			case megarama.OperationProgram:
-				details.Operation = operationProgram
-			case megarama.OperationPoster:
-				details.Operation = operationMovies
-			}
-			details.Category = safeMegaramaCategory(requestErr.Kind)
-			details.HTTPStatus = requestErr.StatusCode
-		}
+	if traits, ok := traitsFor(provider); ok && traits.classify != nil {
+		traits.classify(err, &details)
 	}
 	if details.HTTPStatus < 100 || details.HTTPStatus > 599 || details.Category != categoryHTTPStatus {
 		details.HTTPStatus = 0
@@ -1178,9 +696,10 @@ func safeCGRCategory(category cgr.ErrorCategory) logCategory {
 }
 
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
+	traits, _ := traitsFor(provider)
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetMajestic && provider != TargetCineode && provider != TargetCinemovida && provider != TargetOcine && provider != TargetCineville && provider != TargetMK2 && provider != TargetCinewest && provider != TargetGrandEcran && provider != TargetNoeCinemas && provider != TargetVeo {
+		if showing.Movie.RuntimeMinutes == 0 && !traits.enrichUnknownRuntime {
 			continue
 		}
 		movie, found := unique[showing.Movie.ProviderID]

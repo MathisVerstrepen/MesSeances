@@ -187,6 +187,10 @@ func validSourcePosterURL(provider, raw string) bool {
 		host := strings.ToLower(parsed.Hostname())
 		return parsed.Host == host && (host == "acsta.net" || strings.HasSuffix(host, ".acsta.net"))
 	}
+	if provider != SourcePathe {
+		// Providers without a legacy review rule use the schedule poster rules.
+		return schedule.ValidProviderPosterURL(schedule.Provider(provider), raw)
+	}
 	if err != nil || len(raw) > 4096 || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
 		return false
 	}

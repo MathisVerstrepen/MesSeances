@@ -87,6 +87,7 @@ const sortByNextShowtime = ref(false)
 const openMobilePanel = ref<MobileControlPanel | null>(null)
 const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
+const movieTitle = ref<HTMLHeadingElement | null>(null)
 const synopsisText = ref<HTMLButtonElement | null>(null)
 const synopsisExpanded = ref(false)
 const synopsisOverflows = ref(false)
@@ -288,6 +289,27 @@ function closeMobilePanel(event?: KeyboardEvent) {
       : mobileFilterTrigger.value
     )?.focus(),
   )
+}
+
+function fitMovieTitle(element: HTMLHeadingElement) {
+  element.style.removeProperty('font-size')
+  const style = getComputedStyle(element)
+  const defaultSize = Number.parseFloat(style.fontSize)
+  const fits = () =>
+    element.getBoundingClientRect().height <=
+    2 * Number.parseFloat(style.lineHeight) + 0.5
+  if (fits()) return
+
+  // Measure the browser's actual wrapping to find the largest size that fits.
+  let lower = 0
+  let upper = defaultSize
+  while (upper - lower > 0.25) {
+    const size = (lower + upper) / 2
+    element.style.fontSize = `${size}px`
+    if (fits()) lower = size
+    else upper = size
+  }
+  element.style.fontSize = `${lower}px`
 }
 
 function updateSynopsisOverflow() {
@@ -882,6 +904,36 @@ watch(
   },
 )
 watch(
+  [movieTitle, () => schedule.value?.movie.title],
+  ([element], _, onCleanup) => {
+    if (!element) return
+    fitMovieTitle(element)
+
+    let frame = 0
+    const requestFit = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => fitMovieTitle(element))
+    }
+
+    let width = element.getBoundingClientRect().width
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.width === width) return
+      width = entry.contentRect.width
+      requestFit()
+    })
+    observer.observe(element)
+    window.addEventListener('resize', requestFit)
+    document.fonts.addEventListener('loadingdone', requestFit)
+    onCleanup(() => {
+      observer.disconnect()
+      window.removeEventListener('resize', requestFit)
+      document.fonts.removeEventListener('loadingdone', requestFit)
+      cancelAnimationFrame(frame)
+    })
+  },
+  { flush: 'post' },
+)
+watch(
   () => schedule.value?.movie.overview,
   async () => {
     synopsisExpanded.value = false
@@ -1174,6 +1226,7 @@ if (
           <h1
             class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase [overflow-wrap:anywhere]"
             :class="backdropAvailable ? 'text-white' : 'text-ink'"
+            ref="movieTitle"
           >
             {{ schedule.movie.title }}
           </h1>

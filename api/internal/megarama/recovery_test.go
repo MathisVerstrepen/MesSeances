@@ -58,7 +58,7 @@ func TestSyncRecoveryFailureAtomicity(t *testing.T) {
 		edit func(*fixtureGetter)
 	}{
 		{"bootstrap transport", func(g *fixtureGetter) {
-			g.siteErr = &RequestError{Operation: OperationConfig, Kind: syncproxy.FailureTransport}
+			g.siteErr = &syncproxy.RequestError{Operation: OperationConfig, Kind: syncproxy.FailureTransport}
 		}},
 		{"bootstrap site identity", func(g *fixtureGetter) {
 			g.siteConfigs["EMS1379"] = strings.Replace(siteConfigFixture, "EMS1379", "EMS0565", 1)

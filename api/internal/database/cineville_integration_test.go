@@ -24,10 +24,10 @@ func TestCinevilleMigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 33, "033_upcoming_movie_reviews.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90)`)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if upgrade {
 				var title string
 				if err := pool.QueryRow(ctx, `SELECT title FROM movies WHERE provider='ugc'`).Scan(&title); err != nil || title != "Existing" {
@@ -87,7 +87,7 @@ func TestCinevilleMigrationIntegration(t *testing.T) {
 			for _, id := range []string{"9223372036854775807", "-9223372036854775808", "2714300920262"} {
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'cineville',$1::text,'cineville-film-'||$1::text,'Boundary',93)`, id)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal("migration not idempotent")
 			}
 		})

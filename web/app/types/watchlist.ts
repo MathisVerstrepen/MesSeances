@@ -1,3 +1,5 @@
+import type { PreviewTheater } from './api'
+
 export interface WatchlistMovie {
   slug: string
   title: string
@@ -30,6 +32,18 @@ export interface AccountWatchlist {
   items: WatchlistItem[]
   tags: WatchlistTag[]
   external_search_available: boolean
+}
+
+export interface WatchlistNextScreenings {
+  username: string
+  items: {
+    movie_slug: string
+    title: string
+    poster_url: string | null
+    theater: PreviewTheater
+    start_time: string
+    service_date: string
+  }[]
 }
 
 export type WatchlistTagColor =

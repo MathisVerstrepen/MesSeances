@@ -124,28 +124,9 @@ func ValidProviderTheaterID(provider, providerTheaterID string) bool {
 		return cgrTheaterID.MatchString(providerTheaterID)
 	case "megarama":
 		return megaramaTheaterID.MatchString(providerTheaterID)
-	case "cineville":
-		return schedule.ValidCinevilleIdentity("theater", providerTheaterID)
-	case "mk2":
-		return schedule.ValidMK2Identity("theater", providerTheaterID)
-	case "cinewest":
-		return schedule.ValidCinewestIdentity("theater", providerTheaterID)
-	case "grandecran":
-		return schedule.ValidGrandEcranIdentity("theater", providerTheaterID)
-	case "noecinemas":
-		return schedule.ValidNoeCinemasIdentity("theater", providerTheaterID)
-	case "veo":
-		return schedule.ValidVeoIdentity("theater", providerTheaterID)
-	case "majestic":
-		return schedule.ValidMajesticIdentity("theater", providerTheaterID)
-	case "cineode":
-		return schedule.ValidCineodeIdentity("theater", providerTheaterID)
-	case "cinemovida":
-		return schedule.ValidCinemovidaIdentity("theater", providerTheaterID)
-	case "ocine":
-		return schedule.ValidOcineIdentity("theater", providerTheaterID)
 	default:
-		return false
+		// Every other source provider uses the schedule identity rules.
+		return schedule.IsSourceProvider(schedule.Provider(provider)) && schedule.ValidProviderIdentity(schedule.Provider(provider), "theater", providerTheaterID)
 	}
 }
 

@@ -60,6 +60,7 @@ import type {
   HistoryOptionsQuery,
   HistoryOptionsResponse,
   Theater,
+  TheaterActivityPreviewItem,
   TheaterActivityQuery,
   TheaterActivityResponse,
   TheaterShowtimesResponse,
@@ -201,6 +202,21 @@ export function useMesSeancesApi() {
       return apiFetch<TheaterActivityResponse>(
         `${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/activity`,
         { query: queryValues(query), signal, retry: false },
+      )
+    },
+    theaterActivityPreview(
+      theaterIds: readonly string[],
+      signal?: AbortSignal,
+    ) {
+      return apiFetch<TheaterActivityPreviewItem[]>(
+        `${apiBase}/api/v1/theaters/activity-preview`,
+        {
+          method: 'POST',
+          body: [...theaterIds],
+          credentials: 'omit',
+          retry: false,
+          signal,
+        },
       )
     },
     movies(query: MoviesQuery = {}, signal?: AbortSignal) {

@@ -50,7 +50,7 @@ func closureFixture() *fixtureGetter {
 }
 
 func closedCheckoutError() error {
-	return &RequestError{Kind: syncproxy.FailureStatus, StatusCode: http.StatusNotFound}
+	return &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: http.StatusNotFound}
 }
 
 func TestCheckoutClosureObservedWithinStartWindow(t *testing.T) {
@@ -181,11 +181,11 @@ func TestCheckoutClosureDoesNotHideOtherFailures(t *testing.T) {
 		body []byte
 	}{
 		{name: "untyped-404", err: errors.New("HTTP 404")},
-		{name: "challenge", err: &RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 404}},
-		{name: "forbidden", err: &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 403}},
-		{name: "gone", err: &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 410}},
-		{name: "redirect", err: &RequestError{Kind: syncproxy.FailureRedirect}},
-		{name: "canceled", err: &RequestError{Kind: syncproxy.FailureCanceled, cause: context.Canceled}},
+		{name: "challenge", err: &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 404}},
+		{name: "forbidden", err: &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 403}},
+		{name: "gone", err: &syncproxy.RequestError{Kind: syncproxy.FailureStatus, StatusCode: 410}},
+		{name: "redirect", err: &syncproxy.RequestError{Kind: syncproxy.FailureRedirect}},
+		{name: "canceled", err: syncproxy.NewRequestError(sourceName, operationPage, http.MethodGet, "https://www.ocine.fr/", &syncproxy.Failure{Kind: syncproxy.FailureCanceled, Cause: context.Canceled})},
 		{name: "malformed", body: []byte("<html>incomplete")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -220,7 +220,7 @@ func TestCheckoutClosureDoesNotHideOtherFailures(t *testing.T) {
 
 func TestTransientCheckoutOutagePreservesCompleteGrid(t *testing.T) {
 	for _, kind := range []syncproxy.FailureKind{syncproxy.FailureTransport, syncproxy.FailureResponseRead, syncproxy.FailureServer} {
-		g := &closureGetter{fixtureGetter: closureFixture(), checkout: func(context.Context, string) ([]byte, error) { return nil, &RequestError{Kind: kind} }}
+		g := &closureGetter{fixtureGetter: closureFixture(), checkout: func(context.Context, string) ([]byte, error) { return nil, &syncproxy.RequestError{Kind: kind} }}
 		data, summary, err := Sync(t.Context(), g, fixtureOptions())
 		if err != nil || len(data.Showtimes) != 3 || summary.CheckoutTransientFailures != 3 || summary.EndsRecovered != 0 {
 			t.Fatal("optional outage discarded grid", summary, err)

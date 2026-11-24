@@ -25,11 +25,11 @@ INSERT INTO public_movie_sources(source_provider,source_movie_id,public_movie_id
 		}
 	}
 	for range 2 {
-		if err := RunMigrations(ctx, pool); err != nil {
+		if err := migrateToPreRegistry(ctx, pool); err != nil {
 			t.Fatal(err)
 		}
 	}
-	assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+	assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 	var retained bool
 	if err := pool.QueryRow(ctx, `SELECT title='Retained' AND runtime_minutes=0 AND poster_url='https://static.cotecine.fr/tb/Affiches/180x240/LE+BON.JPG' FROM movies WHERE provider='cineode'`).Scan(&retained); err != nil || !retained {
 		t.Fatal("migration changed retained movie", err)

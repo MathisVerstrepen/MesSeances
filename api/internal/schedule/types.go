@@ -21,7 +21,10 @@ const (
 	ProviderCineode    Provider = "cineode"
 	ProviderCinemovida Provider = "cinemovida"
 	ProviderOcine      Provider = "ocine"
-	ProviderCombined   Provider = "combined"
+	// ProviderTicketingcine serves independent TicketingCiné cinemas configured
+	// as sync sources.
+	ProviderTicketingcine Provider = "ticketingcine"
+	ProviderCombined      Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
 	ScopeSingle Scope = "single_cinema"

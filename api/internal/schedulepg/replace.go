@@ -45,7 +45,7 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 }
 
 func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (schedule.PublicationResult, error) {
-	allowedProviders := [...]schedule.Provider{schedule.ProviderUGC, schedule.ProviderKinepolis, schedule.ProviderPathe, schedule.ProviderCGR, schedule.ProviderMegarama, schedule.ProviderCineville, schedule.ProviderMK2, schedule.ProviderCinewest, schedule.ProviderGrandEcran, schedule.ProviderNoeCinemas, schedule.ProviderVeo, schedule.ProviderMajestic, schedule.ProviderCineode, schedule.ProviderCinemovida, schedule.ProviderOcine}
+	allowedProviders := schedule.SourceProviders()
 	if len(datasets) == 0 || len(datasets) > len(allowedProviders) {
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}
@@ -59,7 +59,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			return schedule.PublicationResult{}, err
 		}
 		datasets[i] = publication.Dataset
-		if !slices.Contains(allowedProviders[:], datasets[i].Provider) || providers[datasets[i].Provider] {
+		if !slices.Contains(allowedProviders, datasets[i].Provider) || providers[datasets[i].Provider] {
 			return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement providers")
 		}
 		if i > 0 && (datasets[i].Scope != datasets[0].Scope || datasets[i].Timezone != datasets[0].Timezone || datasets[i].SchemaVersion != datasets[0].SchemaVersion) {

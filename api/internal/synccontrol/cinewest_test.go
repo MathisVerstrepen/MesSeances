@@ -21,8 +21,8 @@ func (unusedCinewestFetcher) RequestCount() int { return 42 }
 
 func configureCinewestTestExecutor(t *testing.T, e *ProductionExecutor, window Window) {
 	t.Helper()
-	e.newCinewest = func() (cinewest.Fetcher, error) { return unusedCinewestFetcher{}, nil }
-	e.syncCinewest = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
+	cinewestOf(e).newClient = func() (cinewest.Fetcher, error) { return unusedCinewestFetcher{}, nil }
+	cinewestOf(e).sync = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, window)
 		d.Provider = schedule.ProviderCinewest
 		const theater = "ticketingcine-EMS1378"
@@ -46,8 +46,8 @@ func TestCinewestSkippedCountInAdminOutcomeAndLogs(t *testing.T) {
 		return 1, nil
 	})}
 	configureCinewestTestExecutor(t, e, window)
-	syncFixture := e.syncCinewest
-	e.syncCinewest = func(ctx context.Context, f cinewest.Fetcher, opts cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
+	syncFixture := cinewestOf(e).sync
+	cinewestOf(e).sync = func(ctx context.Context, f cinewest.Fetcher, opts cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
 		d, summary, err := syncFixture(ctx, f, opts)
 		summary.Skipped = 2
 		return d, summary, err
@@ -98,15 +98,15 @@ func TestCinewestExecutorMetricsAndFailures(t *testing.T) {
 	if err != nil || writes != 1 || out[TargetCinewest].Sync.Requests != 42 {
 		t.Fatal("Cinewest execution", err)
 	}
-	e.syncCinewest = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
-		return schedule.Dataset{}, cinewest.SyncSummary{}, &cinewest.RequestError{Operation: "program", Kind: syncproxy.FailureChallenge, StatusCode: 403}
+	cinewestOf(e).sync = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
+		return schedule.Dataset{}, cinewest.SyncSummary{}, &syncproxy.RequestError{Operation: syncproxy.Operation{Phase: syncproxy.PhaseProgram}, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCinewest, window)
 	var re *RunError
 	if !errors.As(err, &re) || re.Provider != TargetCinewest || re.Stage != StageProviderFetch || writes != 1 {
 		t.Fatal("partial publication", err)
 	}
-	e.newCinewest = func() (cinewest.Fetcher, error) { return nil, errors.New("synthetic secret") }
+	cinewestOf(e).newClient = func() (cinewest.Fetcher, error) { return nil, errors.New("synthetic secret") }
 	if _, err := e.Run(t.Context(), TargetCinewest, window); err == nil || writes != 1 {
 		t.Fatal("client failure")
 	}

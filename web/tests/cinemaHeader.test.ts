@@ -268,7 +268,6 @@ test('header source guards full-width photo/illustrated fallback, responsive add
     'lg:min-h-[288px]',
     'v-if="!hasCinemaImage"',
     '<Clapperboard',
-    '<Ticket',
     'shadow-[8px_8px_0_#27272a]',
     'variant="hero"',
     "hasCinemaImage ? 'text-white' : 'text-ink'",

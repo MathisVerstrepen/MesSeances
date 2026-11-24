@@ -12,10 +12,10 @@ func TestCineodeMigrationIdentityPosterAndUpgradeIntegration(t *testing.T) {
 	pool, _ := newMigrationTestPool(t, ctx, "cineode_migration_")
 	installMigrationPrefix(t, ctx, pool, 66, "066_majestic_provider.sql")
 	mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Retained',90)`)
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+	assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 	var n int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE provider='ugc' AND title='Retained' AND runtime_minutes=90`).Scan(&n); err != nil || n != 1 {
 		t.Fatal("legacy changed", err)

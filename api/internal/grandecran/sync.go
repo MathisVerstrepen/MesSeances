@@ -79,7 +79,7 @@ func discoverCinemas(ctx context.Context, getter Getter) ([]cinema, error) {
 	}
 	body, err = getter.Get(ctx, OperationCinemas, root+strings.TrimPrefix(queryPath, "/"))
 	if err != nil {
-		var r *RequestError
+		var r *syncproxy.RequestError
 		if errors.As(err, &r) && r.StatusCode == 404 {
 			return nil, errSnapshotChanged
 		}
@@ -200,16 +200,7 @@ func syncSnapshot(ctx context.Context, g Getter, o SyncOptions) (schedule.Datase
 		data.Showtimes = append(data.Showtimes, group.records...)
 		data.Coverage = append(data.Coverage, group.coverage...)
 	}
-	sort.Slice(data.Showtimes, func(i, j int) bool {
-		a, b := data.Showtimes[i], data.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
+	schedule.SortShowtimes(data.Showtimes)
 	summary.Showtimes = len(data.Showtimes)
 	if err := sourcepages.Enrich(ctx, g, &data); err != nil {
 		return schedule.Dataset{}, summary, err
@@ -291,7 +282,7 @@ func (f *scheduleFetcher) window(ctx context.Context, p map[string][]string, fro
 }
 func (f *scheduleFetcher) fetch(ctx context.Context, p map[string][]string, from, through string) ([]schedule.ShowtimeRecord, error) {
 	records, err := f.window(ctx, p, from, through)
-	var r *RequestError
+	var r *syncproxy.RequestError
 	if err == nil || from == through || !errors.As(err, &r) || r.Kind != syncproxy.FailureServer {
 		return records, err
 	}
@@ -318,6 +309,6 @@ func (f *scheduleFetcher) fetch(ctx context.Context, p map[string][]string, from
 	return append(left, right...), nil
 }
 func fatalRequest(err error) bool {
-	var r *RequestError
+	var r *syncproxy.RequestError
 	return errors.As(err, &r) && r.Kind == syncproxy.FailureChallenge
 }

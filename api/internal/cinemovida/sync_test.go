@@ -149,7 +149,7 @@ func TestSyncUnknownRuntimeEndAndOptionalFailures(t *testing.T) {
 					return []byte(`[{"id":123,"title":"Film","runtime":null,"poster":null},{"id":"cEvent_1","title":"Event","runtime":null}]`), nil
 				}
 				if mode == "required" && op == OperationSchedule {
-					return nil, &RequestError{Operation: op, Kind: syncproxy.FailureStatus, StatusCode: 404}
+					return nil, &syncproxy.RequestError{Operation: op, Kind: syncproxy.FailureStatus, StatusCode: 404}
 				}
 				return original(ctx, op, raw)
 			}
@@ -160,9 +160,9 @@ func TestSyncUnknownRuntimeEndAndOptionalFailures(t *testing.T) {
 				case "missing":
 					return []byte(`<p>Séance passée, achat impossible</p>`), nil
 				case "transport":
-					return nil, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureTransport}
+					return nil, &syncproxy.RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureTransport}
 				case "challenge":
-					return nil, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
+					return nil, &syncproxy.RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 				case "cancel":
 					cancel()
 					return nil, context.Canceled
@@ -369,7 +369,7 @@ func TestScheduleServerFailureSplitsOnlyFullCalendarWindows(t *testing.T) {
 		from, to := u.Query().Get("from"), u.Query().Get("to")
 		if from == "2026-10-17T00:00:00" && to == "2026-10-20T00:00:00" {
 			broad.Add(1)
-			return nil, &RequestError{Operation: op, Kind: syncproxy.FailureServer, StatusCode: 503}
+			return nil, &syncproxy.RequestError{Operation: op, Kind: syncproxy.FailureServer, StatusCode: 503}
 		}
 		date := from[:10]
 		end, _ := time.Parse(time.DateOnly, date)
@@ -421,7 +421,7 @@ func TestSyncServiceBucketsPreserveCalendarBoundaries(t *testing.T) {
 				case OperationSchedule:
 					from, to := u.Query().Get("from"), u.Query().Get("to")
 					if split && from == "2026-10-16T00:00:00" && to == "2026-10-20T00:00:00" {
-						return nil, &RequestError{Operation: op, Kind: syncproxy.FailureServer, StatusCode: 503}
+						return nil, &syncproxy.RequestError{Operation: op, Kind: syncproxy.FailureServer, StatusCode: 503}
 					}
 					var c struct{ ID string }
 					_ = json.Unmarshal([]byte(u.Query().Get("theaters")), &c)

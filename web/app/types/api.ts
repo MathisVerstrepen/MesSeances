@@ -953,6 +953,7 @@ export interface Theater {
   accepted_passes: string[]
   latitude?: number | null
   longitude?: number | null
+  image?: PublicTheaterImage | null
 }
 
 export interface City {
@@ -1069,6 +1070,15 @@ export interface TheaterActivityResponse {
   items: TheaterActivityItem[]
   limit: number
   next_cursor: string | null
+}
+
+export type PreviewTheater = Pick<
+  Theater,
+  'id' | 'slug' | 'name' | 'city' | 'provider'
+>
+
+export type TheaterActivityPreviewItem = TheaterActivityItem & {
+  theater: PreviewTheater
 }
 
 export interface TheaterQuery {

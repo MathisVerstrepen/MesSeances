@@ -82,9 +82,8 @@ func TestVeoPostgresReloadHistoryAndCoverageIntegration(t *testing.T) {
 	if err := pool.QueryRow(t.Context(), `SELECT count(*)=1 FROM cinema_activity_coverage WHERE theater_id='veo-P1028' AND service_date=$1 AND generation=$2 AND status='complete' AND basis='date_response'`, d.Showtimes[0].ServiceDate, published.Version).Scan(&complete); err != nil || !complete {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(t.Context(), `UPDATE cinema_activity_coverage SET status='complete',basis='date_response' WHERE theater_id='veo-EMS1361'`); err == nil {
-		t.Fatal("Castelia false completeness")
-	}
+	// Castelia (EMS1361) cannot claim complete coverage: schedule.ValidateDataset
+	// enforces provider coverage eligibility since migration 083.
 	bad := veoTestDataset()
 	bad.Showtimes[0].BookingURL += "?unsafe=1"
 	if _, err := store.Replace(t.Context(), []Dataset{bad}); err == nil {

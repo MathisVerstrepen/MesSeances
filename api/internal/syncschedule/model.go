@@ -2,7 +2,10 @@ package syncschedule
 
 import (
 	"errors"
+	"slices"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
 
 type Kind string
@@ -31,6 +34,7 @@ const (
 	TargetCineode         Target = "cineode"
 	TargetCinemovida      Target = "cinemovida"
 	TargetOcine           Target = "ocine"
+	TargetTicketingcine   Target = "ticketingcine"
 	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
 	TargetUpcomingMovies  Target = "tmdb_upcoming_movies"
 )
@@ -79,47 +83,31 @@ func cloneSchedule(schedule Schedule) Schedule {
 	return schedule
 }
 
-func ValidTarget(target Target) bool {
-	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo || target == TargetMajestic || target == TargetCineode || target == TargetCinemovida || target == TargetOcine || target == TargetMetadataRefresh || target == TargetUpcomingMovies
+// ProviderTargets returns the synchronized provider targets in canonical order.
+func ProviderTargets() []Target {
+	providers := schedule.SourceProviders()
+	targets := make([]Target, len(providers))
+	for i, provider := range providers {
+		targets[i] = Target(provider)
+	}
+	return targets
 }
 
+// OrderedTargets returns every schedulable target: providers first, then the
+// TMDB maintenance jobs.
+func OrderedTargets() []Target {
+	return append(ProviderTargets(), TargetMetadataRefresh, TargetUpcomingMovies)
+}
+
+func ValidTarget(target Target) bool {
+	return slices.Contains(OrderedTargets(), target)
+}
+
+// TargetOrder ranks targets for display; unknown targets sort last.
 func TargetOrder(target Target) int {
-	switch target {
-	case TargetUGC:
-		return 0
-	case TargetKinepolis:
-		return 1
-	case TargetPathe:
-		return 2
-	case TargetCGR:
-		return 3
-	case TargetMegarama:
-		return 4
-	case TargetCineville:
-		return 5
-	case TargetMK2:
-		return 6
-	case TargetCinewest:
-		return 7
-	case TargetGrandEcran:
-		return 8
-	case TargetNoeCinemas:
-		return 9
-	case TargetVeo:
-		return 10
-	case TargetMetadataRefresh:
-		return 15
-	case TargetUpcomingMovies:
-		return 16
-	case TargetMajestic:
-		return 11
-	case TargetCineode:
-		return 12
-	case TargetCinemovida:
-		return 13
-	case TargetOcine:
-		return 14
-	default:
-		return 17
+	targets := OrderedTargets()
+	if index := slices.Index(targets, target); index >= 0 {
+		return index
 	}
+	return len(targets)
 }
