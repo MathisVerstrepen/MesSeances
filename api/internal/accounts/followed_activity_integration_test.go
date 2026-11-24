@@ -168,6 +168,33 @@ func TestFollowedActivityMergedJournalIntegration(t *testing.T) {
 	}
 }
 
+func TestFavoriteCinemaActivityPreviewIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	seedFollowedActivity(t, f)
+	followedActivityExec(t, f, `INSERT INTO cinema_activity_episodes(id,theater_id,anchor_provider,anchor_source_movie_id,kind,detected_at,first_screening_date,observed_from,observed_through,detecting_generation)
+ OVERRIDING SYSTEM VALUE SELECT 8,theater_id,anchor_provider,anchor_source_movie_id,kind,detected_at-interval '1 day',first_screening_date,observed_from,observed_through,detecting_generation
+ FROM cinema_activity_episodes WHERE id=2`)
+	store := schedulepg.NewStore(f.pool)
+	items, err := store.ActivityPreview(t.Context(), []string{"ugc-1", "ugc-2", "ugc-3", "unknown"})
+	if err != nil || len(items) != schedule.HomePreviewLimit {
+		t.Fatal(items, err)
+	}
+	for i, id := range []string{"7", "5", "4", "2"} {
+		item := items[i]
+		if item.EventID != id || item.Movie.Slug != "film-2" || item.Movie.Title != "Current override" ||
+			!item.HasUpcomingShowtimes || item.NextShowtimeDate == nil {
+			t.Fatal(item)
+		}
+	}
+	if items[0].Theater.Slug != "ugc-3" || items[0].Theater.Name != "Active 3" || items[2].Theater.Slug != "ugc-1" || items[2].Type != "return_to_program" {
+		t.Fatal(items)
+	}
+	empty, err := store.ActivityPreview(t.Context(), []string{"ugc-2", "unknown"})
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatal(empty, err)
+	}
+}
+
 func accountIDForEmail(t *testing.T, f *lifecycleFixture, email string) int64 {
 	t.Helper()
 	var id int64

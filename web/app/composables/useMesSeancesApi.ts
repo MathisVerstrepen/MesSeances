@@ -60,6 +60,7 @@ import type {
   HistoryOptionsQuery,
   HistoryOptionsResponse,
   Theater,
+  TheaterActivityPreviewItem,
   TheaterActivityQuery,
   TheaterActivityResponse,
   TheaterShowtimesResponse,
@@ -162,10 +163,9 @@ export function useMesSeancesApi() {
         { query: values, signal, retry: false },
       )
     },
-    timeline(query: TimelineQuery, signal?: AbortSignal) {
+    timeline(query: TimelineQuery) {
       return apiFetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, {
         query: queryValues(query),
-        signal,
       })
     },
     searchSlot(query: SlotQuery) {
@@ -202,6 +202,21 @@ export function useMesSeancesApi() {
       return apiFetch<TheaterActivityResponse>(
         `${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/activity`,
         { query: queryValues(query), signal, retry: false },
+      )
+    },
+    theaterActivityPreview(
+      theaterIds: readonly string[],
+      signal?: AbortSignal,
+    ) {
+      return apiFetch<TheaterActivityPreviewItem[]>(
+        `${apiBase}/api/v1/theaters/activity-preview`,
+        {
+          method: 'POST',
+          body: [...theaterIds],
+          credentials: 'omit',
+          retry: false,
+          signal,
+        },
       )
     },
     movies(query: MoviesQuery = {}, signal?: AbortSignal) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Theater, TheaterActivityItem } from '~/types/api'
+import type { TheaterActivityPreviewItem } from '~/types/api'
 import {
   activityHistoryDate,
   activityObservationDay,
@@ -9,18 +9,16 @@ import {
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 
-type ActivityPreview = TheaterActivityItem & { theater: Theater }
-
-const previewLimit = 4
-const concurrentRequests = 4
 const preferences = useCinemaPreferences()
 const api = useMesSeancesApi()
-const { favoriteTheaters, isInitialized, error: preferenceError } = preferences
-const selection = computed(() =>
-  favoriteTheaters.value.map((theater) => theater.slug).join(','),
-)
+const {
+  favoriteTheaterIds,
+  isInitialized,
+  error: preferenceError,
+} = preferences
+const selection = computed(() => favoriteTheaterIds.value.join(','))
 const mounted = ref(false)
-const items = shallowRef<ActivityPreview[]>([])
+const items = shallowRef<TheaterActivityPreviewItem[]>([])
 const pending = ref(false)
 const failed = ref(false)
 const retryCount = ref(0)
@@ -51,38 +49,17 @@ watch(
     const { signal } = request
     onCleanup(() => request.abort())
     pending.value = true
-    const selected = favoriteTheaters.value
-    const events = new Map<string, ActivityPreview>()
-    let hadFailure = false
-    for (let start = 0; start < selected.length; start += concurrentRequests) {
-      const batch = await Promise.allSettled(
-        selected
-          .slice(start, start + concurrentRequests)
-          .map(async (theater) => {
-            const response = await api.theaterActivity(
-              theater.slug,
-              { limit: previewLimit },
-              signal,
-            )
-            return response.items.map((item) => ({ ...item, theater }))
-          }),
+    try {
+      const result = await api.theaterActivityPreview(
+        favoriteTheaterIds.value,
+        signal,
       )
-      if (signal.aborted) return
-      for (const result of batch) {
-        if (result.status === 'rejected') hadFailure = true
-        else for (const item of result.value) events.set(item.event_id, item)
-      }
+      if (!signal.aborted) items.value = result
+    } catch {
+      if (!signal.aborted) failed.value = true
+    } finally {
+      if (!signal.aborted) pending.value = false
     }
-    items.value = [...events.values()]
-      .sort(
-        (left, right) =>
-          Date.parse(right.detected_at) - Date.parse(left.detected_at) ||
-          right.event_id.length - left.event_id.length ||
-          right.event_id.localeCompare(left.event_id),
-      )
-      .slice(0, previewLimit)
-    failed.value = hadFailure
-    pending.value = false
   },
 )
 
@@ -102,11 +79,7 @@ function retry() {
       v-if="preferenceError || failed"
       class="editorial-alert flex flex-wrap items-center justify-between gap-3 p-4"
     >
-      <p role="alert">
-        {{
-          items.length ? 'Les nouveautés de certains cinémas sont indisponibles.' : 'Impossible de charger les nouveautés de vos cinémas.'
-        }}
-      </p>
+      <p role="alert">Impossible de charger les nouveautés de vos cinémas.</p>
       <button type="button" class="editorial-button-outline" @click="retry">
         Réessayer
       </button>
@@ -122,11 +95,7 @@ function retry() {
     <p v-else-if="!items.length" class="text-sm text-muted">
       Aucun ajout à la programmation détecté dans vos cinémas pour le moment.
     </p>
-    <ul
-      v-if="items.length"
-      class="grid gap-4 lg:grid-cols-2"
-      :class="{ 'mt-4': failed }"
-    >
+    <ul v-else class="grid gap-4 lg:grid-cols-2">
       <li v-for="item in items" :key="item.event_id" class="min-w-0">
         <HomeMoviePreviewCard
           :title="item.movie.title"

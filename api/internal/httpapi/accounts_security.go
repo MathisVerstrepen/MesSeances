@@ -17,6 +17,7 @@ import (
 
 	"messeances/api/internal/accountavatar"
 	"messeances/api/internal/accounts"
+	"messeances/api/internal/schedule"
 )
 
 const accountCookieName = "__Host-messeances_session"
@@ -26,6 +27,7 @@ const accountDevRegistrationCookieName = "messeances_registration_dev"
 
 type accountHTTP struct {
 	service                                              *accounts.Service
+	schedule                                             *schedule.Service
 	origin, cookieName                                   string
 	secure                                               bool
 	login, send, step                                    *tokenBucketLimiter
@@ -47,7 +49,7 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 	if !secure {
 		name = accountDevCookieName
 	}
-	return &accountHTTP{service: options.Service, origin: options.Origin, cookieName: name, secure: secure,
+	return &accountHTTP{service: options.Service, schedule: options.schedule, origin: options.Origin, cookieName: name, secure: secure,
 		activityReads:     newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, time.Now),
 		watchlistWrites:   newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now),
 		watchlistSearches: newTokenBucketLimiter(60, 60.0/60, time.Minute, maxRateLimitClients, time.Now),

@@ -43,17 +43,13 @@ func (s *Store) TheaterActivity(ctx context.Context, query schedule.TheaterActiv
 				return err
 			}
 		}
-		rows, err := tx.Query(ctx, activityItemsSQL, result.Theater.ID, upper, lastAt, lastID, query.Limit+1, result.GeneratedAt)
+		rows, err := tx.Query(ctx, activityItemsSQL, result.Theater.ID, upper, lastAt, lastID, query.Limit+1)
 		if err != nil {
 			return err
 		}
 		items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (schedule.ActivityEvent, error) {
 			var e schedule.ActivityEvent
-			var id, movieID int64
-			err := row.Scan(&id, &e.Type, &e.DetectedAt, &e.FirstScreeningDate, &e.PreviousProgramEndDate, &movieID, &e.Movie.Title, &e.Movie.PosterURL, &e.Movie.UpdatedAt, &e.NextShowtimeDate)
-			e.EventID = strconv.FormatInt(id, 10)
-			e.Movie.Slug = "film-" + strconv.FormatInt(movieID, 10)
-			e.HasUpcomingShowtimes = e.NextShowtimeDate != nil
+			err := scanActivityEvent(row, &e)
 			return e, err
 		})
 		if err != nil {
@@ -71,6 +67,40 @@ func (s *Store) TheaterActivity(ctx context.Context, query schedule.TheaterActiv
 		return schedule.TheaterActivity{}, err
 	}
 	return result, nil
+}
+
+// ActivityPreview returns a single global page for the selected live theaters.
+func (s *Store) ActivityPreview(ctx context.Context, theaterIDs []string) ([]schedule.ActivityPreviewItem, error) {
+	items := []schedule.ActivityPreviewItem{}
+	if len(theaterIDs) == 0 {
+		return items, nil
+	}
+	err := s.historyRead(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, activityPreviewSQL, theaterIDs, schedule.HomePreviewLimit)
+		if err != nil {
+			return err
+		}
+		items, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (schedule.ActivityPreviewItem, error) {
+			var item schedule.ActivityPreviewItem
+			theater := &item.Theater
+			err := scanActivityEvent(row, &item.ActivityEvent, &theater.ID, &theater.Slug, &theater.Name, &theater.City, &theater.Provider)
+			return item, err
+		})
+		return err
+	})
+	return items, err
+}
+
+func scanActivityEvent(row pgx.CollectableRow, event *schedule.ActivityEvent, extra ...any) error {
+	var id, movieID int64
+	fields := []any{&id, &event.Type, &event.DetectedAt, &event.FirstScreeningDate, &event.PreviousProgramEndDate, &movieID, &event.Movie.Title, &event.Movie.PosterURL, &event.Movie.UpdatedAt, &event.NextShowtimeDate}
+	if err := row.Scan(append(fields, extra...)...); err != nil {
+		return err
+	}
+	event.EventID = strconv.FormatInt(id, 10)
+	event.Movie.Slug = "film-" + strconv.FormatInt(movieID, 10)
+	event.HasUpcomingShowtimes = event.NextShowtimeDate != nil
+	return nil
 }
 
 func activityTheater(ctx context.Context, tx pgx.Tx, slug string, theater *schedule.Theater) error {
@@ -120,12 +150,33 @@ const activityItemsSQL = `WITH page AS MATERIALIZED (
  AND ($3::timestamptz IS NULL OR (detected_at,id)<($3::timestamptz,$4::bigint))
  ORDER BY detected_at DESC,id DESC LIMIT $5
 )
-SELECT e.id,e.kind,e.detected_at,e.first_screening_date::text,e.previous_program_end_date::text,c.id,
+SELECT ` + activityEventColumns + ` FROM page e ` + activityEventJoins + `
+ ORDER BY e.detected_at DESC,e.id DESC`
+
+// Take only the latest indexed events from each theater. Resolve movie metadata
+// and check future screenings after limiting the combined page to four rows.
+const activityPreviewSQL = `WITH selected AS MATERIALIZED (
+ SELECT t.id,t.slug,t.name,t.city,t.provider FROM theaters t JOIN schedule_snapshot v ON v.version=t.generation_id
+ WHERE t.id=ANY($1::text[])
+), page AS MATERIALIZED (
+ SELECT e.* FROM selected t CROSS JOIN LATERAL (
+  SELECT * FROM cinema_activity_episodes
+  WHERE theater_id=t.id AND superseded_by_id IS NULL AND kind<>'baseline'
+  ORDER BY detected_at DESC,id DESC LIMIT $2
+ ) e
+ ORDER BY e.detected_at DESC,e.id DESC LIMIT $2
+)
+SELECT ` + activityEventColumns + `,t.id,t.slug,t.name,t.city,t.provider
+ FROM page e JOIN selected t ON t.id=e.theater_id ` + activityEventJoins + `
+ ORDER BY e.detected_at DESC,e.id DESC`
+
+const activityEventColumns = `e.id,e.kind,e.detected_at,e.first_screening_date::text,e.previous_program_end_date::text,c.id,
  CASE WHEN o.title_overridden THEN o.title ELSE c.title END,
  CASE WHEN o.poster_url_overridden THEN o.poster_url ELSE c.poster_url END,c.updated_at,
  (SELECT min(h.service_date)::text FROM showtimes h JOIN schedule_snapshot v ON v.version=h.generation_id
  JOIN public_movie_sources a ON (a.source_provider,a.source_movie_id)=(h.provider,h.movie_provider_id)
- JOIN public_movies m ON m.id=a.public_movie_id WHERE h.theater_id=$1 AND h.start_time>$6 AND coalesce(m.redirect_to_id,m.id)=c.id)
-FROM page e JOIN public_movie_sources s ON (s.source_provider,s.source_movie_id)=(e.anchor_provider,e.anchor_source_movie_id)
+ JOIN public_movies m ON m.id=a.public_movie_id WHERE h.theater_id=e.theater_id AND h.start_time>transaction_timestamp() AND coalesce(m.redirect_to_id,m.id)=c.id)`
+
+const activityEventJoins = `JOIN public_movie_sources s ON (s.source_provider,s.source_movie_id)=(e.anchor_provider,e.anchor_source_movie_id)
 JOIN public_movies p ON p.id=s.public_movie_id LEFT JOIN public_movies c ON c.id=coalesce(p.redirect_to_id,p.id) AND c.redirect_to_id IS NULL
-LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=c.id ORDER BY e.detected_at DESC,e.id DESC`
+LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=c.id`

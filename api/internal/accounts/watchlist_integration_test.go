@@ -97,6 +97,14 @@ func TestWatchlistCRUDCanonicalAndCASIntegration(t *testing.T) {
 	if err != nil || len(view.Items) != 1 || view.Items[0].Slug != first || !view.Items[0].AddedAt.Equal(firstAdded) || view.Revision != "2" {
 		t.Fatalf("merge %+v %v", view, err)
 	}
+	owner, slugs, err := f.service.WatchlistScreeningMembership(ctx, one.Cookie.Token)
+	if err != nil || owner != "watchlist_one" || !reflect.DeepEqual(slugs, []string{first}) {
+		t.Fatal(owner, slugs, err)
+	}
+	owner, slugs, err = f.service.WatchlistScreeningMembership(ctx, two.Cookie.Token)
+	if err != nil || owner != "watchlist_two" || len(slugs) != 0 {
+		t.Fatal(owner, slugs, err)
+	}
 	view, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, "watchlist_one", "2", second, false)
 	if err != nil || view.Revision != "3" || len(view.Items) != 0 {
 		t.Fatal("redirect removal did not clear all durable rows")

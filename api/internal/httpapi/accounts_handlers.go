@@ -76,6 +76,7 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	post("/account/activity/read", h.saveActivityRead, h.theaters)
 	post("/account/activity/read-all", h.markAllActivityConsulted, h.theaters)
 	router.Get("/api/v1/account/watchlist", h.watchlist)
+	post("/account/watchlist/next-screenings", h.watchlistNextScreenings, h.activityReads)
 	router.Get("/api/v1/account/watched", h.watched)
 	post("/account/watched", h.saveWatched, h.watchlistWrites)
 	post("/account/watched/preferences", h.saveWatchedPreferences, h.watchlistWrites)

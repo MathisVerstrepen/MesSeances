@@ -29,6 +29,7 @@ import type {
 } from '~/types/cinemaFollows'
 import type {
   AccountWatchlist,
+  WatchlistNextScreenings,
   SaveWatchlist,
   SaveWatchlistSort,
   SaveWatchlistPreferences,
@@ -50,13 +51,14 @@ export function useAccountApi() {
 
   async function request<T>(
     path: string,
-    body?: Record<string, string>,
+    body?: Record<string, string> | string[],
     method: 'GET' | 'POST' | 'DELETE' = body ? 'POST' : 'GET',
     signal?: AbortSignal,
+    readOnly = method === 'GET',
   ): Promise<T> {
     if (import.meta.server && body) throw new AccountApiError(403)
     // Guard programmatic callers too, not only disabled buttons. Never retry writes.
-    if (body && revalidating.value)
+    if (body && !readOnly && revalidating.value)
       throw new AccountApiError(403, 'recent_auth_required')
     const headers: Record<string, string> = body
       ? { 'Content-Type': 'application/json', 'X-Messeances-CSRF': '1' }
@@ -138,6 +140,17 @@ export function useAccountApi() {
 
   return {
     session: () => request<AccountSession>('/auth/session'),
+    watchlistNextScreenings: (
+      theaterIds: readonly string[],
+      signal: AbortSignal,
+    ) =>
+      request<WatchlistNextScreenings>(
+        '/account/watchlist/next-screenings',
+        [...theaterIds],
+        'POST',
+        signal,
+        true,
+      ),
     login: (email: string, password: string) =>
       request<AccountSession>('/auth/login', { email, password }),
     register: (email: string, password: string) =>
