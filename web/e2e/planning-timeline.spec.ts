@@ -162,6 +162,53 @@ test('mobile cinema headings and the ruler stay visible across both scroll axes 
   ).toBe(true)
 })
 
+test('the focused showtime stays behind the sticky cinema heading after closing its details on mobile', async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== 'mobile', 'Mobile uses sticky row headings')
+  await mockTimeline(page)
+  await openPage(page, '/planning')
+  const scroller = page.getByRole('region', { name: 'Horaires des séances' })
+  const showtime = scroller.getByRole('button', { name: /^Film 1,/ }).first()
+  await expect
+    .poll(() => scroller.evaluate((element) => element.scrollLeft))
+    .toBe(await expectedScroll(page, 660))
+  // Give Vue's captured click a timestamp later than its attached handlers.
+  await page.clock.setFixedTime(new Date(`${date}T13:00:01Z`))
+  await showtime.tap()
+  await expect(
+    page.getByRole('heading', { name: 'Film 1', exact: true }),
+  ).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Fermer les détails de la séance' })
+    .tap()
+  await expect(page.locator('#timeline-showtime-inspector')).toHaveCount(0)
+  await expect(showtime).toBeFocused()
+  await scroller.evaluate((element) => {
+    element.scrollTop = 36
+  })
+
+  expect(
+    await showtime.evaluate((element) => {
+      const heading = element.parentElement!.querySelector(
+        '.timeline-row-heading',
+      )!
+      const card = element.getBoundingClientRect()
+      const header = heading.getBoundingClientRect()
+      const left = Math.max(card.left, header.left)
+      const right = Math.min(card.right, header.right)
+      const top = Math.max(card.top, header.top)
+      const bottom = Math.min(card.bottom, header.bottom)
+      const overlaps = left < right && top < bottom
+      const front = document.elementFromPoint(
+        (left + right) / 2,
+        (top + bottom) / 2,
+      )
+      return { overlaps, headingOnTop: heading.contains(front) }
+    }),
+  ).toEqual({ overlaps: true, headingOnTop: true })
+})
+
 test('zoom preserves the visible time and a grid restored from an empty format starts near now', async ({
   page,
 }) => {
