@@ -213,16 +213,7 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 		seenMovies[r.Movie.ProviderID] = r.Movie
 	}
 	s.Movies = len(seenMovies)
-	sort.Slice(d.Showtimes, func(i, j int) bool {
-		a, b := d.Showtimes[i], d.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
+	schedule.SortShowtimes(d.Showtimes)
 	return d, nil
 }
 

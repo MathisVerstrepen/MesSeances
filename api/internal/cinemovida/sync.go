@@ -193,16 +193,7 @@ func syncSnapshot(ctx context.Context, g Getter, o SyncOptions) (schedule.Datase
 		}
 		sort.Strings(theater.AvailableDates)
 	}
-	sort.Slice(data.Showtimes, func(i, j int) bool {
-		a, b := data.Showtimes[i], data.Showtimes[j]
-		if a.TheaterID != b.TheaterID {
-			return a.TheaterID < b.TheaterID
-		}
-		if !a.StartTime.Equal(b.StartTime) {
-			return a.StartTime.Before(b.StartTime)
-		}
-		return a.ID < b.ID
-	})
+	schedule.SortShowtimes(data.Showtimes)
 	summary.Showtimes = len(data.Showtimes)
 	if err := sourcepages.Enrich(ctx, g, &data); err != nil {
 		return schedule.Dataset{}, summary, err
