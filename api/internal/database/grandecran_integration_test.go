@@ -26,10 +26,10 @@ func TestGrandEcranMigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 36, "036_cinewest_provider.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90),(1,'mk2','HO1','mk2-film-HO1','Existing event',0),(1,'cinewest','cineoffice-1','cinewest-film-cineoffice-1','Existing Cinewest',90)`)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if upgrade {
 				var count int
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE title IN ('Existing','Existing event','Existing Cinewest')`).Scan(&count); err != nil || count != 3 {
@@ -108,7 +108,7 @@ func TestGrandEcranMigrationIntegration(t *testing.T) {
 				}
 			}
 			mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'grandecran',$1::text,'grandecran-film-'||$1::text,'Boundary',0)`, "c"+strings.Repeat("a", 111))
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal("runner repeat", err)
 			}
 		})

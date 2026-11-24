@@ -50,10 +50,10 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 					t.Fatal("068 unexpectedly accepts new route", err)
 				}
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if baseline == 67 {
 				assertProviderConstraintChanges(t, ctx, pool, changes)
 				if after := cinemovidaUnchangedConstraints(t, ctx, pool, providerConstraintKeys(changes)); after != before {

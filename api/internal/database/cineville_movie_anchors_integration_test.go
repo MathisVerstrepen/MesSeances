@@ -10,7 +10,7 @@ func TestCinevilleMovieAnchorsMigrationIntegration(t *testing.T) {
 	pool, _ := newMigrationTestPool(t, ctx, "cineville_movie_anchors_")
 	installMigrationPrefix(t, ctx, pool, 76, "076_source_movie_pages.sql")
 	mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes,source_page_url) VALUES(1,'cgr','123','cgr-film-123','Existing',90,'https://www.cgrcinemas.fr/films-a-l-affiche/123-source-title/'),(1,'cineville','168608','cineville-film-168608','Film',90,NULL),(1,'cineville','-40370611261','cineville-film--40370611261','Event',0,NULL)`)
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"168608", "-40370611261"} {
@@ -29,7 +29,7 @@ func TestCinevilleMovieAnchorsMigrationIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=77`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=77`).Scan(&after); err != nil || !before.Equal(after) {

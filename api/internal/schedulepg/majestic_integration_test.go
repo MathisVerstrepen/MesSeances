@@ -79,13 +79,12 @@ func TestMajesticRoundTripConstraintsAndIsolationIntegration(t *testing.T) {
 		historyCount(t, pool, "SELECT count(*) FROM "+table, want)
 	}
 	historyCount(t, pool, "SELECT count(*) FROM cinema_activity_coverage WHERE provider='majestic' AND status='complete'", 0)
+	// Provider-specific booking, poster, slug, version, first-part and coverage
+	// rules are enforced by schedule.ValidateDataset since migration 083; the
+	// database keeps generic invariants and foreign keys.
 	for _, statement := range []string{
-		`UPDATE showtimes SET booking_url=booking_url || '&extra=1' WHERE provider='majestic'`,
-		`UPDATE screening_history_showtimes SET booking_url='https://www.ticketingcine.com/EMS0654/FRABCDE#showsession?id=emsx070000000001' WHERE provider='majestic'`,
 		`UPDATE showtimes SET movie_provider_id='ZZZZZ' WHERE provider='majestic' AND movie_provider_id='ABCDE'`,
-		`UPDATE movies SET poster_url='https://evil.example/a' WHERE provider='majestic'`,
 		`UPDATE public_movie_sources SET source_movie_id='EMS0700-emsx0654HC12' WHERE source_provider='majestic'`,
-		`UPDATE cinema_activity_coverage SET status='complete',basis='date_response' WHERE provider='majestic'`,
 		`UPDATE showtimes SET first_part_duration_minutes=-1 WHERE provider='majestic'`,
 		`UPDATE theaters SET provider_id='EMS9999' WHERE provider='majestic'`,
 	} {

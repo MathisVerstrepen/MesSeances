@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [082_mk2_unknown_version.sql](082_mk2_unknown_version.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [083_provider_registry.sql](083_provider_registry.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -21,7 +21,7 @@ It is created by the Go runner, not by a numbered migration:
 ## Conventions and relationships
 
 - In the column tables below, columns are **not null with no default** unless marked nullable or given a default. Primary keys also imply not null. `identity` means `GENERATED ALWAYS AS IDENTITY`.
-- Providers are `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, and `ocine`, unless a table explicitly allows another value. Provider fields are strings with checks, not PostgreSQL enums. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
+- Cinema providers are rows of `providers` (`key text` primary key matching `^[a-z][a-z0-9]{1,31}$`), seeded with `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, and `ocine`. Columns documented as "Provider" reference `providers(key)` through a noncascading foreign key, unless a table explicitly allows another value. Adding a provider only requires inserting its key. Provider-specific identity, booking, poster, address, timing and version rules are enforced by the application (`schedule.ValidateDataset`, see `api/internal/schedule/provider_rules.go`), not by SQL. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
 - Runtime fields are `integer >= 0`; `0` represents an unknown runtime. The old `smallint`, 600-minute limit, and positive-only checks no longer apply.
 - `timestamptz` stores instants; `date` stores calendar/service dates. Schedule metadata fixes the timezone to `Europe/Paris`.
 - Primary keys and unique constraints create implicit indexes. Additional indexes are listed separately below. Foreign keys use default `NO ACTION` deletion behavior unless `CASCADE` is specified.
@@ -53,53 +53,19 @@ sync_schedules <- sync_schedule_occurrence_claims
 
 Movie matches, metadata cache entries, local group source identities, public catalog source identities, and theater locations persist independently of schedule generations. There are no foreign keys from these source identities to generation-scoped `movies` or `theaters`. `sync_runs.schedule_id` is also not a foreign key.
 
-### Provider identity checks
+### Provider identities
 
-These rules apply to provider theater IDs, provider movie IDs (including source IDs and identity anchors), and showing IDs. `theater_locations.provider_theater_id` only has a nonblank check except for Cineville, MK2, Cinewest, Grand Ecran, Noé Cinémas, Véo, Majestic, and Cinéode, which additionally use their identity helpers.
+Migration 083 replaced the provider-specific identity, booking, poster, slug and showing-shape checks, and their SQL helper functions, with the `providers` registry and generic constraints. The database guarantees:
 
-| Provider | Theater ID | Movie/source movie ID | Showing ID |
-| --- | --- | --- | --- |
-| `ugc` | `^[1-9][0-9]*$` | `^[1-9][0-9]*$` | `^[1-9][0-9]*$` |
-| `kinepolis` | `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` | Same as theater ID | Same as theater ID |
-| `pathe` | `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` | Same as theater ID | `^V[1-9][0-9]*S[1-9][0-9]*$` |
-| `cgr` | `^[A-Z][0-9]{4}$` | `^[1-9][0-9]{0,127}$` | `^[A-Z][0-9]{4}-[a-f0-9]{64}$` |
-| `megarama` | `^EMS[0-9]{4}$` | Five uppercase alphanumeric characters, or `^EMS[0-9]{4}-emsx[0-9]{4}HC[0-9]+$` with equal cinema digits; maximum 114 characters | `^emsx[0-9]{12}$`; theater ID must match the first four digits |
-| `cineville` | Canonical positive int64 decimal | Canonical signed nonzero int64 decimal | `<cinemaID>-<sessionID>`, both positive int64 decimal; cinema component matches theater |
-| `mk2` | Nonzero digit string preserving leading zeros; at most 124 characters | `HO` followed by digits; at most 119 characters | `<cinemaID>-<sessionID>`; positive canonical decimal session; at most 116 characters; cinema component matches theater |
-| `cinewest` | Exact 13-venue allowlist: nine `cineoffice-` and four `ticketingcine-` venues, including `ticketingcine-EMS1378` | Platform-prefixed positive decimal for Cine Office/retained Webedia films, or ticketingcine five-character global ID/site-scoped local ID; maximum 114 bytes | Platform prefix and 64 lowercase SHA-256 hex characters; digest of namespaced theater ID, NUL, exact source session ID; historical Webedia hashes remain unchanged |
-| `grandecran` | `^[A-Z0-9]{5}$` | `^([1-9][0-9]{0,111}\|c[A-Za-z0-9_-]{1,111})$`; numeric or opaque event, at most 112 characters | `^[A-Z0-9]{5}-[a-f0-9]{64}$`; cinema component matches theater |
-| `noecinemas` | `^[A-Z0-9]{5}$` | `^([1-9][0-9]{0,111}\|c[A-Za-z0-9_-]{1,111})$`; numeric or opaque event, at most 112 characters | `^[A-Z0-9]{5}-[a-f0-9]{64}$`; cinema component matches theater; digest of theater ID, NUL, exact opaque source session ID |
-| `veo` | Five uppercase alphanumeric characters or `EMS1361` | Boxoffice numeric/c-prefixed event, at most 112 characters; Castelia `ticketingcine-` plus five uppercase alphanumeric characters | `<theaterID>-<64 lowercase SHA-256 hex>`; cinema component matches theater; digest of theater ID, NUL, exact source session ID |
-| `majestic` | Exact seven-site EMS allowlist | Five uppercase alphanumeric characters or site-scoped `EMSdddd-emsxddddHC<digits>` with equal approved site numbers, at most 114 characters | `emsx` plus twelve digits, first four bound to theater |
-| `cineode` | Exact 37-site positive decimal ID manifest | Canonical positive decimal or lowercase kebab-case local ID, at most 115 characters | `<cinemaID>-<filmID>-<positive int64 Unix seconds>`, at most 112 characters; bound to theater, film and start |
-| `cinemovida` | Exact four-site manifest: `P0176`, `P0218`, `P7951`, `P0876` | Positive numeric or c-prefixed local event, at most 112 characters | `<theater>-<64 lowercase SHA-256 hex>`; digest of theater, NUL and exact raw source session ID |
-| `ocine` | Exact three-site manifest: `309` (Maubeuge), `310` (Saint-Omer), `461` (Dunkerque) | Positive numeric or lowercase local film slug, at most 117 characters | `<theater>-<film>-<epoch>-<hall>`, `<theater>-<film>-<epoch>-r<reservation>`, or non-bookable `<theater>-<film>-<epoch>-past`; at most 114 characters |
+- provider foreign keys on `theaters`, `movies`, `showtimes`, `provider_snapshots`, `screening_history_providers`, `screening_history_theaters`, `screening_history_showtimes`, `movie_matches`, `local_movie_groups`, `local_movie_group_members`, `public_movies` (identity anchor), `public_movie_sources`, `movie_slug_aliases`, `theater_locations`, `theater_images` and `cinema_activity_coverage`;
+- provider source identities (theater IDs, movie and source movie IDs, identity anchors and showing IDs) match `^[A-Za-z0-9_-]+$`, a character set every provider format satisfies; `theater_locations` and `theater_images` keep only their nonblank, bounded ID checks;
+- derived identities keep their existing generic checks (`id = provider || '-' || provider_id`, `slug = provider || '-film-' || provider_id`, `id = provider || '-showing-' || provider_showing_id`).
 
-`cineville_decimal_valid(text, boolean)` is an immutable strict SQL helper enforcing exact decimal syntax and int64 range. Cineville theater locations use the same positive identity check. Cineville source aliases additionally require `slug = 'cineville-film-' || source_movie_id` and source alias kind.
+Exact per-provider formats (for example UGC positive decimals, Majestic's seven-site EMS manifest, Véo relay booking links, Cinéode cinema/film/epoch showing bindings or Ociné Boxoffice reservations) are application rules. Snapshots read back from the database are revalidated, so a row edited outside the application is rejected when loaded. `cineville_decimal_valid(text, boolean)` is the only remaining provider helper; trailer candidate checks still use it. The dropped helpers are the `*_identity_valid`, `*_booking_valid`, `*_poster_valid` and `ocine_showing_valid` functions of Cinéode, Ciné-Movida, Cinewest, Grand Ecran, Majestic, MK2, Noé Cinémas, Ociné and Véo, plus `cineode_slug`, `ocine_slug`, `majestic_website`, `veo_relay_decode`, `veo_gueret_relay_valid` and `veo_saint_affrique_relay_valid`.
 
-`mk2_identity_valid(text, text)` is an immutable strict SQL helper enforcing MK2 source and derived identity bounds. MK2 theater locations use the same cinema identity check. MK2 aliases require source kind and `slug = 'mk2-film-' || source_movie_id`. No schedules are seeded or enabled by the MK2 migration. Migration 082 permits a showing with unspecified source language and version to store both fields as empty strings in live schedules and screening history.
+Capitole's current identity is `cinewest-ticketingcine-EMS1378`; migration 060 re-keyed its retired `webediamovies-W8400` references across generation, history, activity, location and image rows without merging relational rows.
 
-`cinewest_identity_valid(text, text)` enforces the fixed 13-theater manifest and namespaced source/derived bounds. Ticketingcine local movie IDs use `ticketingcine-EMSdddd-emsxddddHC<number>` with equal site digits and one of four approved sites (`EMS1185`, `EMS1317`, `EMS0042`, `EMS1378`). Cinewest aliases require source kind and `slug = 'cinewest-film-' || source_movie_id`; location IDs use the theater helper. Cinewest is an available manual/scheduled sync target after MK2; no schedule is seeded or enabled.
-
-Capitole's current identity is `cinewest-ticketingcine-EMS1378`; retired `webediamovies-W8400` is rejected as a theater. Migration 060 transactionally re-keys all retained generation/history/activity cinema references and independent location/image keys. It preserves film identities, aliases, groups, matches, watchlists, historical showing hashes, receipts, generation markers and immutable activity anchors. Only this cinema may retain a Webedia showing paired with a Webedia movie; both live and history CHECKs still require unknown end, zero first-part duration and nonblank room. Helper-dependent CHECKs are recreated and validated. Scoped cinema FKs are temporarily deferred, checked and restored to their original nondeferrable behavior; movie/source FKs remain intact. Destination conflicts abort rather than merge relational rows. Account arrays alone deduplicate and sort replacement membership with C collation, advancing each affected row's own revision once. Photo revision advances once without changing media facts/files. Public location version advances once for schedule/history/location/image re-keys, never for account-only changes. Exhausted affected revisions abort; schedule/enrichment versions and publication times stay unchanged. Empty installs fabricate no state beyond existing schema defaults; applied-ledger reruns are inert. Quiesce writers for upgrade and retain compatible migration history for recovery.
-
-`grandecran_identity_valid(text, text)` is an immutable strict SQL helper used for Grand Ecran source and derived identities. Theater locations require its theater identity. Source aliases require source kind and `slug = 'grandecran-film-' || source_movie_id`; public source slugs use the same exact identity. No Grand Ecran schedules are seeded or enabled. Stored showing ends equal starts regardless of runtime, first-part duration is zero, and rooms may be empty.
-
-`noecinemas_identity_valid(text, text)` enforces Noé Cinémas identity bounds across schedule rows, matches, groups, durable catalog anchors/sources/aliases, and theater locations. Source aliases require source kind and `slug = 'noecinemas-film-' || source_movie_id`; public source slugs use the same identity. Stored ends equal starts, first-part duration is zero, and rooms and metadata may be unknown. Noé scheduled runs require all occurrence fields nonnull, positive schedule ID/revision, and attempt 0-2. No schedule is seeded or enabled; legacy-provider predicates and foreign keys remain intact.
-
-Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns. Pathé showing identities include both venue and session tokens, not just an `S...` token.
-
-Véo uses `veo_identity_valid`: theater IDs are five uppercase alphanumeric characters or exactly `EMS1361`; movie IDs are numeric/c-prefixed Boxoffice IDs bounded to 112 bytes or `ticketingcine-` plus five uppercase alphanumeric characters. Showing IDs are theater ID plus a hyphen and 64 lowercase SHA-256 hex characters, hashing raw theater ID, NUL and exact source session ID. Live/history shapes bind showing to theater and prevent cross-platform movie identities. Source aliases and catalog source slugs equal `veo-film-` plus source movie ID. Locations and images use the theater identity helper. Boxoffice ends are source-published or equal starts when unpublished, with zero first-part duration. Castelia permits nonnegative first-part duration; application validates its runtime-based end. Empty rooms are valid. `veo_booking_valid` restricts checkout URLs and binds Castelia fragments to hashed sessions. Migration 063 extends live, copied history, activity coverage and image provider checks without changing existing data or enabling/seeding schedules. Only Véo Boxoffice can supply complete date-response coverage; Castelia remains unknown.
-
-Véo Boxoffice booking URLs accept the exact HTTPS `achat.veocinemas.fr/SLUG/r/POSITIVE_ID` or `achat.veocinemas.fr/SLUG/reserver/r/POSITIVE_ID` source forms, with the same lowercase kebab-case slug, length and identity checks. Only canonical `G06DB` additionally accepts original `https://relay.mvtx.us/ticketing/dbz` links with exactly five unique nonempty keys: `code_theater=P1394`, `gid_entity`, `tags`, `perfd` (real YYYYMMDD, year 0001-9999), and `perft` (HH:MM). `veo_relay_decode` decodes percent octets exactly once to 1-1024 ASCII characters from letters, digits, dot, underscore, tilde, comma, colon and hyphen; encoded/raw parameter delimiters, plus, percent after decoding, whitespace and Unicode are invalid. Raw components are at most 3072 characters and the complete URL at most 4096. Keys are literal, never decoded. `veo_gueret_relay_valid` is structural: acquisition cross-binds date/time/tags to the source showing and the private checkout transport checks its final epoch. SQL/public helpers lacking that context do not independently attest session binding. Credentials, ports, fragments, host/path aliases and public dedicated canonical checkout URLs remain invalid. Migration 065 adds these helpers and replaces only `veo_booking_valid`, preserving Castelia, CHECK definitions and stored rows. Published 001-064 remain unchanged; no URL rewriting or schedule enablement occurs. Le Moderne (`P0793`, Saint-Affrique) additionally accepts the same relay source shape with `code_theater=P0793` and exactly one extra `code` key decoding to `VF`, `VO`, or the exact `VO%3B%20SUBTITLE` wire form introduced in migration 081. Migration 074 adds `veo_saint_affrique_relay_valid` and extends only `veo_booking_valid`; Guéret keeps its five-key policy, and stored links, existing rows, CHECK definitions and published migrations remain unchanged. Acquisition binds date, clock, tags and version to the source session. The private relay client admits only source → root → matching `/noweb` unavailability for Saint-Affrique; it never fetches `/noweb` or uses relay HTML as session metadata.
-
-Majestic uses `majestic_identity_valid`, `majestic_booking_valid`, `majestic_poster_valid` and `majestic_website` across live schedules, retained history, durable source identities, locations and images. Booking accepts only the official fallback root or exact HTTPS ticketingcine source URLs: a film path bound to the global film, or a query-only site route for either global films or local events. Both session routes bind the site and showing, with optional exact `&ps=ticketingcine` suffix. Migration 072 admits the query-only route for global films without rewriting rows or CHECK definitions. Local posters bind to site/event; missing posters remain valid. Nonnegative first-part minutes persist; application enforces runtime plus first-part ends, with end equal start for unknown runtime. Dates are Paris calendar dates, not shifted service days. Seven explicit empty programs are a valid exhaustive census; malformed or failed programs never publish. Observed session-date unions do not establish complete activity coverage. Migration 066 preserves prior predicates, foreign keys and rows, adds no schedules and enables none.
-
-Cinéode uses `cineode_slug`, `cineode_identity_valid` and `cineode_poster_valid` across live snapshots, retained history, durable movie reconciliation, locations/images and manual/scheduled metadata. Cinéode alone permits absent street/postcode; unknown runtime/poster/room remain unknown and source end equals start. Showing checks bind cinema, numeric/local movie ID, second-precision Paris calendar instant, VF/VOSTF version and exact `https://www.cineode.fr/{verified-slug}/seances/` website. Source aliases and catalog source slugs equal `cineode-film-` plus source ID. Poster checks admit narrowly scoped Acsta paths and unchanged `https://static.cotecine.fr/tb/Affiches/180x240/{filename}.JPG` source URLs with ASCII alphanumeric, underscore, hyphen, literal-plus or `%20` space tokens in filenames. Acsta extensions include uppercase `.JPG` and `.PNG` (migration 081). Migration 075 extends the poster helper without rewriting URLs, rows or CHECK definitions; other percent escapes remain rejected. A complete 37-site empty census is valid; complete activity coverage is not authorized. Existing provider predicates and foreign keys remain intact; no schedules are seeded or enabled.
-
-Ciné-Movida uses `cinemovida_identity_valid` and `cinemovida_booking_valid` across live schedules, copied history, catalog identities, aliases, locations and images. Public bookings retain original HTTPS `/reserver/r/{positive decimal}` URLs, bound respectively to `achat.cinema-castillet.com`, `achat.cinema-megacastillet.com`, `achat.cinemaleselect-granville.com`, and `achat.concordecinema.com` for the four theater IDs above. Only Concorde/P0876 additionally accepts original `https://achat.concordecinema.com/r/{positive decimal}` URLs. No URL aliases, relay links, ports, credentials, queries or fragments are admitted. Source end may follow start independently of runtime; equality means unpublished end. Runtime may be zero, first-part duration stays zero, and service date is the Paris calendar date including after midnight. Only acquisition-attested date responses can supply complete activity coverage; accepted omissions and observed-only calendar spillovers remain unknown. Migration 069 replaces only the booking helper, preserving existing CHECK definitions, rows and foreign keys. Neither migration seeds or enables schedules.
-
-Ociné uses `ocine_identity_valid`, `ocine_showing_valid`, and `ocine_poster_valid` across live schedules, copied history, catalog identities, aliases, locations and images. Bookings retain exact `https://www.ocine.fr/{manifest-slug}/reserver/F{film-token}/D{epoch}/{VF|VO}/{hall}/` routes, bound to cinema, start epoch, hall and version, plus numeric film identity where applicable. The newer Boxoffice entries use exact `https://achat.ocine.fr/{manifest-slug}/r/{reservation}` links, bound to the cinema and reservation suffix. Migration 081 admits these entries and adds the exact `all.web.img.acsta.net` poster host. Legacy rows retain their original booking and identity rules. Canonical end is source-published or equals start when absent, independently of runtime. Non-bookable `-past` rows alone allow empty checkout; their language/version may both be empty when source attribution is unavailable. Missing runtime, room, street and postal code remain missing. First-part duration stays zero; service date is the published Paris calendar date. Original Acsta posters, including absent posters, are validated. Observed grid dates do not attest complete activity coverage. Migration 070 extends existing checks only for Ociné, retaining prior predicates and foreign keys, and adds no schedules.
+Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns.
 
 ## Account tables
 
@@ -199,7 +165,7 @@ Stores the active schedule generation version and its provider, time window, and
 | `singleton` | `boolean` | Primary key; default `true`; must be true |
 | `version` | `bigint` | Positive active generation version |
 | `schema_version` | `integer` | Must equal `1` |
-| `provider` | `varchar(32)` | Provider or `combined` |
+| `provider` | `varchar(32)` | Matches `^[a-z][a-z0-9]{1,31}$`: a provider or `combined` |
 | `scope` | `varchar(32)` | Must equal `all_cinemas` |
 | `generated_at` | `timestamptz` | Generation timestamp |
 | `timezone` | `varchar(64)` | Must equal `Europe/Paris` |
@@ -232,16 +198,16 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, slug)` and `(genera
 | Column | Type | Definition |
 | --- | --- | --- |
 | `generation_id` | `bigint` | Positive generation ID |
-| `id`, `provider_id`, `slug` | `varchar(128)` | `id = provider || '-' || provider_id`; `slug = id` |
+| `id`, `provider_id`, `slug` | `varchar(128)` | `id = provider || '-' || provider_id`; `slug = id`; `provider_id` matches `^[A-Za-z0-9_-]+$` |
 | `provider` | `varchar(32)` | Provider; default `ugc` |
 | `name` | `varchar(1024)` | Nonblank after trimming |
-| `address` | `varchar(2048)` | Nonblank except for Kinepolis and Cineville |
+| `address` | `varchar(2048)` | May be empty; required address fields are application rules |
 | `city` | `varchar(256)` | Nonblank after trimming |
-| `postal_code` | `varchar(256)` | Nonblank except for Kinepolis |
+| `postal_code` | `varchar(256)` | May be empty; required address fields are application rules |
 
 ### `theater_images`
 
-Admin-owned photos persist outside schedule generations. Composite primary key `(provider varchar(32), provider_theater_id varchar(128))` uses the thirteen-provider allowlist and a nonblank bounded ID (Véo, Majestic and Cinéode additionally use their identity helpers). Application validates provider identity and current inventory membership. There is no foreign key to generation-scoped theaters, backfill or publication write.
+Admin-owned photos persist outside schedule generations. Composite primary key `(provider varchar(32), provider_theater_id varchar(128))` references `providers` and has a nonblank bounded ID. Application validates provider identity and current inventory membership. There is no foreign key to generation-scoped theaters, backfill or publication write.
 
 `image_revision bigint NOT NULL DEFAULT 0` is between 0 and 9,007,199,254,740,991. Nullable `file_key text`, `width integer`, `height integer` and `size_bytes integer` are either all NULL or all present. Presence requires positive revision, a generated `^[a-f0-9]{32}\.webp$` key, dimensions 1-1600 and size 1-1,048,576 bytes. Partial unique index `theater_images_file_key_idx` covers nonnull keys and collector reference lookup. No original filename, URL, source metadata or image bytes are stored.
 
@@ -269,11 +235,11 @@ Primary key: `(generation_id, provider, provider_id)`. Unique: `(generation_id, 
 | --- | --- | --- |
 | `generation_id` | `bigint` | Positive generation ID |
 | `provider` | `varchar(32)` | Provider; default `ugc` |
-| `provider_id`, `slug` | `varchar(128)` | `slug = provider || '-film-' || provider_id` |
+| `provider_id`, `slug` | `varchar(128)` | `slug = provider || '-film-' || provider_id`; `provider_id` matches `^[A-Za-z0-9_-]+$` |
 | `title` | `varchar(1024)` | Nonblank after trimming |
 | `runtime_minutes` | `integer` | Nonnegative |
 | `poster_url` | `varchar(4096)` | Nullable; no URL check here |
-| `source_page_url` | `varchar(4096)` | Nullable; captured HTTPS film-page URL without credentials, queries, whitespace, escapes or backslashes. Fragments are allowed only for Cineville `/programmes/<route>#<visa>` URLs with the exact `provider_id`; other providers remain fragment-free. The application additionally validates the provider host, approved cinema route and source identity |
+| `source_page_url` | `varchar(4096)` | Nullable; captured HTTPS film-page URL without credentials, queries, whitespace, escapes or backslashes, with at most one fragment. Which providers may use fragments (Cineville `/programmes/<route>#<visa>`), hosts, routes and source identity binding are application rules |
 | `source_overview` | `varchar(10000)` | Nullable; length at most 10,000 |
 | `source_release_date` | `date` | Nullable |
 | `source_genres` | `text[]` | Default `'{}'`; at most 32 elements |
@@ -287,17 +253,17 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | Column | Type | Definition |
 | --- | --- | --- |
 | `generation_id` | `bigint` | Positive generation ID |
-| `id`, `provider_showing_id` | `varchar(128)` | `id = provider || '-showing-' || provider_showing_id` |
+| `id`, `provider_showing_id` | `varchar(128)` | `id = provider || '-showing-' || provider_showing_id`; `provider_showing_id` matches `^[A-Za-z0-9_-]+$` |
 | `provider` | `varchar(32)` | Provider; default `ugc` |
 | `service_date` | `date` | Service date |
 | `theater_id`, `movie_provider_id` | `varchar(128)` | Referenced schedule identities |
-| `start_time`, `end_time` | `timestamptz` | Cineville, MK2, Grand Ecran, Noé Cinémas, and Cinéode require equality (unknown end), regardless of runtime. Cinewest Cine Office requires its published end after start; ticketingcine permits equality or a later computed end; Capitole requires equality. Véo permits equality or a later end, with exact Boxoffice/source or Castelia/runtime rules enforced by application. Majestic permits equality for unknown runtime or a later computed runtime-plus-first-part end. Other providers require end after start, except CGR and Megarama permit equality |
-| `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama, Majestic, Cinewest ticketingcine and Véo Castelia |
-| `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be query-only `ALL`, `ORIGINAL`, or `VOF`. MK2 permits empty language with an empty version or `Muet`. Cinewest Cine Office permits empty language with `VERSION_MUET`. Both silent markers require empty language. Ociné permits empty language and version on eligible non-bookable rows |
-| `provider_version` | `varchar(256)` | Nonblank after trimming except for the MK2 and Ociné cases above |
+| `start_time`, `end_time` | `timestamptz` | `end_time >= start_time`. Equality represents an unknown end. Per-provider end rules (unknown-end providers, runtime-derived ends, Cinewest platforms) are application rules |
+| `first_part_duration_minutes` | `integer` | Default `0`; nonnegative. Which providers may publish a nonzero first part is an application rule |
+| `language` | `varchar(16)` | Empty, or matches `^[A-Z][A-Z0-9_]{0,15}$` and is not query-only `ALL`, `ORIGINAL` or `VOF`. Silent and unknown-version exceptions (MK2, Cinewest Cine Office, Ociné) are application rules |
+| `provider_version` | `varchar(256)` | Nonblank after trimming, or empty together with an empty `language` |
 | `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, or `INFINITY_VISION` |
-| `room` | `varchar(256)` | Empty string permitted except Cinewest; required empty for MK2 |
-| `booking_url` | `varchar(4096)` | Nonblank after trimming; no URL pattern check |
+| `room` | `varchar(256)` | Empty string permitted; provider room requirements are application rules |
+| `booking_url` | `varchar(4096)` | Empty or nonblank after trimming; no URL pattern check (booking URLs are validated by the application) |
 
 Foreign keys: `(generation_id, provider, movie_provider_id)` references `movies(generation_id, provider, provider_id)`; `(generation_id, theater_id, service_date)` references `theater_dates(generation_id, theater_id, service_date)`. Neither cascades on deletion. The database does not check that the showtime provider matches the referenced theater provider.
 
@@ -307,11 +273,11 @@ Migration 039 creates empty tables without importing either surviving schedule g
 
 | Table | Columns and constraints |
 | --- | --- |
-| `screening_history_providers` | `provider varchar(32)` PK with the eleven-provider allowlist; nonnull `collection_started_at`, `last_publication_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last publication >= collection start. No generation FK. Successful empty publications also start collection. |
-| `screening_history_theaters` | Schedule theater scalar columns/types and provider checks as of 038, excluding `generation_id`; PK `id`, unique `(provider,id)`; nonnull `city_slug text`, `city_name varchar(256)`, `passes text[]` (empty or exactly `{UGC_ILLIMITE}`), `last_observed_at timestamptz`. No live-theater FK. |
-| `screening_history_showtimes` | Schedule showtime scalar columns/types and provider checks as of 038, excluding `generation_id`; PK `(provider,provider_showing_id,theater_id,service_date)`; nonnull `first_seen_at`, `last_seen_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last seen >= first seen. Durable FKs `(provider,theater_id)` to history theaters and `(provider,movie_provider_id)` to public movie sources, neither cascading. Display `id` is not globally unique. |
+| `screening_history_providers` | `provider varchar(32)` PK referencing `providers`; nonnull `collection_started_at`, `last_publication_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last publication >= collection start. No generation FK. Successful empty publications also start collection. |
+| `screening_history_theaters` | Schedule theater scalar columns/types and checks (generic since 083), excluding `generation_id`; PK `id`, unique `(provider,id)`; nonnull `city_slug text`, `city_name varchar(256)`, `passes text[]` (empty or exactly `{UGC_ILLIMITE}`), `last_observed_at timestamptz`. No live-theater FK. |
+| `screening_history_showtimes` | Schedule showtime scalar columns/types and checks (generic since 083), excluding `generation_id`; PK `(provider,provider_showing_id,theater_id,service_date)`; nonnull `first_seen_at`, `last_seen_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last seen >= first seen. Durable FKs `(provider,theater_id)` to history theaters and `(provider,movie_provider_id)` to public movie sources, neither cascading. Display `id` is not globally unique. |
 
-The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/identity checks, not its indexes, defaults or generation-scoped FKs. Future providers or changes to those checks must explicitly update the history tables too. Secondary B-tree indexes: history showtimes `(service_date,theater_id)`, `(theater_id,service_date)`, `(provider,movie_provider_id,service_date)`; history theaters `(city_slug,id)`.
+The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/identity checks, not its indexes, defaults or generation-scoped FKs. Migration 083 replaced their provider checks with the same generic checks and provider foreign keys as the live tables; a new provider only needs a `providers` row. Secondary B-tree indexes: history showtimes `(service_date,theater_id)`, `(theater_id,service_date)`, `(provider,movie_provider_id,service_date)`; history theaters `(city_slug,id)`.
 
 Both showtime tables accept the same scalar formats, including `INFINITY_VISION`. Explicit session certification takes priority over other formats during ingestion; existing rows are not reclassified or backfilled.
 
@@ -343,7 +309,7 @@ Migration 056 creates empty tables without reconstructing announcements or cover
 | Table | Columns and constraints |
 | --- | --- |
 | `cinema_activity_state` | Durable theater PK/FK; required first baseline `history_started_at`, latest `last_publication_at` (not before baseline) and `source_generated_at`. |
-| `cinema_activity_coverage` | PK `(provider,generation,theater_id,service_date)`; thirteen-provider check, positive generation without live FK; composite durable provider/theater FK; status `complete` or `unknown`, controlled basis `date_response`, `accepted_omission`, `unproven`; source and receipt timestamps. Complete evidence is restricted to validated date-response providers, including Véo Boxoffice but not Castelia, Majestic or Cinéode. Index theater/date/source time/receipt/generation descending. |
+| `cinema_activity_coverage` | PK `(provider,generation,theater_id,service_date)`; provider referencing `providers`, positive generation without live FK; composite durable provider/theater FK; status `complete` or `unknown`, controlled basis `date_response`, `accepted_omission`, `unproven`; source and receipt timestamps. Complete evidence requires the `date_response` basis; which providers and theaters may claim it is an application rule. Index theater/date/source time/receipt/generation descending. |
 | `cinema_activity_episodes` | Positive bigint identity PK and theater/ID ownership key; durable theater and immutable source-anchor FKs; kind `baseline`, `added_to_program`, `return_to_program`; immutable receipt, first announced date and detecting generation; mutable conservative observed bounds. Returns require previous end and matching inclusive break bounds of at least 28 dates; other kinds require all three null. Nullable self-FK supersession points only to an older ID. Partial theater/receipt/ID descending index covers surviving public events; partial theater/ID descending index bounds the first-page committed upper ID. |
 | `cinema_activity_episode_sources` | PK `(theater_id,episode_id,source_provider,source_movie_id)`; composite episode ownership FK and durable source FK; conservative source date bounds and first/latest receipts. Theater/source/latest-episode index. Superseded links remain retained. |
 
@@ -418,7 +384,7 @@ Each is an independent singleton version counter with the same definition: `sing
 
 | Table | Columns | Keys and relationships |
 | --- | --- | --- |
-| `local_movie_groups` | `id bigint identity` (positive), `primary_source_provider varchar(32)`, `primary_source_movie_id varchar(128)` | PK `id`; provider movie identity checks apply to the primary source |
+| `local_movie_groups` | `id bigint identity` (positive), `primary_source_provider varchar(32)`, `primary_source_movie_id varchar(128)` | PK `id`; primary provider references `providers`; source ID matches `^[A-Za-z0-9_-]+$` |
 | `local_movie_group_members` | `local_movie_id bigint`, `source_provider varchar(32)`, `source_movie_id varchar(128)` | PK `(local_movie_id, source_provider, source_movie_id)`; unique `(source_provider, source_movie_id)`; FK `local_movie_id` to `local_movie_groups(id)` with `ON DELETE CASCADE` |
 
 The group also has a reverse FK `(id, primary_source_provider, primary_source_movie_id)` to the member primary key. It is `DEFERRABLE INITIALLY DEFERRED`, so the primary source must be a member by transaction commit. Each source movie can belong to only one local group.
@@ -452,7 +418,7 @@ Primary key: `id`. Public identities survive schedule generations and can redire
 | `metacritic_id` | `varchar(255)` | Nullable; same exact ASCII movie-path constraint as the cache; requires nonnull `confirmed_tmdb_id`; cleared with removed or changed TMDB identity, including redirect tombstones |
 | `original_language` | `varchar(2)` | Nullable; `^[a-z]{2}$`; requires nonnull `confirmed_tmdb_id`; cleared with removed or changed TMDB identity, including redirect tombstones |
 
-Exactly one anchor shape is required: both provider/source fields nonnull and TMDB anchor null, or both provider/source fields null and a positive nonnull TMDB anchor. Existing provider identity checks remain unchanged. Partial unique indexes enforce unique confirmed TMDB IDs, source anchors, and TMDB anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.
+Exactly one anchor shape is required: both provider/source fields nonnull and TMDB anchor null, or both provider/source fields null and a positive nonnull TMDB anchor. The anchor provider references `providers` and its source ID matches `^[A-Za-z0-9_-]+$`. Partial unique indexes enforce unique confirmed TMDB IDs, source anchors, and TMDB anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.
 
 ### `tmdb_upcoming_movies` and `tmdb_upcoming_state`
 
@@ -509,7 +475,7 @@ Stores source, local, and TMDB slug aliases that resolve to durable public movie
 | `first_seen_at` | `timestamptz` | Default `CURRENT_TIMESTAMP` |
 | `retargeted_at` | `timestamptz` | Nullable |
 
-For `local` and `tmdb`, both source fields must be null. For `source`, the check requires a nonnull source movie ID and tests provider membership and identity syntax. The nullable `source_provider` can still pass through SQL null semantics. No FK links these fields to `public_movie_sources`.
+For `local` and `tmdb`, both source fields must be null. For `source`, the check requires a nonnull source movie ID; `source_provider` references `providers` and a nonnull provider requires a source ID matching `^[A-Za-z0-9_-]+$`. Canonical `<provider>-film-<id>` alias slugs are application rules. No FK links these fields to `public_movie_sources`.
 
 ### `public_movie_metadata_overrides`
 
@@ -589,7 +555,7 @@ Multiple schedules may share a target; `target` is not unique. The former `provi
 | Column | Type | Definition |
 | --- | --- | --- |
 | `id` | `bigint identity` | Primary key |
-| `target` | `text` | Provider, `tmdb_metadata_refresh`, or `tmdb_upcoming_movies`; not `all` |
+| `target` | `text` | Matches `^[a-z][a-z0-9_]{1,63}$`; the application accepts providers, `tmdb_metadata_refresh` and `tmdb_upcoming_movies` |
 | `revision` | `bigint` | Default `1`; positive |
 | `enabled` | `boolean` | Whether the schedule is enabled |
 | `schedule_kind` | `text` | `daily`, `weekly`, or `cron` |
@@ -620,7 +586,7 @@ Stores provider synchronization execution history, including run state, coverage
 | Column | Type | Definition |
 | --- | --- | --- |
 | `id` | `bigint identity` | Primary key |
-| `target` | `text` | Provider or `all`; neither TMDB scheduler target is allowed |
+| `target` | `text` | Matches `^[a-z][a-z0-9_]{1,63}$`; the application accepts providers and `all` |
 | `state` | `text` | `running`, `succeeded`, or `failed` |
 | `started_at` | `timestamptz` | Start timestamp |
 | `finished_at` | `timestamptz` | Nullable; null exactly when running |
@@ -631,7 +597,7 @@ Stores provider synchronization execution history, including run state, coverage
 | `scheduled_for` | `timestamptz` | Nullable |
 | `schedule_attempt` | `smallint` | Nullable |
 
-Manual runs require all four schedule fields to be null. Scheduled runs require an individual provider target, nonnull `scheduled_for`, and checks for positive schedule ID/revision and attempt between 0 and 2. The latter three columns lack explicit nonnull checks for legacy providers, so SQL null can pass; Cineville, MK2, Cinewest, Grand Ecran, Noé Cinémas, Véo, Majestic, and Cinéode require all three nonnull. Scheduled occurrence attempts are unique by `(schedule_id, schedule_revision, scheduled_for, schedule_attempt)` for scheduled rows; nulls retain PostgreSQL's default distinct behavior. There is no one-running-run unique index on this table.
+Manual runs require all four schedule fields to be null. Scheduled runs require nonnull `scheduled_for` and checks for positive schedule ID/revision and attempt between 0 and 2; SQL null passes those three comparisons. Valid scheduled targets are an application rule.
 
 ## Short links
 

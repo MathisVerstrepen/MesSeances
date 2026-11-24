@@ -24,11 +24,11 @@ func TestMajesticSessionBookingMigrationIntegration(t *testing.T) {
 				}
 			}
 			for range 2 {
-				if err := RunMigrations(ctx, pool); err != nil {
+				if err := migrateToPreRegistry(ctx, pool); err != nil {
 					t.Fatal(err)
 				}
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			for _, movie := range []string{"ABCDE", "EMS0700-emsx0700HC12", "EMS0654-emsx0654HC12", "invalid"} {
 				for _, raw := range []string{booking, booking + "&ps=ticketingcine", booking + "&extra=1", booking + "&id=emsx070000000002", strings.Replace(booking, "?EMS0700", "?EMS0654", 1), strings.Replace(booking, "?EMS0700", "/?EMS0700", 1), strings.Replace(booking, "?EMS0700", "?EMS0700=", 1), strings.Replace(booking, "https:", "http:", 1), strings.Replace(booking, ".com?", ".com:443?", 1), "https://www.ticketingcine.com/EMS0700/FRABCDE#showsession?id=emsx070000000001", schedule.MajesticWebsite("EMS0700")} {
 					var got bool

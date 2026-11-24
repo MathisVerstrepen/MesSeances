@@ -30,6 +30,7 @@ func TestProviderRulesPolicies(t *testing.T) {
 	unknownRuntime := []Provider{ProviderCGR, ProviderMegarama, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo}
 	strictAlias := []Provider{ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine}
 	address := map[Provider]addressRule{ProviderKinepolis: addressOptional, ProviderCineode: addressOptional, ProviderOcine: addressOptional, ProviderCineville: addressPostalOnly}
+	completeCoverage := []Provider{ProviderUGC, ProviderPathe, ProviderCGR, ProviderGrandEcran, ProviderNoeCinemas, ProviderCinemovida, ProviderVeo}
 	census := map[Provider]int{ProviderMajestic: 7, ProviderCineode: 37, ProviderOcine: 3}
 	serviceDay := map[Provider]serviceDayRule{
 		ProviderUGC: serviceDayStrictOvernight, ProviderKinepolis: serviceDayStrictOvernight, ProviderCGR: serviceDayStrictOvernight,
@@ -47,6 +48,9 @@ func TestProviderRulesPolicies(t *testing.T) {
 		}
 		if rules.address != address[provider] || rules.census != census[provider] || rules.serviceDay != serviceDay[provider] {
 			t.Fatalf("%s address=%d census=%d day=%d", provider, rules.address, rules.census, rules.serviceDay)
+		}
+		if wantCoverage := slices.Contains(completeCoverage, provider); (rules.completeCoverage != nil) != wantCoverage {
+			t.Fatalf("%s complete coverage=%t", provider, rules.completeCoverage != nil)
 		}
 		if wantPasses := provider == ProviderUGC; (rules.passes != nil) != wantPasses {
 			t.Fatalf("%s passes=%v", provider, rules.passes)
@@ -102,5 +106,12 @@ func TestExhaustiveCensusAllowsOnlyCompleteProviderCensus(t *testing.T) {
 	}
 	if exhaustiveCensus(Dataset{Provider: ProviderUGC, Theaters: theaters(ProviderUGC, []string{"1", "2", "3"})}) {
 		t.Fatal("provider without census accepted")
+	}
+}
+
+func TestCompleteCoverageExcludesVeoTicketingTheater(t *testing.T) {
+	rules, _ := rulesFor(ProviderVeo)
+	if !rules.completeCoverage(TheaterRecord{ProviderID: "G06DB"}) || rules.completeCoverage(TheaterRecord{ProviderID: "EMS1361"}) {
+		t.Fatal("Véo coverage eligibility")
 	}
 }

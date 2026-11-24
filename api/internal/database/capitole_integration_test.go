@@ -182,7 +182,7 @@ func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
 				originalTables = append(originalTables, table)
 			}
 			fks := capitoleFKFacts(t, ctx, pool, originalTables...)
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			after := capitoleFacts(t, ctx, pool, omit)
@@ -199,11 +199,11 @@ func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
 			if fks != capitoleFKFacts(t, ctx, pool, originalTables...) {
 				t.Fatal("FK properties changed")
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			assertCapitoleRekey(t, ctx, pool)
 			assertCapitoleConstraints(t, ctx, pool)
 			migrated := capitoleFacts(t, ctx, pool, nil)
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if !reflect.DeepEqual(migrated, capitoleFacts(t, ctx, pool, nil)) {
@@ -360,7 +360,7 @@ func TestCapitoleContinuityRollbackIntegration(t *testing.T) {
 			mustCinevilleSQL(t, ctx, pool, sql)
 			before := capitoleFacts(t, ctx, pool, nil)
 			fks := capitoleFKFacts(t, ctx, pool)
-			if err := RunMigrations(ctx, pool); err == nil {
+			if err := migrateToPreRegistry(ctx, pool); err == nil {
 				t.Fatal("unsafe continuity migration committed")
 			}
 			if !reflect.DeepEqual(before, capitoleFacts(t, ctx, pool, nil)) || fks != capitoleFKFacts(t, ctx, pool) {
@@ -383,7 +383,7 @@ func TestCapitoleDestinationOnlyMigrationIntegration(t *testing.T) {
 	mustCinevilleSQL(t, ctx, pool, `INSERT INTO accounts(email,created_at,pending_kind) VALUES('fixture@example.test',now(),'email'); INSERT INTO account_theater_preferences VALUES(1,9007199254740991,ARRAY['cinewest-ticketingcine-EMS1378']); INSERT INTO account_theater_follows VALUES(1,9007199254740991,ARRAY['cinewest-ticketingcine-EMS1378']); INSERT INTO theater_images(provider,provider_theater_id,image_revision) VALUES('cinewest','ticketingcine-EMS1378',9007199254740991); UPDATE theater_location_state SET version=9223372036854775807;`)
 	before := capitoleFacts(t, ctx, pool, nil)
 	delete(before, "movieflow_schema_migrations")
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal("unaffected exhausted destination", err)
 	}
 	after := capitoleFacts(t, ctx, pool, nil)
@@ -400,7 +400,7 @@ func TestCapitoleArrayOnlyMigrationIntegration(t *testing.T) {
 	pool, _ := newMigrationTestPool(t, ctx, "capitole_arrays_")
 	installMigrationPrefix(t, ctx, pool, 59, "059_account_theater_follows.sql")
 	mustCinevilleSQL(t, ctx, pool, `INSERT INTO accounts(email,created_at,pending_kind) VALUES('fixture@example.test',now(),'email'); INSERT INTO account_theater_preferences VALUES(1,4,ARRAY['cinewest-webediamovies-W8400']); INSERT INTO account_theater_follows VALUES(1,8,ARRAY['cinewest-webediamovies-W8400']);`)
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	var ok bool

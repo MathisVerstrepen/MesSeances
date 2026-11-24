@@ -38,6 +38,24 @@ func requireMigrationPrefix(t *testing.T, migrations []migration, throughVersion
 	return prefix
 }
 
+// Migration 083 replaced provider-specific SQL checks and helpers with the
+// provider registry. Tests of earlier provider migrations assert those SQL
+// rules, so they migrate only through 082, the last schema that has them.
+const (
+	preRegistryVersion = 82
+	preRegistryName    = "082_mk2_unknown_version.sql"
+)
+
+func preRegistryMigrations(t *testing.T) []migration {
+	t.Helper()
+	return requireMigrationPrefix(t, mustEmbeddedMigrations(t), preRegistryVersion, preRegistryName)
+}
+
+// migrateToPreRegistry applies pending migrations through 082.
+func migrateToPreRegistry(ctx context.Context, pool *pgxpool.Pool) error {
+	return RunMigrationsThrough(ctx, pool, preRegistryVersion)
+}
+
 func newMigrationTestPool(t *testing.T, ctx context.Context, schemaPrefix string) (*pgxpool.Pool, string) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

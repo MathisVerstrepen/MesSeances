@@ -68,7 +68,12 @@ type providerRules struct {
 	// version reports silent films and unknown versions, which may omit the
 	// language or provider version.
 	version func(ShowtimeRecord) (silent, unknown bool, err error)
+	// completeCoverage reports whether a theater's acquisition can attest
+	// complete per-date activity coverage; nil means never.
+	completeCoverage func(TheaterRecord) bool
 }
+
+func anyTheater(TheaterRecord) bool { return true }
 
 func rulesFor(provider Provider) (providerRules, bool) {
 	rules, ok := providerRuleSet[provider]
@@ -105,6 +110,7 @@ var providerRuleSet = map[Provider]providerRules{
 	ProviderUGC: {
 		identity: ugcIdentity, booking: ugcBookingURL, poster: func(raw string) bool { return validUGCURL(raw, true) },
 		passes: []string{"UGC_ILLIMITE"}, serviceDay: serviceDayStrictOvernight,
+		completeCoverage: anyTheater,
 	},
 	ProviderKinepolis: {
 		identity: kinepolisIdentity, booking: kinepolisBookingURL, poster: kinepolisPosterURL,
@@ -112,11 +118,13 @@ var providerRuleSet = map[Provider]providerRules{
 	},
 	ProviderPathe: {
 		identity: patheIdentity, booking: patheBookingURL, poster: pathePosterURL,
-		serviceDay: serviceDayPathe,
+		serviceDay:       serviceDayPathe,
+		completeCoverage: anyTheater,
 	},
 	ProviderCGR: {
 		identity: cgrIdentity, booking: cgrBookingURL, poster: cgrPosterURL,
 		unknownRuntime: true, serviceDay: serviceDayStrictOvernight,
+		completeCoverage: anyTheater,
 	},
 	ProviderMegarama: {
 		identity: validMegaramaIdentity, booking: reorderedBooking(ValidMegaramaBookingURL), poster: ValidMegaramaPosterURL,
@@ -141,7 +149,8 @@ var providerRuleSet = map[Provider]providerRules{
 			return ValidGrandEcranBookingURL(raw) && strings.HasPrefix(showingID, theaterID+"-")
 		},
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
-		showing: theaterScopedShowing("invalid Grand Ecran cinema", endEqualsStart),
+		showing:          theaterScopedShowing("invalid Grand Ecran cinema", endEqualsStart),
+		completeCoverage: anyTheater,
 	},
 	ProviderNoeCinemas: {
 		identity: ValidNoeCinemasIdentity, poster: ValidNoeCinemasPosterURL,
@@ -149,12 +158,14 @@ var providerRuleSet = map[Provider]providerRules{
 			return ValidNoeCinemasBookingURL(raw, theaterID) && strings.HasPrefix(showingID, theaterID+"-")
 		},
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
-		showing: theaterScopedShowing("invalid Noé Cinémas cinema", endEqualsStart),
+		showing:          theaterScopedShowing("invalid Noé Cinémas cinema", endEqualsStart),
+		completeCoverage: anyTheater,
 	},
 	ProviderVeo: {
 		identity: ValidVeoIdentity, booking: reorderedBooking(ValidVeoBookingURL), poster: ValidVeoPosterURL,
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
 		firstPart: veoFirstPartRule, showing: veoShowingRule,
+		completeCoverage: func(t TheaterRecord) bool { return !veoTicketingTheater(t) },
 	},
 	ProviderMajestic: {
 		identity: ValidMajesticIdentity, booking: reorderedBooking(ValidMajesticBookingURL), poster: ValidMajesticPosterURL,
@@ -172,7 +183,8 @@ var providerRuleSet = map[Provider]providerRules{
 			return ValidCinemovidaBookingURL(raw, theaterID) && ValidCinemovidaIdentity("showing", showingID) && strings.HasPrefix(showingID, theaterID+"-")
 		},
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayCalendar,
-		showing: theaterScopedShowing("invalid Ciné-Movida cinema", endNotBeforeStart),
+		showing:          theaterScopedShowing("invalid Ciné-Movida cinema", endNotBeforeStart),
+		completeCoverage: anyTheater,
 	},
 	ProviderOcine: {
 		identity: ValidOcineIdentity, booking: reorderedBooking(ValidOcineBookingURL), poster: ValidOcinePosterURL,

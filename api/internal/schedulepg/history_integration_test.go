@@ -22,6 +22,12 @@ import (
 
 func newHistoryPool(t *testing.T, tracers ...pgx.QueryTracer) *pgxpool.Pool {
 	t.Helper()
+	return newHistoryPoolWith(t, database.RunMigrations, tracers...)
+}
+
+// newHistoryPoolWith creates an isolated schema migrated by migrate.
+func newHistoryPoolWith(t *testing.T, migrate func(context.Context, *pgxpool.Pool) error, tracers ...pgx.QueryTracer) *pgxpool.Pool {
+	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(url) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -73,7 +79,7 @@ func newHistoryPool(t *testing.T, tracers ...pgx.QueryTracer) *pgxpool.Pool {
 	}
 	assert()
 	t.Cleanup(assert)
-	if err := database.RunMigrations(ctx, pool); err != nil {
+	if err := migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	historyProcess(t, NewStore(pool))

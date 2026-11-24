@@ -67,18 +67,13 @@ func TestCineodeRoundTripConstraintsAndIsolationIntegration(t *testing.T) {
 		historyCount(t, pool, "SELECT count(*) FROM "+table, want)
 	}
 	historyCount(t, pool, `SELECT count(*) FROM cinema_activity_coverage WHERE provider='cineode' AND status='complete'`, 0)
+	// Provider-specific booking, poster, slug, version, first-part and coverage
+	// rules are enforced by schedule.ValidateDataset since migration 083; the
+	// database keeps generic invariants and foreign keys.
 	for _, statement := range []string{
-		`UPDATE showtimes SET booking_url=booking_url || '?booking=1' WHERE provider='cineode'`,
-		`UPDATE screening_history_showtimes SET end_time=start_time+interval '1 minute' WHERE provider='cineode'`,
 		`UPDATE showtimes SET movie_provider_id='other-film' WHERE provider='cineode'`,
-		`UPDATE showtimes SET provider_version='VF' WHERE provider='cineode'`,
-		`UPDATE showtimes SET room='invented' WHERE provider='cineode'`,
-		`UPDATE showtimes SET first_part_duration_minutes=10 WHERE provider='cineode'`,
 		`UPDATE showtimes SET service_date=service_date-1 WHERE provider='cineode'`,
-		`UPDATE movies SET poster_url='https://static.cotecine.fr/tb/Affiches/180x240/a%2Bb.JPG' WHERE provider='cineode'`,
-		`UPDATE public_movie_sources SET source_slug='invented' WHERE source_provider='cineode'`,
 		`UPDATE theaters SET provider_id='9999' WHERE provider='cineode'`,
-		`UPDATE cinema_activity_coverage SET status='complete',basis='date_response' WHERE provider='cineode'`,
 	} {
 		if _, err := pool.Exec(t.Context(), statement); err == nil {
 			t.Fatal("unsafe SQL accepted", statement)

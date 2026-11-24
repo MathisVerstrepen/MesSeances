@@ -10,7 +10,7 @@ func TestSourceMoviePagesMigrationIntegration(t *testing.T) {
 	pool, _ := newMigrationTestPool(t, ctx, "source_movie_pages_")
 	installMigrationPrefix(t, ctx, pool, 75, "075_cineode_poster_urls.sql")
 	mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'cgr','123','cgr-film-123','Existing',90)`)
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	var empty bool
@@ -28,7 +28,7 @@ func TestSourceMoviePagesMigrationIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=76`).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=76`).Scan(&after); err != nil || !before.Equal(after) {

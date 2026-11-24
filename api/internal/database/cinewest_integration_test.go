@@ -23,10 +23,10 @@ func TestCinewestMigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 35, "035_mk2_provider.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90),(1,'mk2','HO1','mk2-film-HO1','Existing MK2',0)`)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if upgrade {
 				var count int
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE (provider='ugc' AND title='Existing' AND runtime_minutes=90) OR (provider='mk2' AND title='Existing MK2' AND runtime_minutes=0)`).Scan(&count); err != nil || count != 2 {
@@ -90,7 +90,7 @@ func TestCinewestMigrationIntegration(t *testing.T) {
 					}
 				}
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal("idempotence", err)
 			}
 		})

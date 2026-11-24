@@ -37,10 +37,10 @@ INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(
 					t.Fatal("063 unexpectedly accepts alternate source", err)
 				}
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if baseline != 0 {
 				if beforeRows != veoCheckoutRows(t, ctx, pool) || beforeConstraints != veoCheckoutConstraints(t, ctx, pool) || beforeLedger != veoCheckoutLedger(t, ctx, pool, 63) {
 					t.Fatal("064 changed existing rows/timestamps, constraints or published ledger")
@@ -85,7 +85,7 @@ INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(
 				assertVeoBookingParity(t, ctx, pool, raw, "EMS1361", castShowing, false)
 			}
 			rows, constraints, ledger := veoCheckoutRows(t, ctx, pool), veoCheckoutConstraints(t, ctx, pool), veoCheckoutLedger(t, ctx, pool, 64)
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if rows != veoCheckoutRows(t, ctx, pool) || constraints != veoCheckoutConstraints(t, ctx, pool) || ledger != veoCheckoutLedger(t, ctx, pool, 64) {

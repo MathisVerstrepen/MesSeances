@@ -14,14 +14,14 @@ func TestTheaterImagesMigrationIntegration(t *testing.T) {
 			if upgrade {
 				installMigrationPrefix(t, ctx, pool, 57, "057_movie_metacritic_id.sql")
 			}
-			if e := RunMigrations(ctx, pool); e != nil {
+			if e := migrateToPreRegistry(ctx, pool); e != nil {
 				t.Fatal(e)
 			}
 			var applied time.Time
 			if e := pool.QueryRow(ctx, "SELECT applied_at FROM movieflow_schema_migrations WHERE version=58").Scan(&applied); e != nil {
 				t.Fatal(e)
 			}
-			if e := RunMigrations(ctx, pool); e != nil {
+			if e := migrateToPreRegistry(ctx, pool); e != nil {
 				t.Fatal(e)
 			}
 			var repeated time.Time

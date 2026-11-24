@@ -111,11 +111,12 @@ FROM cinema_activity_coverage WHERE provider='cinemovida' AND generation=$1 AND 
 			t.Fatalf("acquisition coverage changed for generation %d: matches=%t err=%v", generation, matches, err)
 		}
 	}
+	// Provider-specific booking, poster, slug, version, first-part and coverage
+	// rules are enforced by schedule.ValidateDataset since migration 083; the
+	// database keeps generic invariants and foreign keys.
 	for _, table := range []string{"showtimes", "screening_history_showtimes"} {
 		for _, change := range []string{
-			`end_time=start_time-interval '1 minute'`, `first_part_duration_minutes=1`, `service_date=service_date-1`,
-			`booking_url='https://achat.cinema-castillet.com/reserver/r/123?x=1'`, `booking_url='https://achat.concordecinema.com/reserver/r/123'`,
-			`provider_showing_id='P9999-'||repeat('a',64)`,
+			`end_time=start_time-interval '1 minute'`, `provider_showing_id='P9999-'||repeat('a',64)`,
 		} {
 			if _, err := pool.Exec(t.Context(), `UPDATE `+table+` SET `+change+` WHERE provider='cinemovida' AND theater_id='cinemovida-P0176'`); err == nil {
 				t.Fatal("unsafe SQL accepted", table, change)
@@ -123,7 +124,6 @@ FROM cinema_activity_coverage WHERE provider='cinemovida' AND generation=$1 AND 
 		}
 	}
 	for _, statement := range []string{
-		`UPDATE public_movie_sources SET source_slug='invented' WHERE source_provider='cinemovida'`,
 		`UPDATE movie_slug_aliases SET slug='cinemovida-film-wrong' WHERE source_provider='cinemovida'`,
 		`UPDATE theaters SET provider_id='P9999' WHERE provider='cinemovida'`,
 	} {
