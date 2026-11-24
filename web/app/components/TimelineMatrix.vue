@@ -516,7 +516,7 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left shadow-[3px_3px_0_rgba(39,39,42,0.72)] hover:shadow-[3px_3px_0_var(--color-highlight)] focus:z-30 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+            class="absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left shadow-[3px_3px_0_rgba(39,39,42,0.72)] hover:shadow-[3px_3px_0_var(--color-highlight)] focus:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
             :class="[
               item.showtime.language === 'VOSTFR' ? 'bg-primary-soft text-primary' : 'bg-[#e8e6de] text-ink',
               selected?.showtime.id === item.showtime.id ? 'border-ink shadow-[4px_4px_0_var(--color-highlight),inset_0_-3px_0_var(--color-highlight)]' : '',
