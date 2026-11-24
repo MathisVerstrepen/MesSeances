@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"messeances/api/internal/schedule"
@@ -232,5 +233,58 @@ func TestTransientCheckoutOutagePreservesCompleteGrid(t *testing.T) {
 		if schedule.ValidateDataset(data, true) != nil {
 			t.Fatal("retained dataset invalid")
 		}
+	}
+}
+
+func TestCheckoutBudgetPreservesProgramme(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		parentExpiry  bool
+		malformedPage bool
+	}{
+		{name: "checkout expiry"},
+		{name: "parent expiry", parentExpiry: true},
+		{name: "malformed at expiry", malformedPage: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				ctx := t.Context()
+				if tc.parentExpiry {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, time.Minute)
+					defer cancel()
+				}
+				g := &closureGetter{fixtureGetter: closureFixture()}
+				g.checkout = func(ctx context.Context, raw string) ([]byte, error) {
+					if strings.Contains(raw, "/maubeuge/") {
+						return g.fixtureGetter.Checkout(ctx, raw)
+					}
+					<-ctx.Done()
+					if tc.malformedPage && strings.Contains(raw, "/"+schedule.OcineSlug("310")+"/") {
+						return []byte("<html>incomplete"), nil
+					}
+					return nil, ctx.Err()
+				}
+				d, s, err := Sync(ctx, g, fixtureOptions())
+				if tc.parentExpiry || tc.malformedPage {
+					want := error(errShape)
+					if tc.parentExpiry {
+						want = context.DeadlineExceeded
+					}
+					if !errors.Is(err, want) || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+						t.Fatal("fatal failure published a partial programme", err)
+					}
+					return
+				}
+				if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 3 || s.EndsAttempted != 3 || s.EndsRecovered != 1 || s.CheckoutBudgetSkipped != 2 || s.RoomsMissing != 1 {
+					t.Fatal("unexpected bounded checkout result", s, err)
+				}
+				for _, row := range d.Showtimes {
+					if row.BookingURL == "" || row.EndTime.After(row.StartTime) != (row.TheaterID == "ocine-309") || (row.Room == "Salle 4") != (row.TheaterID != "ocine-310") {
+						t.Fatal("checkout budget lost programme or recovered facts", row)
+					}
+				}
+			})
+		})
 	}
 }

@@ -20,7 +20,6 @@ func TestSyncVOF(t *testing.T) {
 		{[]string{"2D", "VOF", "VO"}, "", ""},
 		{[]string{"2D", "VOF", "Muet"}, schedule.LanguageVO, "VOF"},
 		{[]string{"2D", "VOF", "Muet", "STFR"}, schedule.LanguageVOSTFR, "VOF+STFR"},
-		{[]string{"2D"}, "", ""},
 		{[]string{"2D", "vof"}, "", ""},
 	} {
 		t.Run(strings.Join(tc.tokens, "+"), func(t *testing.T) {

@@ -188,7 +188,12 @@ func officeProgram(ctx context.Context, f Fetcher, cinema officeCinema, location
 }
 func officeAttributes(s officeShow, options map[sourceID]string) (schedule.Language, string, schedule.Format, error) {
 	flags := map[string]bool{}
-	ids := []sourceID{s.Language, s.Format}
+	ids := []sourceID{s.Language}
+	// Cine Office can leave the primary format unset. Additional options and
+	// the explicit 3D flag still apply, with the usual fallback to 2D.
+	if s.Format != nil {
+		ids = append(ids, *s.Format)
+	}
 	for _, o := range s.Options {
 		ids = append(ids, o.Option.ID)
 	}
