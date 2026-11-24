@@ -110,9 +110,12 @@ function retry() {
           </p>
           <NuxtLink
             :to="{ path: `/cinema/${item.theater.slug}`, query: { view: 'activity' } }"
-            class="mt-1 inline-flex min-h-7 items-center text-sm text-muted underline underline-offset-4 hover:text-primary [overflow-wrap:anywhere]"
+            class="mt-1 inline-flex min-h-7 max-w-full items-center text-sm text-muted underline underline-offset-4 hover:text-primary [overflow-wrap:anywhere]"
           >
-            {{ theaterDisplayName(item.theater) }}
+            <TheaterName
+              :name="theaterDisplayName(item.theater)"
+              :provider="item.theater.provider"
+            />
           </NuxtLink>
         </HomeMoviePreviewCard>
       </li>

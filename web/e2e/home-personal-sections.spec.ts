@@ -39,7 +39,7 @@ test('home previews the next saved-film sessions and recent favorite-cinema acti
     poster_url: movie.poster_url,
     start_time: `${date}T${hour}:00+01:00`,
     service_date: date,
-    theater: secondTheater,
+    theater: { ...secondTheater, provider: 'kinepolis' },
   })
   const favorites = [theater.id, secondTheater.id].sort()
   await page.route(
@@ -100,6 +100,15 @@ test('home previews the next saved-film sessions and recent favorite-cinema acti
   await expect(
     watchlist.getByRole('link', { name: 'Ma watchlist' }),
   ).toHaveAttribute('href', '/compte/watchlist')
+  const watchlistCinema = watchlist
+    .getByRole('link', { name: secondTheater.name })
+    .first()
+  const watchlistCinemaURL = `/cinema/${secondTheater.slug}?date=${date}#cinema-showtimes-heading`
+  await expect(watchlistCinema).toHaveAttribute('href', watchlistCinemaURL)
+  await expect(watchlistCinema.locator('img')).toHaveAttribute(
+    'src',
+    /kinepolis_logo_small/,
+  )
   expect(await response?.text()).not.toContain(saved.title)
   await expect(activity.getByRole('heading', { level: 3 })).toHaveText([
     'Une séance à Roubaix',
@@ -109,9 +118,14 @@ test('home previews the next saved-film sessions and recent favorite-cinema acti
   await expect(
     activity.getByText('Retour à l’affiche', { exact: false }),
   ).toBeVisible()
-  await expect(
-    activity.getByRole('link', { name: secondTheater.name }),
-  ).toHaveAttribute('href', `/cinema/${secondTheater.slug}?view=activity`)
+  const activityCinema = activity.getByRole('link', {
+    name: secondTheater.name,
+  })
+  await expect(activityCinema).toHaveAttribute(
+    'href',
+    `/cinema/${secondTheater.slug}?view=activity`,
+  )
+  await expect(activityCinema.locator('img')).toHaveAttribute('src', /ugc_logo/)
   expect(requests.sort()).toEqual([
     '/api/v1/account/watchlist/next-screenings',
     '/api/v1/theaters/activity-preview',
@@ -132,6 +146,9 @@ test('home previews the next saved-film sessions and recent favorite-cinema acti
     path: testInfo.outputPath('home-personal-sections.png'),
     fullPage: true,
   })
+  await watchlistCinema.press('Enter')
+  await expect(page).toHaveURL(watchlistCinemaURL)
+  await expect(page.locator('#cinema-showtimes-heading')).toBeVisible()
 })
 
 test('guests can see programming in their device favorites and retry a failed preview', async ({

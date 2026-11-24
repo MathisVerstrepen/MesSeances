@@ -111,9 +111,13 @@ function retry() {
   else retryCount.value++
 }
 
+function cinemaShowtimesTarget(item: MoviePreview) {
+  return `/cinema/${encodeURIComponent(item.theater.slug)}?date=${item.service_date}#cinema-showtimes-heading`
+}
+
 function showtimeTarget(item: MoviePreview) {
   if (item.service_date < todayInParis()) {
-    return `/cinema/${item.theater.slug}?date=${item.service_date}#cinema-showtimes-heading`
+    return cinemaShowtimesTarget(item)
   }
   return `${cinemaMovieTarget(item.movie_slug, item.theater.id)}&date=${item.service_date}#schedule-heading`
 }
@@ -168,9 +172,15 @@ function showtimeTarget(item: MoviePreview) {
               à {{ formatParisTime(item.start_time) }}</time
             >
           </p>
-          <p class="mt-1 text-sm text-muted [overflow-wrap:anywhere]">
-            {{ theaterDisplayName(item.theater) }}
-          </p>
+          <NuxtLink
+            :to="cinemaShowtimesTarget(item)"
+            class="mt-1 inline-flex min-h-7 max-w-full items-center text-sm text-muted underline underline-offset-4 hover:text-primary [overflow-wrap:anywhere]"
+          >
+            <TheaterName
+              :name="theaterDisplayName(item.theater)"
+              :provider="item.theater.provider"
+            />
+          </NuxtLink>
         </HomeMoviePreviewCard>
       </li>
     </ul>
