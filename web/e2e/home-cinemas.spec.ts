@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { test, expect, openPage } from './fixtures'
 import { secondTheater, theater } from './data.mjs'
 
@@ -38,9 +39,33 @@ test('empty homepage selection leads to the directory and updates on return', as
   await expect(choose).toHaveCount(0)
 })
 
-test('saved device cinemas provide direct showtime links across reloads', async ({
+test('saved device cinemas show available photos and preserve links when a photo fails', async ({
   page,
+  isMobile,
 }, testInfo) => {
+  const imageUrl = '/api/v1/theaters/ugc/fixture-cinema/image/1'
+  let servePhoto = true
+  await page.route('**/api/v1/theaters', (route) =>
+    route.fulfill({
+      json: [
+        { ...theater, image: { url: imageUrl, width: 800, height: 195 } },
+        secondTheater,
+      ],
+    }),
+  )
+  await page.route(`**${imageUrl}`, (route) =>
+    servePhoto
+      ? route.fulfill({
+          contentType: 'image/webp',
+          path: fileURLToPath(
+            new URL(
+              '../public/images/guides/pathe-odysseum-800.webp',
+              import.meta.url,
+            ),
+          ),
+        })
+      : route.fulfill({ status: 404 }),
+  )
   await page.addInitScript(
     (ids) => {
       localStorage.setItem(
@@ -64,24 +89,49 @@ test('saved device cinemas provide direct showtime links across reloads', async 
     await expect(link).toContainText(entry.city)
     await expect(link).toContainText(entry.address)
   }
+  const link = cinemas.getByRole('link', {
+    name: `Voir les séances : ${theater.name}`,
+  })
+  const photo = link.locator('img[loading="lazy"]')
+  const title = link.getByRole('heading')
+  await expect(photo).toHaveCSS('opacity', '1')
+  await expect(title).toHaveCSS('color', 'rgb(39, 39, 42)')
+  await expect(
+    cinemas
+      .getByRole('link', { name: `Voir les séances : ${secondTheater.name}` })
+      .locator('img[loading="lazy"]'),
+  ).toHaveCount(0)
+  if (isMobile) {
+    const viewport = page.viewportSize() ?? { width: 390, height: 844 }
+    for (const width of [320, 375]) {
+      await page.setViewportSize({ ...viewport, width })
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      ).toBeTruthy()
+    }
+    await page.setViewportSize(viewport)
+  }
   await section.scrollIntoViewIfNeeded()
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBeTruthy()
-  await page.screenshot({
+  await section.screenshot({
     path: testInfo.outputPath('home-cinemas-selected.png'),
-  })
-  const link = cinemas.getByRole('link', {
-    name: `Voir les séances : ${theater.name}`,
   })
   await link.focus()
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(new RegExp(`/cinema/${theater.slug}$`))
   await page.goBack()
+  servePhoto = false
   await page.reload()
   await expect(cinemas.getByRole('link')).toHaveCount(2)
+  await expect(photo).toHaveJSProperty('complete', true)
+  await expect(photo).toHaveCSS('opacity', '0')
+  await expect(title).toHaveCSS('color', 'rgb(39, 39, 42)')
 })
 
 test('account selection replaces device selection after hydration without private SSR content', async ({

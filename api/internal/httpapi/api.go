@@ -124,6 +124,7 @@ type TheaterImageController interface {
 
 type PublicTheaterImageController interface {
 	PublicImage(context.Context, cinemaimage.Identity) (*cinemaimage.PublicImage, error)
+	PublicImages(context.Context) (map[string]cinemaimage.PublicImage, error)
 	Read(context.Context, cinemaimage.Identity, int64) ([]byte, error)
 }
 
@@ -185,7 +186,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history", api.historyStatistics)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history/options", api.historyOptions)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/theaters/{slug}/activity", api.theaterActivity)
-	router.With(api.requireSchedule).Get("/api/v1/theaters", api.theaters)
+	router.With(noStorePublicTheaterImages, api.requireSchedule).Get("/api/v1/theaters", api.theaters)
 	router.With(noStorePublicTheaterImages, api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.With(noStorePublicTheaterImages, expensiveReads).Get("/api/v1/theaters/{provider}/{providerTheaterID}/image/{revision}", api.publicTheaterImage)
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)

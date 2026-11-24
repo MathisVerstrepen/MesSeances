@@ -18,8 +18,16 @@ import (
 
 type publicTheaterImagesFake struct {
 	metadata                 func(context.Context, cinemaimage.Identity) (*cinemaimage.PublicImage, error)
+	catalog                  func(context.Context) (map[string]cinemaimage.PublicImage, error)
 	read                     func(context.Context, cinemaimage.Identity, int64) ([]byte, error)
 	metadataCalls, readCalls int
+}
+
+func (f *publicTheaterImagesFake) PublicImages(ctx context.Context) (map[string]cinemaimage.PublicImage, error) {
+	if f.catalog != nil {
+		return f.catalog(ctx)
+	}
+	return nil, nil
 }
 
 func (f *publicTheaterImagesFake) PublicImage(ctx context.Context, id cinemaimage.Identity) (*cinemaimage.PublicImage, error) {
@@ -50,6 +58,39 @@ func assertCinemaDeadline(t *testing.T, ctx context.Context, bound time.Duration
 	deadline, ok := ctx.Deadline()
 	if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > bound {
 		t.Fatal("missing or excessive deadline", deadline, bound)
+	}
+}
+
+func TestTheaterCatalogCinemaImageMetadata(t *testing.T) {
+	want := cinemaimage.PublicImage{URL: "/api/v1/theaters/ugc/25/image/1", Width: 20, Height: 10}
+	var storageErr error
+	var calls int
+	f := &publicTheaterImagesFake{catalog: func(ctx context.Context) (map[string]cinemaimage.PublicImage, error) {
+		assertCinemaDeadline(t, ctx, 500*time.Millisecond)
+		calls++
+		return map[string]cinemaimage.PublicImage{"ugc-25": want}, storageErr
+	}}
+	handler := testHandlerWithOptions(t, HandlerOptions{PublicTheaterImages: f})
+	for _, hasImage := range []bool{true, false} {
+		response := performRequest(t, handler, "/api/v1/theaters?city=Lille")
+		assertPublicCinemaHeaders(t, response)
+		var theaters []publicTheaterCatalogItem
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &theaters) != nil || len(theaters) != 2 {
+			t.Fatal(response.Code, response.Body.String())
+		}
+		for _, theater := range theaters {
+			if theater.ID == "ugc-25" && hasImage {
+				if theater.Image == nil || *theater.Image != want {
+					t.Fatal("missing image", theater)
+				}
+			} else if theater.Image != nil {
+				t.Fatal("unexpected image", theater)
+			}
+		}
+		storageErr = cinemaimage.ErrStorage
+	}
+	if calls != 2 || f.metadataCalls != 0 || f.readCalls != 0 {
+		t.Fatal("expected one metadata batch per request", calls, f.metadataCalls, f.readCalls)
 	}
 }
 

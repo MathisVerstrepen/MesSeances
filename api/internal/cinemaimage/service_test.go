@@ -27,6 +27,9 @@ func (r *memoryRepository) Current(_ context.Context, id Identity) (Record, erro
 	}
 	return r.records[id], nil
 }
+func (r *memoryRepository) CurrentImages(context.Context) (map[string]PublicImage, error) {
+	return nil, nil
+}
 func (r *memoryRepository) Save(_ context.Context, id Identity, expected int64, next Record) (Record, string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

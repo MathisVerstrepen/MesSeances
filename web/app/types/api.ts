@@ -953,6 +953,7 @@ export interface Theater {
   accepted_passes: string[]
   latitude?: number | null
   longitude?: number | null
+  image?: PublicTheaterImage | null
 }
 
 export interface City {

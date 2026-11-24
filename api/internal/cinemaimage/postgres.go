@@ -44,6 +44,33 @@ func (p *PostgresRepository) Current(ctx context.Context, id Identity) (Record, 
 	}
 	return r, nil
 }
+
+func (p *PostgresRepository) CurrentImages(ctx context.Context) (map[string]PublicImage, error) {
+	rows, err := p.pool.Query(ctx, `SELECT t.id,t.provider,t.provider_id,`+recordColumns+currentJoin+`WHERE i.file_key IS NOT NULL`)
+	if err != nil {
+		return nil, ErrStorage
+	}
+	defer rows.Close()
+
+	images := make(map[string]PublicImage)
+	for rows.Next() {
+		var theaterID string
+		var id Identity
+		var record Record
+		if rows.Scan(&theaterID, &id.Provider, &id.ProviderTheaterID, &record.Revision, &record.Key, &record.Width, &record.Height, &record.Size) != nil {
+			return nil, ErrStorage
+		}
+		image, err := MaterializePublicImage(id, record)
+		if err == nil && image != nil {
+			images[theaterID] = *image
+		}
+	}
+	if rows.Err() != nil {
+		return nil, ErrStorage
+	}
+	return images, nil
+}
+
 func (p *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Theater, int, error) {
 	if !q.Valid() {
 		return nil, 0, ErrRequest

@@ -33,6 +33,14 @@ func (s *Service) PublicImage(ctx context.Context, id Identity) (*PublicImage, e
 	return MaterializePublicImage(id, r)
 }
 
+// PublicImages returns the current public metadata keyed by catalog theater ID.
+func (s *Service) PublicImages(ctx context.Context) (map[string]PublicImage, error) {
+	if !s.available() {
+		return nil, nil
+	}
+	return s.repo.CurrentImages(ctx)
+}
+
 // MaterializePublicImage shares public metadata normalization with coherent snapshot readers.
 // It reads neither files nor storage. Missing images retain the existing null semantics.
 func MaterializePublicImage(id Identity, r Record) (*PublicImage, error) {
