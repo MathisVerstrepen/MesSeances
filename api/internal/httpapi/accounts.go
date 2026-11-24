@@ -7,13 +7,15 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"messeances/api/internal/accounts"
+	"messeances/api/internal/schedule"
 )
 
 // AccountOptions is deliberately separate from admin and internal authorization.
 type AccountOptions struct {
-	Enabled bool
-	Service *accounts.Service
-	Origin  string
+	Enabled  bool
+	Service  *accounts.Service
+	Origin   string
+	schedule *schedule.Service
 }
 
 func accountPath(path string) bool {
@@ -94,6 +96,7 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Post("/api/v1/account/activity/read", unavailable)
 	router.Post("/api/v1/account/activity/read-all", unavailable)
 	router.Get("/api/v1/account/watchlist", unavailable)
+	router.Post("/api/v1/account/watchlist/next-screenings", unavailable)
 	router.Get("/api/v1/account/watched", unavailable)
 	router.Post("/api/v1/account/watched", unavailable)
 	router.Post("/api/v1/account/watched/preferences", unavailable)

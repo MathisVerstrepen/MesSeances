@@ -168,6 +168,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		AllowCredentials: true,
 		MaxAge:           300,
 	})))
+	options.Accounts.schedule = service
 	registerAccountRoutes(router, options.Accounts)
 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -186,6 +187,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history", api.historyStatistics)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history/options", api.historyOptions)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/theaters/{slug}/activity", api.theaterActivity)
+	router.With(noStoreHistory, expensiveReads).Post("/api/v1/theaters/activity-preview", api.theaterActivityPreview)
 	router.With(noStorePublicTheaterImages, api.requireSchedule).Get("/api/v1/theaters", api.theaters)
 	router.With(noStorePublicTheaterImages, api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.With(noStorePublicTheaterImages, expensiveReads).Get("/api/v1/theaters/{provider}/{providerTheaterID}/image/{revision}", api.publicTheaterImage)

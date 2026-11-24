@@ -66,6 +66,10 @@ func (testActivityReader) TheaterActivity(_ context.Context, q schedule.TheaterA
 	return schedule.TheaterActivity{Limit: q.Limit, Items: []schedule.ActivityEvent{}}, nil
 }
 
+func (testActivityReader) ActivityPreview(context.Context, []string) ([]schedule.ActivityPreviewItem, error) {
+	return []schedule.ActivityPreviewItem{}, nil
+}
+
 func TestAPIActivityRuntimeInjection(t *testing.T) {
 	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil, nil, nil)
 	response := httptest.NewRecorder()

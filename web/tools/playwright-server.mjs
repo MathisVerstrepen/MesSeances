@@ -156,6 +156,34 @@ const mock = createServer((request, response) => {
   const path = url.pathname
   if (
     request.method === 'POST' &&
+    path === '/api/v1/account/watchlist/next-screenings'
+  ) {
+    request.resume()
+    return json(response, { username: scenario.username, items: [] })
+  }
+  if (
+    request.method === 'POST' &&
+    path === '/api/v1/theaters/activity-preview'
+  ) {
+    let body = ''
+    request.on('data', (chunk) => {
+      body += chunk
+    })
+    request.on('end', () => {
+      const ids = JSON.parse(body)
+      const items = ids.includes(theater.id)
+        ? publicActivityPage(
+            null,
+            theater,
+            scenario.publicFeed || 'populated',
+          ).items.map((item) => ({ ...item, theater }))
+        : []
+      json(response, items)
+    })
+    return
+  }
+  if (
+    request.method === 'POST' &&
     [
       '/api/v1/account/activity/visit',
       '/api/v1/account/activity/reading',
