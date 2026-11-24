@@ -12,6 +12,7 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 )
 
@@ -53,33 +54,26 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 					versions[provider] = version
 					return version, nil
 				}),
-				newUGC: func() (ugc.Getter, error) {
+				connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) {
 					if mode == "client" {
 						return nil, errors.New("synthetic client failure")
 					}
 					return unusedGetter{}, nil
-				},
-				newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
-				newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
-				newCGR:       func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
-				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				}).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					if mode == "fetch" {
 						return schedule.Dataset{}, ugc.SyncSummary{}, errors.New("synthetic fetch failure")
 					}
 					return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-				},
-				syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+				}), KinepolisConnector(func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil }).withSync(func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 					return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
-				},
-				syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+				}), PatheConnector(func() (pathe.Getter, error) { return unusedPatheGetter{}, nil }).withSync(func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 					if mode == "validation" {
 						return schedule.Dataset{}, pathe.SyncSummary{}, nil
 					}
 					return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
-				},
-				syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+				}), CGRConnector(func() (cgr.Getter, error) { return unusedCGRGetter{}, nil }).withSync(func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
 					return validDataset(t, schedule.ProviderCGR, window), cgr.SyncSummary{}, nil
-				},
+				})),
 				enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
 					provider := Target(movies[0].SourceProvider)
 					if versions[provider] == 1 {
@@ -100,6 +94,8 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			configureCineodeTestExecutor(t, executor, window)
 			configureCinemovidaTestExecutor(t, executor, window)
 			configureOcineTestExecutor(t, executor, window)
+			ticketingcineOf(executor).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
+			ticketingcineOf(executor).sources = staticSources{}
 			manager, err := newTestManager(t.Context(), executor.now, executor)
 			if err != nil {
 				t.Fatal(err)
@@ -119,6 +115,13 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			}
 			for _, provider := range allTestProviders {
 				got := status.Providers[string(provider)]
+				if provider == TargetTicketingcine {
+					// No enabled source: skipped, never failed or published.
+					if got.State != ProviderSkipped || got.Outcome != nil {
+						t.Errorf("source-less provider status=%+v", got)
+					}
+					continue
+				}
 				if provider == failed {
 					if got.State != ProviderFailed || got.ErrorCode != code || got.Outcome != nil || versions[provider] != 1 || enriched[provider] {
 						t.Errorf("failed provider=%s status=%+v version=%d enriched=%t", provider, got, versions[provider], enriched[provider])

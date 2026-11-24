@@ -99,7 +99,7 @@ func moviePageURL(theater TheaterRecord, movie MovieRecord) *string {
 		if slug := OcineSlug(theater.ProviderID); slug != "" {
 			raw = "https://www.ocine.fr/" + slug + "/film/" + id + "/"
 		}
-	case ProviderMegarama, ProviderMajestic:
+	case ProviderMegarama, ProviderMajestic, ProviderTicketingcine:
 		if megaramaGlobalIdentity.MatchString(id) {
 			raw = "https://www.ticketingcine.com/film/" + id + ".html"
 		}

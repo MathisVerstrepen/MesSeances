@@ -76,8 +76,8 @@ func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
 	e := &ProductionExecutor{now: time.Now, logger: slog.New(slog.NewJSONHandler(&output, nil)), operationTimeout: time.Second, writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 1, nil })}
 	w := Window{From: "2026-08-17"}
 	configureVeoTestExecutor(t, e, w)
-	base := e.syncVeo
-	e.syncVeo = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+	base := veoOf(e).sync
+	veoOf(e).sync = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 		d, s, err := base(ctx, g, o)
 		s.CheckoutRetryAttempts = 1
 		s.CheckoutRecoveries = 1
@@ -114,8 +114,8 @@ func TestVeoOptionalCheckoutWarningsSurviveSuccessfulPublication(t *testing.T) {
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 1, nil })}
 	w := Window{From: "2026-08-17"}
 	configureVeoTestExecutor(t, e, w)
-	base := e.syncVeo
-	e.syncVeo = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+	base := veoOf(e).sync
+	veoOf(e).sync = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 		d, s, err := base(ctx, g, o)
 		s.CheckoutTransientFailures, s.CheckoutBudgetSkipped = 7, 3
 		s.CheckoutStartMismatches = 2
@@ -273,8 +273,8 @@ func (unusedVeoGetter) Checkout(context.Context, string, time.Time) (veo.Checkou
 func (unusedVeoGetter) RequestCount() int { return 29 }
 func configureVeoTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newVeo = func() (veo.Getter, error) { return unusedVeoGetter{}, nil }
-	e.syncVeo = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+	veoOf(e).newClient = func() (veo.Getter, error) { return unusedVeoGetter{}, nil }
+	veoOf(e).sync = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, w)
 		d.Provider = schedule.ProviderVeo
 		d.Theaters = []schedule.TheaterRecord{{Provider: schedule.ProviderVeo, ID: "veo-P1028", ProviderID: "P1028", Slug: "veo-P1028", Name: "Véo fixture", Address: "1 rue", City: "Paris", PostalCode: "75001", AvailableDates: []string{w.From}, AcceptedPasses: []string{}}}

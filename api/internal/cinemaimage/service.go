@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"messeances/api/internal/geocoding"
+	"messeances/api/internal/schedule"
 )
 
 type Identity struct{ Provider, ProviderTheaterID string }
@@ -59,12 +60,7 @@ func (q ListQuery) Valid() bool {
 	if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 || !utf8.ValidString(q.Search) || utf8.RuneCountInString(q.Search) > 1024 || strings.TrimSpace(q.Search) != q.Search || strings.ContainsFunc(q.Search, unicode.IsControl) {
 		return false
 	}
-	switch q.Provider {
-	case "", "ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas", "veo", "majestic", "cineode", "cinemovida", "ocine":
-		return true
-	default:
-		return false
-	}
+	return q.Provider == "" || schedule.IsSourceProvider(schedule.Provider(q.Provider))
 }
 
 // Repository commits metadata only. Save and Remove recheck membership and CAS

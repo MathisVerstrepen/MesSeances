@@ -31,6 +31,8 @@ const (
 	TargetCineode    Target = "cineode"
 	TargetCinemovida Target = "cinemovida"
 	TargetOcine      Target = "ocine"
+	// TargetTicketingcine syncs the generic TicketingCiné sync sources.
+	TargetTicketingcine Target = "ticketingcine"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"
@@ -164,7 +166,29 @@ func releaseRunLease(ctx context.Context, lease RunLease) error {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo || target == TargetMajestic || target == TargetCineode || target == TargetCinemovida || target == TargetOcine
+	return target == TargetAll || isProviderTarget(target)
+}
+
+// ProviderTargets returns every synchronized provider in canonical order.
+func ProviderTargets() []Target {
+	providers := schedule.SourceProviders()
+	targets := make([]Target, len(providers))
+	for i, provider := range providers {
+		targets[i] = Target(provider)
+	}
+	return targets
+}
+
+func isProviderTarget(target Target) bool {
+	return schedule.IsSourceProvider(schedule.Provider(target))
+}
+
+// runTargets expands TargetAll into every provider.
+func runTargets(target Target) []Target {
+	if target == TargetAll {
+		return ProviderTargets()
+	}
+	return []Target{target}
 }
 
 func (m *Manager) Start(target Target) (Status, error) {
@@ -233,67 +257,13 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 
 	now := m.now()
 	today := now.In(m.location)
-	providers := map[string]ProviderStatus{
-		string(TargetUGC):        {State: ProviderNotRequested},
-		string(TargetKinepolis):  {State: ProviderNotRequested},
-		string(TargetPathe):      {State: ProviderNotRequested},
-		string(TargetCGR):        {State: ProviderNotRequested},
-		string(TargetMegarama):   {State: ProviderNotRequested},
-		string(TargetCineville):  {State: ProviderNotRequested},
-		string(TargetMK2):        {State: ProviderNotRequested},
-		string(TargetCinewest):   {State: ProviderNotRequested},
-		string(TargetGrandEcran): {State: ProviderNotRequested},
-		string(TargetNoeCinemas): {State: ProviderNotRequested},
-		string(TargetVeo):        {State: ProviderNotRequested},
-		string(TargetMajestic):   {State: ProviderNotRequested},
-		string(TargetCineode):    {State: ProviderNotRequested},
-		string(TargetCinemovida): {State: ProviderNotRequested},
-		string(TargetOcine):      {State: ProviderNotRequested},
-	}
-	if target == TargetAll || target == TargetUGC {
-		providers[string(TargetUGC)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetKinepolis {
-		providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetPathe {
-		providers[string(TargetPathe)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetCGR {
-		providers[string(TargetCGR)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetMegarama {
-		providers[string(TargetMegarama)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetCineville {
-		providers[string(TargetCineville)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetMK2 {
-		providers[string(TargetMK2)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetCinewest {
-		providers[string(TargetCinewest)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetGrandEcran {
-		providers[string(TargetGrandEcran)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetNoeCinemas {
-		providers[string(TargetNoeCinemas)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetVeo {
-		providers[string(TargetVeo)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetMajestic {
-		providers[string(TargetMajestic)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetCineode {
-		providers[string(TargetCineode)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetCinemovida {
-		providers[string(TargetCinemovida)] = ProviderStatus{State: ProviderPending}
-	}
-	if target == TargetAll || target == TargetOcine {
-		providers[string(TargetOcine)] = ProviderStatus{State: ProviderPending}
+	providers := make(map[string]ProviderStatus, len(schedule.SourceProviders()))
+	for _, provider := range ProviderTargets() {
+		state := ProviderNotRequested
+		if target == TargetAll || target == provider {
+			state = ProviderPending
+		}
+		providers[string(provider)] = ProviderStatus{State: state}
 	}
 	status := Status{
 		Target: target, State: StateRunning, Trigger: TriggerManual,
@@ -383,10 +353,7 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 			terminal = m.markFailure(FailureInternal, StageOrchestration)
 		}
 	}()
-	providers := []Target{target}
-	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine}
-	}
+	providers := runTargets(target)
 	state := StateSucceeded
 	for _, provider := range providers {
 		if target == TargetAll && m.ctx.Err() != nil {
@@ -432,6 +399,9 @@ func (m *Manager) executeProvider(provider Target, window Window) (result Provid
 		}
 	}()
 	outcomes, err := m.executor.Run(m.ctx, provider, window)
+	if errors.Is(err, ErrNoSources) {
+		return ProviderStatus{State: ProviderSkipped}
+	}
 	if err != nil {
 		return m.providerFailure(provider, err)
 	}
@@ -559,7 +529,7 @@ func cloneStatus(status Status) Status {
 			state.Log = append([]string(nil), state.Log...)
 			copy.Providers[provider] = state
 		}
-		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine} {
+		for _, provider := range ProviderTargets() {
 			if _, exists := copy.Providers[string(provider)]; !exists {
 				copy.Providers[string(provider)] = ProviderStatus{State: ProviderNotRequested}
 			}

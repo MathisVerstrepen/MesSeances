@@ -55,7 +55,7 @@ func TestClientResponseClassificationAndRedaction(t *testing.T) {
 	} {
 		c := testClient(t, func(*http.Request) (*http.Response, error) { return response(v.status, v.media, v.body), nil })
 		_, err := c.FetchCinema(t.Context(), "build", "katorza")
-		var re *RequestError
+		var re *syncproxy.RequestError
 		if !errors.As(err, &re) || re.Kind != v.kind || c.RequestCount() != v.attempts || strings.Contains(err.Error(), "synthetic-private") {
 			t.Fatalf("status=%d kind=%d attempts=%d err=%v", v.status, v.kind, c.RequestCount(), err)
 		}
@@ -150,7 +150,7 @@ func TestClientReadTransportAndBodyBounds(t *testing.T) {
 		return response(200, "application/json", strings.Repeat("x", MaxBodySize+1)), nil
 	})
 	_, err := c.FetchCinema(t.Context(), "build", "laval")
-	var re *RequestError
+	var re *syncproxy.RequestError
 	if !errors.As(err, &re) || re.Kind != syncproxy.FailureResponseLarge || c.RequestCount() != 1 {
 		t.Fatal("body bound")
 	}

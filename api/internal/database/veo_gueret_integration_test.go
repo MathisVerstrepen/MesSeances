@@ -36,13 +36,13 @@ INSERT INTO screening_history_showtimes(id,provider,provider_showing_id,service_
 		return result
 	}
 	before := snapshot()
-	if err := RunMigrations(ctx, pool); err != nil {
+	if err := migrateToPreRegistry(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	if snapshot() != before {
 		t.Fatal("065 rewrote data, CHECKs or published migration ledger")
 	}
-	assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+	assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 	const raw = "https://relay.mvtx.us/ticketing/dbz?code_theater=P1394&gid_entity=fixture_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261016&perft=15:00"
 	values := []string{raw, strings.ReplaceAll(strings.ReplaceAll(raw, ",", "%2C"), ":00", "%3a00"), strings.ReplaceAll(raw, "20261016", "20000229"), strings.ReplaceAll(raw, "fixture_123.opaque", strings.Repeat("%41", 1024)), raw + "&tags=x", raw + "&x=1", raw + "&", raw + "#", raw + "\n", raw + " ", strings.ReplaceAll(raw, "code_theater", "code%5ftheater"), strings.ReplaceAll(raw, "P1394", "G06DB"), strings.ReplaceAll(raw, "20261016", "20260229"), strings.ReplaceAll(raw, "20261016", "19000229"), strings.ReplaceAll(raw, "20261016", "00001016"), strings.ReplaceAll(raw, "15:00", "24:00"), strings.ReplaceAll(raw, "15:00", "15:60"), strings.ReplaceAll(raw, "https:", "http:"), strings.ReplaceAll(raw, "relay.mvtx.us", "relay.mvtx.us.evil.test"), strings.ReplaceAll(raw, "relay.mvtx.us", "relay.mvtx.us:443"), strings.ReplaceAll(raw, "https://", "https://user@"), strings.ReplaceAll(raw, "/ticketing/dbz", "/ticketing/%64bz"), strings.ReplaceAll(raw, "/ticketing/dbz", "/x/../ticketing/dbz"), "https://achat.cinema-senechal.com/r/1"}
 	for _, value := range []string{"", "%", "%GG", "%252C", "%26x%3D1", "%3B", "%23", "%3F", "%2F", "%5C", "%00", "%0A", "+", "%20", "é", "%C3%A9", "a=b", strings.Repeat("a", 1025)} {

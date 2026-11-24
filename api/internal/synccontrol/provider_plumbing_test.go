@@ -26,22 +26,22 @@ func TestProviderExecutorMetricsFailuresAndNonfatalEnrichment(t *testing.T) {
 		failFetch func(*ProductionExecutor)
 	}{
 		{TargetMK2, "HO00006568", 27, configureMK2TestExecutor, func(e *ProductionExecutor) {
-			e.syncMK2 = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
-				return schedule.Dataset{}, mk2.SyncSummary{}, &mk2.RequestError{Operation: mk2.OperationComplex, Kind: syncproxy.FailureChallenge, StatusCode: 403}
+			mk2Of(e).sync = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
+				return schedule.Dataset{}, mk2.SyncSummary{}, &syncproxy.RequestError{Operation: mk2.OperationComplex, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetGrandEcran, "cEvent_1", 27, configureGrandEcranTestExecutor, func(e *ProductionExecutor) {
-			e.syncGrandEcran = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
-				return schedule.Dataset{}, grandecran.SyncSummary{}, &grandecran.RequestError{Operation: grandecran.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
+			grandEcranOf(e).sync = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
+				return schedule.Dataset{}, grandecran.SyncSummary{}, &syncproxy.RequestError{Operation: grandecran.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetNoeCinemas, "cEvent_1", 27, configureNoeCinemasTestExecutor, func(e *ProductionExecutor) {
-			e.syncNoeCinemas = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
-				return schedule.Dataset{}, noecinemas.SyncSummary{}, &noecinemas.RequestError{Operation: noecinemas.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
+			noeCinemasOf(e).sync = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
+				return schedule.Dataset{}, noecinemas.SyncSummary{}, &syncproxy.RequestError{Operation: noecinemas.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetVeo, "cEvent_1", 29, configureVeoTestExecutor, func(e *ProductionExecutor) {
-			e.syncVeo = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+			veoOf(e).sync = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 				return schedule.Dataset{}, veo.SyncSummary{}, &veo.RequestError{Operation: veo.OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
@@ -90,7 +90,7 @@ func TestProviderManagerSelectionAndStatusCloning(t *testing.T) {
 		t.Run(string(provider), func(t *testing.T) {
 			for _, mode := range []string{"manual", "scheduled"} {
 				t.Run(mode, func(t *testing.T) {
-					calls := make(chan Target, 15)
+					calls := make(chan Target, 16)
 					m, err := newTestManager(t.Context(), time.Now, executorFunc(func(_ context.Context, target Target, _ Window) (ProviderOutcome, error) {
 						calls <- target
 						return ProviderOutcome{}, nil
@@ -108,7 +108,7 @@ func TestProviderManagerSelectionAndStatusCloning(t *testing.T) {
 						t.Fatal(err)
 					}
 					status := waitForTerminal(t, m)
-					if status.State != StateSucceeded || len(status.Providers) != 15 || len(calls) != 1 || <-calls != provider {
+					if status.State != StateSucceeded || len(status.Providers) != 16 || len(calls) != 1 || <-calls != provider {
 						t.Fatalf("status=%+v", status)
 					}
 					if mode == "scheduled" && (status.Occurrence == nil || status.Occurrence.Provider != provider) {

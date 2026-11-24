@@ -12,7 +12,7 @@ func TestMajesticScheduleStarterDispatch(t *testing.T) {
 	provider := &fakeProviderScheduleStarter{}
 	s := syncScheduleStarter{providers: provider}
 	targets := s.AvailableTargets()
-	if len(targets) != 15 || targets[10] != syncschedule.TargetVeo || targets[11] != syncschedule.TargetMajestic || targets[12] != syncschedule.TargetCineode || targets[13] != syncschedule.TargetCinemovida || targets[14] != syncschedule.TargetOcine {
+	if len(targets) != 16 || targets[15] != syncschedule.TargetTicketingcine || targets[10] != syncschedule.TargetVeo || targets[11] != syncschedule.TargetMajestic || targets[12] != syncschedule.TargetCineode || targets[13] != syncschedule.TargetCinemovida || targets[14] != syncschedule.TargetOcine {
 		t.Fatal(targets)
 	}
 	result, err := s.StartScheduled(syncschedule.Occurrence{ScheduleID: 1, Target: syncschedule.TargetMajestic, Revision: 1, ScheduledFor: time.Now()})

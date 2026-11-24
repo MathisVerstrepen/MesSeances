@@ -19,31 +19,16 @@ const MaxBodySize = 32 << 20
 
 var pathSegment = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
-type Operation string
+// Operation names one kind of request; its phase drives sync classification.
+type Operation = syncproxy.Operation
 
-const (
-	OperationBootstrap Operation = "bootstrap"
-	OperationCinema    Operation = "cinema"
+var (
+	OperationBootstrap = syncproxy.Operation{Name: "bootstrap", Phase: syncproxy.PhaseCinemas}
+	OperationCinema    = syncproxy.Operation{Name: "cinema", Phase: syncproxy.PhaseProgram}
 )
 
-// RequestError keeps request diagnostics for the admin journal separately from
-// its generic Error text and context cancellation chain.
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Operation  Operation
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
-
-func (e *RequestError) Error() string {
-	op := "unknown"
-	if e.Operation == OperationBootstrap || e.Operation == OperationCinema {
-		op = string(e.Operation)
-	}
-	return fmt.Sprintf("cineville %s request failed (category %d, status %d)", op, e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// sourceName labels Cineville request errors.
+const sourceName = "cineville"
 
 type ClientConfig struct {
 	Proxies         []syncproxy.Proxy
@@ -126,42 +111,19 @@ func (c *Client) Fetch(ctx context.Context) ([]byte, error) {
 }
 func (c *Client) FetchCinema(ctx context.Context, build, route string) ([]byte, error) {
 	if !pathSegment.MatchString(build) || !pathSegment.MatchString(route) {
-		return nil, &RequestError{Operation: OperationCinema, Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, OperationCinema)
 	}
 	return c.request(ctx, OperationCinema, "https://www.cineville.fr/_next/data/"+build+"/programmes/"+route+".json", []string{"application/json"})
 }
 func (c *Client) request(ctx context.Context, op Operation, target string, media []string) ([]byte, error) {
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: target, MediaTypes: media, RetryContentType: op == OperationCinema}, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: target, MediaTypes: media, RetryContentType: op == OperationCinema}, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		if op == OperationCinema && !json.Valid(body) {
-			return nil, &RequestError{Operation: op, Kind: syncproxy.FailureInvalidJSON}
+			return nil, &syncproxy.RequestError{Source: sourceName, Operation: op, Kind: syncproxy.FailureInvalidJSON}
 		}
 		return body, nil
 	}
-	err := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, target, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		err.cause = ctx.Err()
-	}
-	return nil, err
+	return nil, syncproxy.NewRequestError(sourceName, op, http.MethodGet, target, failure)
 }
 func allowedURL(u *url.URL) bool {
 	if u == nil || u.Scheme != "https" || u.Host != "www.cineville.fr" || u.User != nil || u.Opaque != "" || u.RawPath != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(u.String(), "?#%\\") {

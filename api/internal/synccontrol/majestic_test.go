@@ -18,8 +18,8 @@ func (unusedMajesticGetter) Program(context.Context, string) ([]byte, error) { r
 func (unusedMajesticGetter) RequestCount() int                               { return 7 }
 func configureMajesticTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newMajestic = func() (majestic.Getter, error) { return unusedMajesticGetter{}, nil }
-	e.syncMajestic = func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error) {
+	majesticOf(e).newClient = func() (majestic.Getter, error) { return unusedMajesticGetter{}, nil }
+	majesticOf(e).sync = func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, w)
 		d.Provider = schedule.ProviderMajestic
 		r := &d.Showtimes[0]
@@ -45,7 +45,7 @@ func TestMajesticExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 			t.Fatal("wrong publication")
 		}
 		return 4, nil
-	}), NewMajestic: func() (majestic.Getter, error) { return unusedMajesticGetter{}, nil }, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second})
+	}), Connectors: []Connector{MajesticConnector(func() (majestic.Getter, error) { return unusedMajesticGetter{}, nil })}, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,8 +55,8 @@ func TestMajesticExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 	if err != nil || writes != 1 || out[TargetMajestic].Sync.Requests != 7 || out[TargetMajestic].Sync.Version != 4 {
 		t.Fatal("publication/metrics", out, err)
 	}
-	e.syncMajestic = func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error) {
-		return schedule.Dataset{}, majestic.SyncSummary{}, &majestic.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+	majesticOf(e).sync = func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error) {
+		return schedule.Dataset{}, majestic.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetMajestic, w)
 	var re *RunError

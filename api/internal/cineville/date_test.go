@@ -71,7 +71,7 @@ func TestSyncRejectsMalformedWireDatesInBothProgramArrays(t *testing.T) {
 				if f.RequestCount() != wantRequests {
 					t.Fatal("unexpected acquisition retry")
 				}
-				var re *RequestError
+				var re *syncproxy.RequestError
 				if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || errors.Is(err, schedule.ErrDatasetValidation) || len(data.Showtimes) != 0 || strings.Contains(err.Error(), "private-synthetic-sentinel") {
 					t.Fatal("malformed date not rejected with bounded payload error")
 				}

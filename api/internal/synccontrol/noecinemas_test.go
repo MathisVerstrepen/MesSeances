@@ -17,8 +17,8 @@ func (unusedNoeCinemasGetter) Get(context.Context, noecinemas.Operation, string)
 func (unusedNoeCinemasGetter) RequestCount() int { return 27 }
 func configureNoeCinemasTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newNoeCinemas = func() (noecinemas.Getter, error) { return unusedNoeCinemasGetter{}, nil }
-	e.syncNoeCinemas = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
+	noeCinemasOf(e).newClient = func() (noecinemas.Getter, error) { return unusedNoeCinemasGetter{}, nil }
+	noeCinemasOf(e).sync = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, w)
 		d.Provider = schedule.ProviderNoeCinemas
 		d.Theaters = []schedule.TheaterRecord{{Provider: schedule.ProviderNoeCinemas, ID: "noecinemas-P8088", ProviderID: "P8088", Slug: "noecinemas-P8088", Name: "Noé Test", Address: "1 rue Test", City: "L'Aigle", PostalCode: "61300", AvailableDates: []string{w.From}, AcceptedPasses: []string{}}}

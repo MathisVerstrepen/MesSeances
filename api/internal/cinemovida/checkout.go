@@ -157,7 +157,7 @@ func enrichEnds(ctx context.Context, g Getter, records []schedule.ShowtimeRecord
 		r := records[i]
 		body, err := g.Checkout(ctx, r.BookingURL, r.StartTime)
 		if err != nil {
-			var requestErr *RequestError
+			var requestErr *syncproxy.RequestError
 			if errors.As(err, &requestErr) && requestErr.Kind == syncproxy.FailureChallenge {
 				return struct{}{}, err
 			}

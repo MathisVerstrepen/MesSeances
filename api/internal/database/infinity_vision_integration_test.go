@@ -45,7 +45,7 @@ func TestInfinityVisionMigrationIntegration(t *testing.T) {
 				providerChanges = captureProviderConstraintChanges(t, ctx, pool)
 				beforeRows, beforeConstraints = infinityMigrationState(t, ctx, pool, providerChanges)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
@@ -61,10 +61,10 @@ func TestInfinityVisionMigrationIntegration(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=40`).Scan(&applied); err != nil {
 				t.Fatal(err)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			var once bool
 			if err := pool.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(applied_at=$1) FROM movieflow_schema_migrations WHERE version=40`, applied).Scan(&once); err != nil || !once {
 				t.Fatal("migration runner reapplied 040", err)

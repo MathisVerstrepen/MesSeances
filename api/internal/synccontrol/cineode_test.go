@@ -20,8 +20,8 @@ func (unusedCineodeGetter) RequestCount() int                                   
 
 func configureCineodeTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newCineode = func() (cineode.Getter, error) { return unusedCineodeGetter{}, nil }
-	e.syncCineode = func(ctx context.Context, _ cineode.Getter, o cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error) {
+	cineodeOf(e).newClient = func() (cineode.Getter, error) { return unusedCineodeGetter{}, nil }
+	cineodeOf(e).sync = func(ctx context.Context, _ cineode.Getter, o cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error) {
 		if _, ok := ctx.Deadline(); !ok || o.From != w.From || o.Now.IsZero() {
 			t.Error("missing operation context/options")
 		}
@@ -54,7 +54,7 @@ func TestCineodeExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 			t.Fatal("wrong publication")
 		}
 		return 4, nil
-	}), NewCineode: func() (cineode.Getter, error) { return unusedCineodeGetter{}, nil }, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second})
+	}), Connectors: []Connector{CineodeConnector(func() (cineode.Getter, error) { return unusedCineodeGetter{}, nil })}, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +64,8 @@ func TestCineodeExecutorAtomicPublicationAndSafeFailure(t *testing.T) {
 	if err != nil || writes != 1 || out[TargetCineode].Sync.Requests != 39 || out[TargetCineode].Sync.Version != 4 {
 		t.Fatal("publication/metrics", out, err)
 	}
-	e.syncCineode = func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error) {
-		return schedule.Dataset{}, cineode.SyncSummary{}, &cineode.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
+	cineodeOf(e).sync = func(context.Context, cineode.Getter, cineode.SyncOptions) (schedule.Dataset, cineode.SyncSummary, error) {
+		return schedule.Dataset{}, cineode.SyncSummary{}, &syncproxy.RequestError{Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCineode, w)
 	var re *RunError

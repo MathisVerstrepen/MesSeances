@@ -149,34 +149,10 @@ func validateMatch(match Match) error {
 	return nil
 }
 
+// validSourceIdentity checks a source movie ID. Providers with a legacy
+// enrichment format are handled here; every other source provider uses the
+// schedule identity rules.
 func validSourceIdentity(provider, id string) bool {
-	if provider == SourceOcine {
-		return schedule.ValidOcineIdentity("movie", id)
-	}
-	if provider == SourceCinemovida {
-		return schedule.ValidCinemovidaIdentity("movie", id)
-	}
-	if provider == SourceCineode {
-		return schedule.ValidCineodeIdentity("movie", id)
-	}
-	if provider == SourceMajestic {
-		return schedule.ValidMajesticIdentity("movie", id)
-	}
-	if provider == SourceCinewest {
-		return schedule.ValidCinewestIdentity("movie", id)
-	}
-	if provider == SourceGrandEcran {
-		return schedule.ValidGrandEcranIdentity("movie", id)
-	}
-	if provider == SourceNoeCinemas {
-		return schedule.ValidNoeCinemasIdentity("movie", id)
-	}
-	if provider == SourceVeo {
-		return schedule.ValidVeoIdentity("movie", id)
-	}
-	if provider == SourceMK2 {
-		return schedule.ValidMK2Identity("movie", id)
-	}
 	if provider == SourceCineville {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID != 0 && strconv.FormatInt(movieID, 10) == id
@@ -188,7 +164,10 @@ func validSourceIdentity(provider, id string) bool {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID > 0 && strconv.FormatInt(movieID, 10) == id
 	}
-	if provider != SourceKinepolis && provider != SourcePathe || id == "" || len(id) > 128 || provider == SourcePathe && len(id) > 128-len("pathe-film-") {
+	if provider != SourceKinepolis && provider != SourcePathe {
+		return schedule.IsSourceProvider(schedule.Provider(provider)) && schedule.ValidProviderIdentity(schedule.Provider(provider), "movie", id)
+	}
+	if id == "" || len(id) > 128 || provider == SourcePathe && len(id) > 128-len("pathe-film-") {
 		return false
 	}
 	for index, r := range id {

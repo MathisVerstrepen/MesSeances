@@ -55,6 +55,27 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("database migration discovery failed")
 	}
+	return applyMigrations(ctx, pool, migrations)
+}
+
+// RunMigrationsThrough applies pending migrations up to and including
+// version. Upgrade tests use it to build a database at an earlier schema.
+func RunMigrationsThrough(ctx context.Context, pool *pgxpool.Pool, version int64) error {
+	migrations, err := embeddedMigrations()
+	if err != nil {
+		return fmt.Errorf("database migration discovery failed")
+	}
+	for i, item := range migrations {
+		if item.version == version {
+			return applyMigrations(ctx, pool, migrations[:i+1])
+		}
+	}
+	return fmt.Errorf("database migration %03d is unknown", version)
+}
+
+// applyMigrations applies the pending suffix of migrations, which must extend
+// the recorded history, in one locked transaction.
+func applyMigrations(ctx context.Context, pool *pgxpool.Pool, migrations []migration) error {
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return fmt.Errorf("database migration transaction failed")

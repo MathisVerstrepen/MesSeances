@@ -106,7 +106,7 @@ func fetchCheckoutFacts(ctx context.Context, g Getter, source boxofficeGetter, r
 		body, err = g.Checkout(ctx, row.BookingURL)
 	}
 	if err != nil {
-		var requestErr *RequestError
+		var requestErr *syncproxy.RequestError
 		if errors.As(err, &requestErr) {
 			switch requestErr.Kind {
 			case syncproxy.FailureStatus:

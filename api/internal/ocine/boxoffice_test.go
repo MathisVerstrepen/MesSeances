@@ -90,7 +90,7 @@ func TestBoxofficeCheckoutRejectsUnboundRedirect(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, _, err = client.CheckoutBoxoffice(t.Context(), row, "309")
-		var bad *RequestError
+		var bad *syncproxy.RequestError
 		if !errors.As(err, &bad) || bad.Kind != syncproxy.FailureRedirect {
 			t.Fatalf("unexpected result for unbound redirect: %v", err)
 		}

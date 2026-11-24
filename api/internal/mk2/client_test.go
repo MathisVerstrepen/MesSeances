@@ -108,7 +108,7 @@ func TestClientResponsePolicyAndRedirectSafety(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = c.FetchCinemas(t.Context())
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Kind != tc.kind || calls != 1 {
 				t.Fatalf("err=%v calls=%d", err, calls)
 			}
@@ -125,7 +125,7 @@ func TestClientResponsePolicyAndRedirectSafety(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = c.FetchFilms(t.Context())
-	var re *RequestError
+	var re *syncproxy.RequestError
 	if !errors.As(err, &re) || re.Kind != syncproxy.FailureRedirect || calls != 1 || strings.Contains(err.Error(), "evil") {
 		t.Fatalf("redirect err=%v calls=%d", err, calls)
 	}

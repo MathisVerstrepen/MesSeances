@@ -16,8 +16,8 @@ func (unusedMK2Fetcher) FetchComplex(context.Context, string) ([]byte, error) { 
 func (unusedMK2Fetcher) RequestCount() int                                    { return 27 }
 func configureMK2TestExecutor(t *testing.T, e *ProductionExecutor, window Window) {
 	t.Helper()
-	e.newMK2 = func() (mk2.Fetcher, error) { return unusedMK2Fetcher{}, nil }
-	e.syncMK2 = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
+	mk2Of(e).newClient = func() (mk2.Fetcher, error) { return unusedMK2Fetcher{}, nil }
+	mk2Of(e).sync = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, window)
 		d.Provider = schedule.ProviderMK2
 		d.Theaters = []schedule.TheaterRecord{{Provider: schedule.ProviderMK2, ID: "mk2-0004", ProviderID: "0004", Slug: "mk2-0004", Name: "MK2 Bibliothèque", Address: "128 avenue de France", City: "Paris", PostalCode: "75013", AvailableDates: []string{window.From}, AcceptedPasses: []string{}}}

@@ -120,7 +120,7 @@ func TestClientSafeFailuresAndDistinctRetries(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err = c.Catalog(t.Context(), "shows", "synthetic-secret")
-			var re *RequestError
+			var re *syncproxy.RequestError
 			if !errors.As(err, &re) || re.Kind != tc.want || len(seen) != tc.attempts || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "http") {
 				t.Fatalf("wrong bounded failure: %v", err)
 			}

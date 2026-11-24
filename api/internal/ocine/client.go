@@ -15,17 +15,11 @@ const MaxResponseBytes = 16 << 20
 
 var cinemaIDs = [...]string{"309", "310", "461"}
 
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
+// sourceName labels Ocine request errors.
+const sourceName = "Ocine"
 
-func (e *RequestError) Error() string {
-	return fmt.Sprintf("Ocine request failed (category %d, status %d)", e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// operationPage covers every Ocine page request; all feed the programme.
+var operationPage = syncproxy.Operation{Phase: syncproxy.PhaseProgram}
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -34,8 +28,8 @@ type ClientConfig struct {
 type Client struct{ executor *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("ocine requires proxies and a timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("ocine", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, checkoutRedirect)
 	if err != nil {
@@ -81,7 +75,7 @@ func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 
 func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 	if !schedule.ValidOcineIdentity("theater", id) || route != "seances" && route != "plan-d-acces" {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, operationPage)
 	}
 	return c.get(ctx, "https://www.ocine.fr/"+schedule.OcineSlug(id)+"/"+route+"/")
 }
@@ -92,7 +86,7 @@ func (c *Client) Checkout(ctx context.Context, raw string) ([]byte, error) {
 			return c.get(ctx, raw)
 		}
 	}
-	return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+	return nil, syncproxy.InvalidRequest(sourceName, operationPage)
 }
 
 func (c *Client) get(ctx context.Context, raw string) ([]byte, error) {
@@ -102,34 +96,11 @@ func (c *Client) get(ctx context.Context, raw string) ([]byte, error) {
 func (c *Client) fetch(ctx context.Context, raw string, media []string, checkout bool) ([]byte, error) {
 	u, err := url.Parse(raw)
 	if err != nil || u.String() != raw || !allowedURL(u) {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, operationPage)
 	}
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, MediaTypes: media, NoRedirect: !checkout, AllowRedirect: checkout}, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, MediaTypes: media, NoRedirect: !checkout, AllowRedirect: checkout}, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
-	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, raw, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		e.cause = failure.Cause
-	}
-	return nil, e
+	return nil, syncproxy.NewRequestError(sourceName, operationPage, http.MethodGet, raw, failure)
 }

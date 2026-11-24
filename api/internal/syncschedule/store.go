@@ -31,7 +31,7 @@ const scheduleColumns = `id,target,revision,enabled,schedule_kind,local_time,wee
 
 func (s *PostgresStore) List(ctx context.Context) ([]Schedule, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+scheduleColumns+` FROM sync_schedules
-		ORDER BY CASE target WHEN 'ugc' THEN 1 WHEN 'kinepolis' THEN 2 WHEN 'pathe' THEN 3 WHEN 'cgr' THEN 4 WHEN 'megarama' THEN 5 WHEN 'cineville' THEN 6 WHEN 'mk2' THEN 7 WHEN 'cinewest' THEN 8 WHEN 'grandecran' THEN 9 WHEN 'noecinemas' THEN 10 WHEN 'veo' THEN 11 WHEN 'majestic' THEN 12 WHEN 'cineode' THEN 13 WHEN 'cinemovida' THEN 14 WHEN 'ocine' THEN 15 WHEN 'tmdb_metadata_refresh' THEN 16 WHEN 'tmdb_upcoming_movies' THEN 17 ELSE 18 END,id`)
+		ORDER BY array_position($1::text[],target) NULLS LAST,id`, orderedTargetNames())
 	if err != nil {
 		return nil, fmt.Errorf("list sync schedules failed")
 	}
@@ -153,4 +153,15 @@ func scanSchedule(row scheduleScanner) (Schedule, error) {
 		schedule.Definition.Expression = *expression
 	}
 	return schedule, nil
+}
+
+// orderedTargetNames feeds the canonical display order to SQL so the list
+// query never needs a hand-maintained CASE per target.
+func orderedTargetNames() []string {
+	targets := OrderedTargets()
+	names := make([]string, len(targets))
+	for i, target := range targets {
+		names[i] = string(target)
+	}
+	return names
 }

@@ -21,10 +21,10 @@ func TestMK2MigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 34, "034_cineville_provider.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90),(1,'cineville','-1','cineville-film--1','Existing event',0)`)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			if upgrade {
 				var count int
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE (provider='ugc' AND title='Existing' AND runtime_minutes=90) OR (provider='cineville' AND title='Existing event' AND runtime_minutes=0)`).Scan(&count); err != nil || count != 2 {
@@ -95,7 +95,7 @@ func TestMK2MigrationIntegration(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT mk2_identity_valid('movie',$1) OR mk2_identity_valid('theater',$2) OR mk2_identity_valid('showing',$3)`, "HO"+strings.Repeat("1", 118), strings.Repeat("1", 125), "1-"+strings.Repeat("1", 115)).Scan(&valid); err != nil || valid {
 				t.Fatal("overlong derived identities accepted", err)
 			}
-			if err := RunMigrations(ctx, pool); err != nil {
+			if err := migrateToPreRegistry(ctx, pool); err != nil {
 				t.Fatal("idempotence", err)
 			}
 		})

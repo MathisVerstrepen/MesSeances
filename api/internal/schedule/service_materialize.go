@@ -14,51 +14,17 @@ func compareNormalized(a, b string) int { return strings.Compare(normalized(a), 
 func localTime(date time.Time, hour, minute int) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())
 }
+
+// recordProvider resolves a record's provider, falling back to its identity
+// prefix for legacy records without an explicit provider (UGC by default).
 func recordProvider(explicit Provider, identity string) Provider {
 	if explicit != "" {
 		return explicit
 	}
-	if strings.HasPrefix(identity, string(ProviderCineode)+"-") {
-		return ProviderCineode
-	}
-	if strings.HasPrefix(identity, string(ProviderOcine)+"-") {
-		return ProviderOcine
-	}
-	if strings.HasPrefix(identity, string(ProviderCinemovida)+"-") {
-		return ProviderCinemovida
-	}
-	if strings.HasPrefix(identity, string(ProviderCinewest)+"-") {
-		return ProviderCinewest
-	}
-	if strings.HasPrefix(identity, string(ProviderGrandEcran)+"-") {
-		return ProviderGrandEcran
-	}
-	if strings.HasPrefix(identity, string(ProviderNoeCinemas)+"-") {
-		return ProviderNoeCinemas
-	}
-	if strings.HasPrefix(identity, string(ProviderMajestic)+"-") {
-		return ProviderMajestic
-	}
-	if strings.HasPrefix(identity, string(ProviderVeo)+"-") {
-		return ProviderVeo
-	}
-	if strings.HasPrefix(identity, string(ProviderKinepolis)+"-") {
-		return ProviderKinepolis
-	}
-	if strings.HasPrefix(identity, string(ProviderPathe)+"-") {
-		return ProviderPathe
-	}
-	if strings.HasPrefix(identity, string(ProviderCGR)+"-") {
-		return ProviderCGR
-	}
-	if strings.HasPrefix(identity, string(ProviderMK2)+"-") {
-		return ProviderMK2
-	}
-	if strings.HasPrefix(identity, string(ProviderCineville)+"-") {
-		return ProviderCineville
-	}
-	if strings.HasPrefix(identity, string(ProviderMegarama)+"-") {
-		return ProviderMegarama
+	for _, provider := range sourceProviders {
+		if strings.HasPrefix(identity, string(provider)+"-") {
+			return provider
+		}
 	}
 	return ProviderUGC
 }

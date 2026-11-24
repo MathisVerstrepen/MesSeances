@@ -15,11 +15,11 @@ func TestActivityMigrationIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 55, "055_account_watchlist_preferences.sql")
 			}
 			for range 2 {
-				if err := RunMigrations(ctx, pool); err != nil {
+				if err := migrateToPreRegistry(ctx, pool); err != nil {
 					t.Fatal(err)
 				}
 			}
-			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			assertCompleteMigrationHistory(t, ctx, pool, preRegistryMigrations(t))
 			for _, table := range []string{"cinema_activity_state", "cinema_activity_coverage", "cinema_activity_episodes", "cinema_activity_episode_sources"} {
 				var count int
 				if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
@@ -76,7 +76,7 @@ func TestActivityMigrationRollbackIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `CREATE TABLE cinema_activity_episodes(blocker boolean)`); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunMigrations(ctx, pool); err == nil {
+	if err := migrateToPreRegistry(ctx, pool); err == nil {
 		t.Fatal("expected DDL failure")
 	}
 	var clean bool

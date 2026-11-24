@@ -23,20 +23,15 @@ type Fetcher interface {
 	RequestCount() int
 }
 
-// RequestError keeps request diagnostics for the admin journal separately from
-// its generic Error text and context cancellation chain.
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Operation  string
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
+// sourceName labels Cinewest request errors.
+const sourceName = "Cinewest"
 
-func (e *RequestError) Error() string {
-	return fmt.Sprintf("Cinewest request failed (category %d, status %d)", e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// Cinewest errors never name the operation; the phase still drives sync
+// classification.
+var (
+	operationCinemas = syncproxy.Operation{Phase: syncproxy.PhaseCinemas}
+	operationProgram = syncproxy.Operation{Phase: syncproxy.PhaseProgram}
+)
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -45,8 +40,8 @@ type ClientConfig struct {
 type Client struct{ executor *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("cinewest requires proxies and a timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("cinewest", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
 	if err != nil {
@@ -65,18 +60,18 @@ func newClient(clients []*http.Client, sleep func(context.Context, time.Duration
 
 func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 func (c *Client) Bootstrap(ctx context.Context) ([]byte, error) {
-	return c.request(ctx, "cinemas", syncproxy.Request{Method: http.MethodGet, URL: "https://www.cine-royan.com/", MediaTypes: []string{"text/html"}, NoRedirect: true})
+	return c.request(ctx, operationCinemas, syncproxy.Request{Method: http.MethodGet, URL: "https://www.cine-royan.com/", MediaTypes: []string{"text/html"}, NoRedirect: true})
 }
 func (c *Client) Catalog(ctx context.Context, kind, token string) ([]byte, error) {
 	if !validCatalog(kind) || token == "" || len(token) > 1024 || strings.ContainsAny(token, "\r\n\x00") {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, syncproxy.Operation{})
 	}
-	return c.request(ctx, "program", syncproxy.Request{Method: http.MethodGet, URL: officeURL + kind + "?" + url.Values{"api_token": {token}}.Encode(), NoRedirect: true})
+	return c.request(ctx, operationProgram, syncproxy.Request{Method: http.MethodGet, URL: officeURL + kind + "?" + url.Values{"api_token": {token}}.Encode(), NoRedirect: true})
 }
 func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	root := schedule.CinewestWebsite("ticketingcine-" + id)
 	if root == "" {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, syncproxy.Operation{})
 	}
 	body, err := json.Marshal(struct {
 		JSONRPC string            `json:"jsonrpc"`
@@ -87,37 +82,14 @@ func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, errShape
 	}
-	return c.request(ctx, "program", syncproxy.Request{Method: http.MethodPost, URL: "https://ws.ticketingcine.com/site", Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {root}}, NoRedirect: true})
+	return c.request(ctx, operationProgram, syncproxy.Request{Method: http.MethodPost, URL: "https://ws.ticketingcine.com/site", Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {root}}, NoRedirect: true})
 }
-func (c *Client) request(ctx context.Context, operation string, request syncproxy.Request) ([]byte, error) {
-	body, failure := c.executor.Do(ctx, request, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+func (c *Client) request(ctx context.Context, operation syncproxy.Operation, request syncproxy.Request) ([]byte, error) {
+	body, failure := c.executor.Do(ctx, request, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Operation: operation, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(request.Method, request.URL, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		err.cause = failure.Cause
-	}
-	return nil, err
+	return nil, syncproxy.NewRequestError(sourceName, operation, request.Method, request.URL, failure)
 }
 func validCatalog(kind string) bool {
 	return kind == "cinemas" || kind == "shows" || kind == "media" || kind == "screens" || kind == "mediaoptions"

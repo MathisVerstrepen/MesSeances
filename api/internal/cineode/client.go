@@ -16,17 +16,11 @@ const MaxResponseBytes = 16 << 20
 // IDs preserve the approved sandbox order; routes are owned by schedule's manifest.
 var cinemaIDs = [...]string{"4640", "597", "4077", "593", "4626", "592", "4388", "4582", "4622", "3524", "981", "3955", "4426", "991", "600", "595", "636", "4420", "603", "601", "594", "3859", "4444", "4624", "4638", "4277", "4386", "4384", "3064", "4075", "3074", "4592", "4181", "4281", "3857", "3945", "3104"}
 
-type RequestError struct {
-	syncproxy.RequestDiagnostic
-	Kind       syncproxy.FailureKind
-	StatusCode int
-	cause      error
-}
+// sourceName labels Cineode request errors.
+const sourceName = "Cineode"
 
-func (e *RequestError) Error() string {
-	return fmt.Sprintf("Cineode request failed (category %d, status %d)", e.Kind, e.StatusCode)
-}
-func (e *RequestError) Unwrap() error { return e.cause }
+// operationPage covers every Cineode page request; all feed the programme.
+var operationPage = syncproxy.Operation{Phase: syncproxy.PhaseProgram}
 
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
@@ -35,8 +29,8 @@ type ClientConfig struct {
 type Client struct{ executor *syncproxy.Executor }
 
 func NewClient(config ClientConfig) (*Client, error) {
-	if len(config.Proxies) == 0 || config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
-		return nil, fmt.Errorf("cineode requires proxies and a timeout between 5s and 60s")
+	if err := syncproxy.ValidateSourceConfig("cineode", config.Proxies, config.Timeout); err != nil {
+		return nil, err
 	}
 	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, syncproxy.NewRedirectChecker(allowedURL))
 	if err != nil {
@@ -71,7 +65,7 @@ func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 // Page accepts only a verified cinema and one of the three acquisition routes.
 func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 	if !schedule.ValidCineodeIdentity("theater", id) || route != "seances" && route != "infos-cine" && route != "contact" {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
+		return nil, syncproxy.InvalidRequest(sourceName, operationPage)
 	}
 	raw := "https://www.cineode.fr/" + schedule.CineodeSlug(id) + "/" + route + "/"
 	var headers http.Header
@@ -80,35 +74,12 @@ func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 		// Ask caches to revalidate, including on the parser's bounded retry.
 		headers = http.Header{"Cache-Control": {"no-cache"}}
 	}
-	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, Headers: headers, MediaTypes: []string{"text/html", "application/xhtml+xml"}, NoRedirect: true}, syncproxy.ResponsePolicy{
-		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
-			if status == 403 || status == 429 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge, StatusCode: status}, false
-			}
-			return nil, false
-		},
-		AfterRead: func(status int, body []byte) (*syncproxy.Failure, bool) {
-			if syncproxy.IsChallenge(body) {
-				return &syncproxy.Failure{Kind: syncproxy.FailureChallenge}, false
-			}
-			if status >= 500 {
-				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
-			}
-			if status != http.StatusOK {
-				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
-			}
-			return nil, false
-		},
-	})
+	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodGet, URL: raw, Headers: headers, MediaTypes: []string{"text/html", "application/xhtml+xml"}, NoRedirect: true}, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil
 	}
 	if route != "seances" && failure.Kind == syncproxy.FailureStatus && failure.StatusCode == 404 {
 		return nil, nil
 	}
-	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, raw, failure)}
-	if failure.Kind == syncproxy.FailureCanceled {
-		e.cause = failure.Cause
-	}
-	return nil, e
+	return nil, syncproxy.NewRequestError(sourceName, operationPage, http.MethodGet, raw, failure)
 }

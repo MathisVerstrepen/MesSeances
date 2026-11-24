@@ -17,8 +17,8 @@ func (unusedGrandEcranGetter) Get(context.Context, grandecran.Operation, string)
 func (unusedGrandEcranGetter) RequestCount() int { return 27 }
 func configureGrandEcranTestExecutor(t *testing.T, e *ProductionExecutor, window Window) {
 	t.Helper()
-	e.newGrandEcran = func() (grandecran.Getter, error) { return unusedGrandEcranGetter{}, nil }
-	e.syncGrandEcran = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
+	grandEcranOf(e).newClient = func() (grandecran.Getter, error) { return unusedGrandEcranGetter{}, nil }
+	grandEcranOf(e).sync = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, window)
 		d.Provider = schedule.ProviderGrandEcran
 		d.Theaters = []schedule.TheaterRecord{{Provider: schedule.ProviderGrandEcran, ID: "grandecran-G028P", ProviderID: "G028P", Slug: "grandecran-G028P", Name: "Grand Ecran Test", Address: "1 rue Test", City: "Paris", PostalCode: "75013", AvailableDates: []string{window.From}, AcceptedPasses: []string{}}}
