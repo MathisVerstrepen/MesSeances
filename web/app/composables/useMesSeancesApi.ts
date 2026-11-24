@@ -162,9 +162,10 @@ export function useMesSeancesApi() {
         { query: values, signal, retry: false },
       )
     },
-    timeline(query: TimelineQuery) {
+    timeline(query: TimelineQuery, signal?: AbortSignal) {
       return apiFetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, {
         query: queryValues(query),
+        signal,
       })
     },
     searchSlot(query: SlotQuery) {

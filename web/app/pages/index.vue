@@ -371,6 +371,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </li>
       </ul>
     </section>
+
+    <HomeWatchlist />
+    <HomeCinemaActivity />
   </main>
 </template>
 

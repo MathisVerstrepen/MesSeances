@@ -581,6 +581,13 @@ const mock = createServer((request, response) => {
         ),
       )
     }
+    if (scenario.watchedCatalog && path.endsWith('/activity')) {
+      const cinema = watchedVenues.find(
+        (venue) => path === `/api/v1/theaters/${venue.slug}/activity`,
+      )
+      if (cinema)
+        return json(response, publicActivityPage(null, cinema, 'empty'))
+    }
     const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
     if (cinemaRoute && cinemaRoute[1] !== 'missing') {
       const ocineVenue =

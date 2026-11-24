@@ -6,7 +6,10 @@ test('empty homepage selection leads to the directory and updates on return', as
   page,
 }, testInfo) => {
   await openPage(page, '/')
-  const section = page.getByRole('region', { name: 'Mes cinémas.' })
+  const section = page.getByRole('region', {
+    name: 'Mes cinémas.',
+    exact: true,
+  })
   await expect(section).toHaveAttribute('aria-busy', 'false')
   const choose = section.getByRole('link', { name: 'Choisir mes cinémas' })
   await expect(choose).toHaveAttribute('href', '/cinemas')
@@ -76,7 +79,10 @@ test('saved device cinemas show available photos and preserve links when a photo
     [theater.id, secondTheater.id],
   )
   await openPage(page, '/')
-  const section = page.getByRole('region', { name: 'Mes cinémas.' })
+  const section = page.getByRole('region', {
+    name: 'Mes cinémas.',
+    exact: true,
+  })
   const cinemas = section.getByRole('list', {
     name: 'Mes cinémas sélectionnés',
   })
@@ -159,7 +165,10 @@ test('account selection replaces device selection after hydration without privat
   expect(html).not.toContain('Mes cinémas sélectionnés')
   expect(html).not.toContain('theater_ids')
   await openPage(page, '/')
-  const section = page.getByRole('region', { name: 'Mes cinémas.' })
+  const section = page.getByRole('region', {
+    name: 'Mes cinémas.',
+    exact: true,
+  })
   const cinemas = section.getByRole('list', {
     name: 'Mes cinémas sélectionnés',
   })
