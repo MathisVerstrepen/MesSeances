@@ -42,6 +42,12 @@ export const movie = {
   genres: [],
   showtime_count: 1,
 }
+export const longTitleMovie = {
+  ...movie,
+  slug: 'film-titre-long',
+  title: 'Hunger Games : Lever de soleil sur la moisson',
+  tmdb_id: 12345,
+}
 
 const statisticsWednesdayTime =
   Date.parse(`${date}T00:00:00Z`) -
@@ -690,6 +696,7 @@ export function movieSchedule(slug, query, mode = 'populated') {
   const canonicalSlug = slug === 'merged-film' ? movie.slug : slug
   const candidate =
     discoveryMovies.find((item) => item.slug === canonicalSlug) ??
+    (canonicalSlug === longTitleMovie.slug ? longTitleMovie : null) ??
     [...upcomingReleases, ...releaseHistory].find(
       (item) => item.slug === canonicalSlug,
     ) ??
