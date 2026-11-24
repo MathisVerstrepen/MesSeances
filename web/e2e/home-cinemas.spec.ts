@@ -92,15 +92,17 @@ test('saved device cinemas show available photos and preserve links when a photo
   const link = cinemas.getByRole('link', {
     name: `Voir les séances : ${theater.name}`,
   })
+  const withoutPhoto = cinemas.getByRole('link', {
+    name: `Voir les séances : ${secondTheater.name}`,
+  })
   const photo = link.locator('img[loading="lazy"]')
+  const placeholder = link.locator('svg.lucide-clapperboard')
   const title = link.getByRole('heading')
   await expect(photo).toHaveCSS('opacity', '1')
   await expect(title).toHaveCSS('color', 'rgb(39, 39, 42)')
-  await expect(
-    cinemas
-      .getByRole('link', { name: `Voir les séances : ${secondTheater.name}` })
-      .locator('img[loading="lazy"]'),
-  ).toHaveCount(0)
+  await expect(placeholder).toHaveCount(0)
+  await expect(withoutPhoto.locator('img[loading="lazy"]')).toHaveCount(0)
+  await expect(withoutPhoto.locator('svg.lucide-clapperboard')).toBeVisible()
   if (isMobile) {
     const viewport = page.viewportSize() ?? { width: 390, height: 844 }
     for (const width of [320, 375]) {
@@ -131,6 +133,8 @@ test('saved device cinemas show available photos and preserve links when a photo
   await expect(cinemas.getByRole('link')).toHaveCount(2)
   await expect(photo).toHaveJSProperty('complete', true)
   await expect(photo).toHaveCSS('opacity', '0')
+  await expect(placeholder).toHaveCSS('stroke', 'rgb(39, 39, 42)')
+  await expect(placeholder).toHaveCSS('opacity', '0.35')
   await expect(title).toHaveCSS('color', 'rgb(39, 39, 42)')
 })
 

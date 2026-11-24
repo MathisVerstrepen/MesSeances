@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, Building2, MapPin } from '@lucide/vue'
+import { ArrowRight, Clapperboard, MapPin } from '@lucide/vue'
 import type { Theater } from '~/types/api'
 import { publicCinemaImageUrl } from '~/utils/cinemaImage'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
@@ -27,12 +27,15 @@ watch(photoUrl, () => {
     >
       <div
         v-if="!photoLoaded"
-        class="absolute inset-0 bg-[linear-gradient(rgba(39,39,42,0.09)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.09)_1px,transparent_1px)] bg-[size:24px_24px]"
+        class="pointer-events-none absolute inset-0"
         aria-hidden="true"
       >
-        <Building2
+        <div
+          class="absolute inset-0 bg-[linear-gradient(var(--color-ink)_1px,transparent_1px),linear-gradient(90deg,var(--color-ink)_1px,transparent_1px)] bg-[size:24px_24px] opacity-[0.08] mask-[linear-gradient(to_right,black_35%,transparent_85%)]"
+        />
+        <Clapperboard
           :stroke-width="1.5"
-          class="absolute top-1/2 right-5 size-12 -translate-y-1/2 -rotate-6 text-ink/45"
+          class="absolute top-1/2 right-6 size-14 -translate-y-1/2 -rotate-8 text-ink opacity-[0.35]"
         />
       </div>
       <img
