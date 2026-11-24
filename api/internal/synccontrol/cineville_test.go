@@ -56,7 +56,7 @@ func TestCinevilleExecutorPayloadAndFinalValidationFailures(t *testing.T) {
 					t.Fatal("invalid provider data reached publication")
 					return 0, nil
 				}),
-				NewCineville: func() (cineville.Fetcher, error) { return fetcher, nil },
+				Connectors: []Connector{CinevilleConnector(func() (cineville.Fetcher, error) { return fetcher, nil })},
 				Enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 					t.Fatal("invalid provider data reached enrichment")
 					return nil, nil
@@ -126,7 +126,7 @@ func TestCinevilleExecutorManualMetricsAndFailures(t *testing.T) {
 		kind  syncproxy.FailureKind
 		stage FailureStage
 	}{{syncproxy.FailureStatus, StageProviderFetch}, {syncproxy.FailureInvalidJSON, StageProviderFetch}} {
-		e.syncCineville = func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
+		cinevilleOf(e).sync = func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
 			return schedule.Dataset{}, cineville.SyncSummary{}, &cineville.RequestError{Operation: cineville.OperationCinema, Kind: v.kind, StatusCode: 503}
 		}
 		_, err := e.Run(t.Context(), TargetCineville, window)

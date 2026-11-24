@@ -546,50 +546,52 @@ func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionSto
 func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
 	return synccontrol.ProductionExecutorOptions{
 		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout, EnrichmentTimeout: cfg.Sync.EnrichmentTimeout,
-		NewUGC: func() (ugc.Getter, error) {
-			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewKinepolis: func() (kinepolis.Fetcher, error) {
-			return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.KinepolisRequestInterval, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewPathe: func() (pathe.Getter, error) {
-			return pathe.NewClient(pathe.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewCGR: func() (cgr.Getter, error) {
-			return cgr.NewClient(cgr.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewMegarama: func() (megarama.Getter, error) {
-			return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewCineville: func() (cineville.Fetcher, error) {
-			return cineville.NewClient(cineville.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.CinevilleRequestInterval, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewMK2: func() (mk2.Fetcher, error) {
-			return mk2.NewClient(mk2.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewCinewest: func() (cinewest.Fetcher, error) {
-			return cinewest.NewClient(cinewest.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewGrandEcran: func() (grandecran.Getter, error) {
-			return grandecran.NewClient(grandecran.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewNoeCinemas: func() (noecinemas.Getter, error) {
-			return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewVeo: func() (veo.Getter, error) {
-			return veo.NewClient(veo.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewMajestic: func() (majestic.Getter, error) {
-			return majestic.NewClient(majestic.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewCineode: func() (cineode.Getter, error) {
-			return cineode.NewClient(cineode.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewCinemovida: func() (cinemovida.Getter, error) {
-			return cinemovida.NewClient(cinemovida.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
-		},
-		NewOcine: func() (ocine.Getter, error) {
-			return ocine.NewClient(ocine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		Connectors: []synccontrol.Connector{
+			synccontrol.UGCConnector(func() (ugc.Getter, error) {
+				return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.KinepolisConnector(func() (kinepolis.Fetcher, error) {
+				return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.KinepolisRequestInterval, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.PatheConnector(func() (pathe.Getter, error) {
+				return pathe.NewClient(pathe.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.CGRConnector(func() (cgr.Getter, error) {
+				return cgr.NewClient(cgr.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.MegaramaConnector(func() (megarama.Getter, error) {
+				return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.CinevilleConnector(func() (cineville.Fetcher, error) {
+				return cineville.NewClient(cineville.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.CinevilleRequestInterval, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.MK2Connector(func() (mk2.Fetcher, error) {
+				return mk2.NewClient(mk2.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.CinewestConnector(func() (cinewest.Fetcher, error) {
+				return cinewest.NewClient(cinewest.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.GrandEcranConnector(func() (grandecran.Getter, error) {
+				return grandecran.NewClient(grandecran.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.NoeCinemasConnector(func() (noecinemas.Getter, error) {
+				return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.VeoConnector(func() (veo.Getter, error) {
+				return veo.NewClient(veo.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.MajesticConnector(func() (majestic.Getter, error) {
+				return majestic.NewClient(majestic.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.CineodeConnector(func() (cineode.Getter, error) {
+				return cineode.NewClient(cineode.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.CinemovidaConnector(func() (cinemovida.Getter, error) {
+				return cinemovida.NewClient(cinemovida.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
+			synccontrol.OcineConnector(func() (ocine.Getter, error) {
+				return ocine.NewClient(ocine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}),
 		},
 	}
 }

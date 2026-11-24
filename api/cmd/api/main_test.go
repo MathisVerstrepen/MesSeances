@@ -22,6 +22,7 @@ import (
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
+	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
@@ -240,28 +241,39 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	cfg.Sync.OperationTimeout = 37 * time.Second
 	cfg.Sync.EnrichmentTimeout = 11 * time.Minute
 	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
-	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.NewMegarama == nil || options.NewCineville == nil || options.NewMK2 == nil || options.NewCinewest == nil || options.OperationTimeout != cfg.Sync.OperationTimeout || options.EnrichmentTimeout != cfg.Sync.EnrichmentTimeout {
+	if options.OperationTimeout != cfg.Sync.OperationTimeout || options.EnrichmentTimeout != cfg.Sync.EnrichmentTimeout {
 		t.Fatalf("options=%+v", options)
 	}
-	if client, err := options.NewPathe(); err != nil || client == nil {
-		t.Fatalf("Pathé client=%v err=%v", client, err)
+	connectors := map[synccontrol.Target]synccontrol.Connector{}
+	for _, connector := range options.Connectors {
+		if _, duplicate := connectors[connector.Target()]; duplicate {
+			t.Fatalf("duplicate connector %s", connector.Target())
+		}
+		connectors[connector.Target()] = connector
 	}
-	if client, err := options.NewCGR(); err != nil || client == nil {
-		t.Fatalf("CGR client=%v err=%v", client, err)
+	for _, target := range synccontrol.ProviderTargets() {
+		connector, ok := connectors[target]
+		if !ok {
+			t.Fatalf("missing connector %s", target)
+		}
+		if client, err := connector.NewClient(); err != nil || client == nil {
+			t.Fatalf("%s client=%v err=%v", target, client, err)
+		}
 	}
-	if client, err := options.NewCineville(); err != nil || client == nil {
-		t.Fatalf("Cineville client=%v err=%v", client, err)
+	if len(connectors) != len(synccontrol.ProviderTargets()) {
+		t.Fatalf("connectors=%d", len(connectors))
 	}
-	if client, err := options.NewMK2(); err != nil || client == nil {
-		t.Fatalf("MK2 client=%v err=%v", client, err)
-	}
-	if client, err := options.NewCinewest(); err != nil || client == nil {
-		t.Fatalf("Cinewest client unavailable: %v", err)
+	if _, err := synccontrol.NewProductionExecutor(options); err != nil {
+		t.Fatal(err)
 	}
 	cfg.Sync.CinevilleRequestInterval = 999 * time.Millisecond
 	invalid := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
-	if _, err := invalid.NewCineville(); err == nil {
-		t.Fatal("Cineville interval not forwarded")
+	for _, connector := range invalid.Connectors {
+		if connector.Target() == synccontrol.TargetCineville {
+			if _, err := connector.NewClient(); err == nil {
+				t.Fatal("Cineville interval not forwarded")
+			}
+		}
 	}
 }
 

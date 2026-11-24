@@ -596,7 +596,7 @@ var (
 )
 
 func validProvider(provider Provider, combined bool) bool {
-	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || provider == ProviderCGR || provider == ProviderMegarama || provider == ProviderCineville || provider == ProviderMK2 || provider == ProviderCinewest || provider == ProviderGrandEcran || provider == ProviderNoeCinemas || provider == ProviderVeo || provider == ProviderMajestic || provider == ProviderCineode || provider == ProviderCinemovida || provider == ProviderOcine || combined && provider == ProviderCombined
+	return IsSourceProvider(provider) || combined && provider == ProviderCombined
 }
 
 func validProviderIdentity(provider Provider, kind, value string) bool {

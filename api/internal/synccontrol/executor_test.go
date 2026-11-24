@@ -93,25 +93,18 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 			events = append(events, "commit:"+string(data[0].Provider))
 			return 1, nil
 		}),
-		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
-		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
-		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
-		newCGR:       func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
-		syncUGC: func(_ context.Context, _ ugc.Getter, options ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+		connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(_ context.Context, _ ugc.Getter, options ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			if options.From != window.From {
 				t.Fatalf("UGC options=%+v", options)
 			}
 			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-		},
-		syncKinepolis: func(_ context.Context, _ kinepolis.Fetcher, options kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		}), KinepolisConnector(func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil }).withSync(func(_ context.Context, _ kinepolis.Fetcher, options kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
-		},
-		syncPathe: func(_ context.Context, _ pathe.Getter, options pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		}), PatheConnector(func() (pathe.Getter, error) { return unusedPatheGetter{}, nil }).withSync(func(_ context.Context, _ pathe.Getter, options pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
-		},
-		syncCGR: func(_ context.Context, _ cgr.Getter, options cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+		}), CGRConnector(func() (cgr.Getter, error) { return unusedCGRGetter{}, nil }).withSync(func(_ context.Context, _ cgr.Getter, options cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderCGR, window), cgr.SyncSummary{}, nil
-		},
+		})),
 		enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
 			events = append(events, "enrich:"+movies[0].SourceProvider)
 			return nil, errors.New("degraded")
@@ -145,30 +138,23 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 			}
 			return 11, nil
 		}),
-		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
-		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
-		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
-		newCGR:       func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
-		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+		connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderUGC, window)
 			data.Window.Through = "2027-01-10"
 			return data, ugc.SyncSummary{}, nil
-		},
-		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		}), KinepolisConnector(func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil }).withSync(func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderKinepolis, window)
 			data.Window.Through = "2026-11-20"
 			return data, kinepolis.SyncSummary{}, nil
-		},
-		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		}), PatheConnector(func() (pathe.Getter, error) { return unusedPatheGetter{}, nil }).withSync(func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderPathe, window)
 			data.Window.Through = "2026-12-15"
 			return data, pathe.SyncSummary{Requests: 17}, nil
-		},
-		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+		}), CGRConnector(func() (cgr.Getter, error) { return unusedCGRGetter{}, nil }).withSync(func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderCGR, window)
 			data.Window.Through = "2026-10-30"
 			return data, cgr.SyncSummary{Requests: 8}, nil
-		},
+		})),
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			enrichments++
 			if writes != 1 {
@@ -193,7 +179,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 	// Failure of Grand Ecran cannot publish the already-prepared snapshots.
-	executor.syncGrandEcran = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
+	grandEcranOf(executor).sync = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
 		return schedule.Dataset{}, grandecran.SyncSummary{}, errors.New("synthetic acquisition failure")
 	}
 	_, err = executor.Run(t.Context(), TargetAll, window)
@@ -207,11 +193,10 @@ func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
-		writer:       writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 4, nil }),
-		newKinepolis: func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 6}, nil },
-		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 4, nil }),
+		connectors: testConnectors(KinepolisConnector(func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 6}, nil }).withSync(func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{Cinemas: 1, Showtimes: 1}, nil
-		},
+		})),
 	}
 	outcomes, err := executor.Run(context.Background(), TargetKinepolis, window)
 	if err != nil || outcomes[TargetKinepolis].Sync.Requests != 6 {
@@ -325,12 +310,11 @@ func TestProductionExecutorBoundsKinepolisFetchDiagnostics(t *testing.T) {
 
 func failedKinepolisExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor {
 	return &ProductionExecutor{
-		now:          time.Now,
-		logger:       slog.New(slog.NewJSONHandler(logs, nil)),
-		newKinepolis: func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 1}, nil },
-		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		now:    time.Now,
+		logger: slog.New(slog.NewJSONHandler(logs, nil)),
+		connectors: testConnectors(KinepolisConnector(func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 1}, nil }).withSync(func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return schedule.Dataset{}, kinepolis.SyncSummary{}, fetchErr
-		},
+		})),
 	}
 }
 
@@ -340,22 +324,15 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, nil }),
-		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil }, newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
-		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
-		newCGR:   func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
-		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+		connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-		},
-		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		}), KinepolisConnector(func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil }).withSync(func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return schedule.Dataset{}, kinepolis.SyncSummary{}, errors.New("second-provider-secret")
-		},
-		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		}), PatheConnector(func() (pathe.Getter, error) { return unusedPatheGetter{}, nil }).withSync(func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
-		},
-		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+		}), CGRConnector(func() (cgr.Getter, error) { return unusedCGRGetter{}, nil }).withSync(func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderCGR, window), cgr.SyncSummary{}, nil
-		},
-		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
+		})), enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
 	}
 	configureMegaramaTestExecutor(t, executor, window)
 	configureCinevilleTestExecutor(t, executor, window)
@@ -373,17 +350,17 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
 		t.Fatalf("err=%v writes=%d enrichments=%d", err, writes, enrichments)
 	}
-	executor.syncKinepolis = func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+	kinepolisOf(executor).sync = func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
 	}
-	executor.syncPathe = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+	patheOf(executor).sync = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 		return schedule.Dataset{}, pathe.SyncSummary{}, errors.New("third-provider-secret")
 	}
 	_, err = executor.Run(context.Background(), TargetAll, window)
 	if !errors.As(err, &runErr) || runErr.Provider != TargetPathe || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
 		t.Fatalf("err=%v writes=%d enrichments=%d", err, writes, enrichments)
 	}
-	executor.syncPathe = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+	patheOf(executor).sync = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
 	}
 	executor.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
@@ -404,14 +381,16 @@ func TestProductionExecutorTelemetryIsBoundedAndRedacted(t *testing.T) {
 		configure func(*ProductionExecutor)
 		want      observedSync
 	}{
-		{name: "client", configure: func(e *ProductionExecutor) { e.newUGC = func() (ugc.Getter, error) { return nil, errors.New(secret) } }, want: observedSync{"ugc", "failed", "client_creation", "client_creation_failed", ""}},
+		{name: "client", configure: func(e *ProductionExecutor) {
+			ugcOf(e).newClient = func() (ugc.Getter, error) { return nil, errors.New(secret) }
+		}, want: observedSync{"ugc", "failed", "client_creation", "client_creation_failed", ""}},
 		{name: "fetch", configure: func(e *ProductionExecutor) {
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, errors.New(secret)
 			}
 		}, want: observedSync{"ugc", "failed", "provider_fetch", "provider_sync_failed", ""}},
 		{name: "validation", configure: func(e *ProductionExecutor) {
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, secret)
 			}
 		}, want: observedSync{"ugc", "failed", "dataset_validation", "dataset_rejected", ""}},
@@ -431,10 +410,9 @@ func TestProductionExecutorTelemetryIsBoundedAndRedacted(t *testing.T) {
 			executor := &ProductionExecutor{
 				now: time.Now, logger: slog.New(slog.NewJSONHandler(&logs, nil)), observer: observer,
 				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
-				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
-				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-				},
+				})),
 			}
 			test.configure(executor)
 			_, _ = executor.Run(context.Background(), TargetUGC, window)
@@ -519,7 +497,7 @@ func (g countingPatheGetter) RequestCount() int { return g.requests }
 func TestProductionExecutorRetainsPatheParserFailureDiagnostics(t *testing.T) {
 	var logs bytes.Buffer
 	executor := failedPatheExecutor(&logs, fmt.Errorf("synthetic-secret: %w", &pathe.RequestError{Operation: pathe.OperationMovieTimes, Category: pathe.CategoryInvalidPayload}))
-	executor.newPathe = func() (pathe.Getter, error) { return countingPatheGetter{requests: 660}, nil }
+	patheOf(executor).newClient = func() (pathe.Getter, error) { return countingPatheGetter{requests: 660}, nil }
 	_, err := executor.Run(context.Background(), TargetPathe, Window{From: "2026-08-17"})
 	var runErr *RunError
 	if !errors.As(err, &runErr) {
@@ -542,10 +520,9 @@ func TestProductionExecutorRetainsCGRFailureProgressCounters(t *testing.T) {
 	executor := &ProductionExecutor{
 		now:    time.Now,
 		logger: slog.New(slog.NewJSONHandler(&logs, nil)),
-		newCGR: func() (cgr.Getter, error) { return countingCGRGetter{requests: 82}, nil },
-		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+		connectors: testConnectors(CGRConnector(func() (cgr.Getter, error) { return countingCGRGetter{requests: 82}, nil }).withSync(func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
 			return schedule.Dataset{}, cgr.SyncSummary{Cinemas: 73, Movies: 380, Requests: 0}, errors.New(secret)
-		},
+		})),
 	}
 	_, err := executor.Run(context.Background(), TargetCGR, Window{From: "2026-08-25"})
 	if err == nil || strings.Contains(logs.String(), secret) || !strings.Contains(logs.String(), `"cinemas":73`) || !strings.Contains(logs.String(), `"movies":380`) || !strings.Contains(logs.String(), `"requests":82`) {
@@ -560,10 +537,9 @@ func TestProductionExecutorBuildsCanonicalUGCFailureLog(t *testing.T) {
 	executor := &ProductionExecutor{
 		now:    func() time.Time { return timestamp },
 		logger: slog.New(slog.NewJSONHandler(&slogOutput, nil)),
-		newUGC: func() (ugc.Getter, error) { return countedUGCGetter{requests: 26}, nil },
-		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+		connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return countedUGCGetter{requests: 26}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%s: %w", secret, &ugc.RequestError{Operation: ugc.OperationShowings, Category: ugc.CategoryHTTPStatus, StatusCode: 403, Attempt: 1, AttemptLimit: 4})
-		},
+		})),
 	}
 	_, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-26"})
 	var runErr *RunError
@@ -606,10 +582,9 @@ func TestProductionExecutorBoundsUGCParseReason(t *testing.T) {
 			executor := &ProductionExecutor{
 				now:    func() time.Time { return timestamp },
 				logger: slog.New(slog.NewJSONHandler(&slogOutput, nil)),
-				newUGC: func() (ugc.Getter, error) { return countedUGCGetter{requests: 64}, nil },
-				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return countedUGCGetter{requests: 64}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%s: %w", secret, &ugc.RequestError{Operation: ugc.OperationShowings, Category: ugc.CategoryInvalidPayload, ParseReason: test.reason})
-				},
+				})),
 			}
 			_, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-26"})
 			var runErr *RunError
@@ -627,12 +602,11 @@ func TestProductionExecutorBoundsUGCParseReason(t *testing.T) {
 
 func failedPatheExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor {
 	return &ProductionExecutor{
-		now:      time.Now,
-		logger:   slog.New(slog.NewJSONHandler(logs, nil)),
-		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
-		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		now:    time.Now,
+		logger: slog.New(slog.NewJSONHandler(logs, nil)),
+		connectors: testConnectors(PatheConnector(func() (pathe.Getter, error) { return unusedPatheGetter{}, nil }).withSync(func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			return schedule.Dataset{}, pathe.SyncSummary{}, fetchErr
-		},
+		})),
 	}
 }
 
@@ -641,15 +615,14 @@ func TestProductionExecutorRejectsInvalidDataAndCommitFailure(t *testing.T) {
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, errors.New("db secret") }),
-		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
-		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+		connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return schedule.Dataset{}, ugc.SyncSummary{}, nil
-		},
+		})),
 	}
 	if _, err := executor.Run(context.Background(), TargetUGC, Window{}); err == nil || writes != 0 {
 		t.Fatalf("invalid data err=%v writes=%d", err, writes)
 	}
-	executor.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+	ugcOf(executor).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderUGC, Window{From: "2026-08-17"}), ugc.SyncSummary{}, nil
 	}
 	if _, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-17"}); err == nil || writes != 1 {
@@ -663,10 +636,9 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 		return &ProductionExecutor{
 			now: time.Now, logger: slog.New(slog.DiscardHandler),
 			writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
-			newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
-			syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-			},
+			})),
 		}
 	}
 	tests := []struct {
@@ -675,7 +647,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 		run  func(*ProductionExecutor) error
 	}{
 		{name: "missing factory", code: FailureInternal, run: func(e *ProductionExecutor) error {
-			e.newUGC = nil
+			ugcOf(e).newClient = nil
 			_, err := e.Run(context.Background(), TargetUGC, window)
 			return err
 		}},
@@ -684,19 +656,19 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 			return err
 		}},
 		{name: "client creation", code: FailureClientCreation, run: func(e *ProductionExecutor) error {
-			e.newUGC = func() (ugc.Getter, error) { return nil, errors.New("secret") }
+			ugcOf(e).newClient = func() (ugc.Getter, error) { return nil, errors.New("secret") }
 			_, err := e.Run(context.Background(), TargetUGC, window)
 			return err
 		}},
 		{name: "provider sync", code: FailureProviderSync, run: func(e *ProductionExecutor) error {
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, errors.New("secret")
 			}
 			_, err := e.Run(context.Background(), TargetUGC, window)
 			return err
 		}},
 		{name: "dataset rejected", code: FailureDatasetRejected, run: func(e *ProductionExecutor) error {
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, nil
 			}
 			_, err := e.Run(context.Background(), TargetUGC, window)
@@ -710,7 +682,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 		{name: "parent canceled", code: FailureCanceled, run: func(e *ProductionExecutor) error {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, context.Canceled
 			}
 			_, err := e.Run(ctx, TargetUGC, window)
@@ -719,7 +691,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 		{name: "parent deadline", code: FailureCanceled, run: func(e *ProductionExecutor) error {
 			ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 			defer cancel()
-			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			ugcOf(e).sync = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return schedule.Dataset{}, ugc.SyncSummary{}, context.DeadlineExceeded
 			}
 			_, err := e.Run(ctx, TargetUGC, window)
@@ -748,10 +720,9 @@ func TestProductionExecutorClassifiesEmptyUGCOutputsAsDatasetRejections(t *testi
 					t.Fatal("published rejected dataset")
 					return 0, nil
 				}),
-				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
-				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, name)
-				},
+				})),
 			}
 			_, err := executor.Run(context.Background(), TargetUGC, window)
 			var runErr *RunError
@@ -790,10 +761,9 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 			executor := &ProductionExecutor{
 				now: time.Now, logger: slog.New(slog.DiscardHandler), enrich: test.enrich,
 				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
-				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
-				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				connectors: testConnectors(UGCConnector(func() (ugc.Getter, error) { return unusedGetter{}, nil }).withSync(func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
-				},
+				})),
 			}
 			outcomes, err := executor.Run(context.Background(), TargetUGC, window)
 			outcome := outcomes[TargetUGC]
@@ -882,8 +852,8 @@ func (unusedMegaramaGetter) RequestCount() int                                  
 
 func configureMegaramaTestExecutor(t *testing.T, executor *ProductionExecutor, window Window) {
 	t.Helper()
-	executor.newMegarama = func() (megarama.Getter, error) { return unusedMegaramaGetter{}, nil }
-	executor.syncMegarama = func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error) {
+	megaramaOf(executor).newClient = func() (megarama.Getter, error) { return unusedMegaramaGetter{}, nil }
+	megaramaOf(executor).sync = func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderMegarama, window), megarama.SyncSummary{Requests: 3}, nil
 	}
 }
@@ -909,8 +879,8 @@ func cinevilleDataset(t *testing.T, window Window) schedule.Dataset {
 }
 func configureCinevilleTestExecutor(t *testing.T, executor *ProductionExecutor, window Window) {
 	t.Helper()
-	executor.newCineville = func() (cineville.Fetcher, error) { return countedCinevilleFetcher{requests: 27}, nil }
-	executor.syncCineville = func(_ context.Context, _ cineville.Fetcher, options cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
+	cinevilleOf(executor).newClient = func() (cineville.Fetcher, error) { return countedCinevilleFetcher{requests: 27}, nil }
+	cinevilleOf(executor).sync = func(_ context.Context, _ cineville.Fetcher, options cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
 		if options.From != window.From || options.Now.IsZero() {
 			t.Fatal("Cineville sync options")
 		}

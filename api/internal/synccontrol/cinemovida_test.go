@@ -25,8 +25,8 @@ func (unusedCinemovidaGetter) RequestCount() int { return 42 }
 
 func configureCinemovidaTestExecutor(t *testing.T, e *ProductionExecutor, w Window) {
 	t.Helper()
-	e.newCinemovida = func() (cinemovida.Getter, error) { return unusedCinemovidaGetter{}, nil }
-	e.syncCinemovida = func(ctx context.Context, _ cinemovida.Getter, o cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
+	cinemovidaOf(e).newClient = func() (cinemovida.Getter, error) { return unusedCinemovidaGetter{}, nil }
+	cinemovidaOf(e).sync = func(ctx context.Context, _ cinemovida.Getter, o cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
 		if _, ok := ctx.Deadline(); !ok || o.From != w.From || o.Now.IsZero() {
 			t.Error("missing operation context/options")
 		}
@@ -62,7 +62,7 @@ func TestCinemovidaExecutorPublicationUnknownRuntimeAndSafeFailure(t *testing.T)
 			t.Fatal("source end lost before commit")
 		}
 		return 4, nil
-	}), NewCinemovida: func() (cinemovida.Getter, error) { return unusedCinemovidaGetter{}, nil }, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second, Enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
+	}), Connectors: []Connector{CinemovidaConnector(func() (cinemovida.Getter, error) { return unusedCinemovidaGetter{}, nil })}, Now: time.Now, Logger: slog.New(slog.DiscardHandler), Observer: observer, OperationTimeout: time.Second, Enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
 		enrichments++
 		if writes != 1 || len(movies) != 1 || movies[0].SourceProvider != "cinemovida" || movies[0].RuntimeMinutes != 0 {
 			t.Fatal("unknown runtime not enriched after commit")
@@ -78,7 +78,7 @@ func TestCinemovidaExecutorPublicationUnknownRuntimeAndSafeFailure(t *testing.T)
 	if err != nil || writes != 1 || enrichments != 1 || out[TargetCinemovida].Sync.Requests != 42 || out[TargetCinemovida].Sync.Version != 4 {
 		t.Fatal("publication/metrics", out, err)
 	}
-	e.syncCinemovida = func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
+	cinemovidaOf(e).sync = func(context.Context, cinemovida.Getter, cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
 		return schedule.Dataset{}, cinemovida.SyncSummary{}, &cinemovida.RequestError{Operation: cinemovida.OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 	}
 	_, err = e.Run(t.Context(), TargetCinemovida, w)
@@ -89,7 +89,7 @@ func TestCinemovidaExecutorPublicationUnknownRuntimeAndSafeFailure(t *testing.T)
 	parent, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	wantDeadline, _ := parent.Deadline()
-	e.syncCinemovida = func(ctx context.Context, _ cinemovida.Getter, _ cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
+	cinemovidaOf(e).sync = func(ctx context.Context, _ cinemovida.Getter, _ cinemovida.SyncOptions) (schedule.Dataset, cinemovida.SyncSummary, error) {
 		if got, ok := ctx.Deadline(); !ok || !got.Equal(wantDeadline) {
 			t.Fatal("crawl budget overrides parent deadline")
 		}

@@ -26,22 +26,22 @@ func TestProviderExecutorMetricsFailuresAndNonfatalEnrichment(t *testing.T) {
 		failFetch func(*ProductionExecutor)
 	}{
 		{TargetMK2, "HO00006568", 27, configureMK2TestExecutor, func(e *ProductionExecutor) {
-			e.syncMK2 = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
+			mk2Of(e).sync = func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error) {
 				return schedule.Dataset{}, mk2.SyncSummary{}, &mk2.RequestError{Operation: mk2.OperationComplex, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetGrandEcran, "cEvent_1", 27, configureGrandEcranTestExecutor, func(e *ProductionExecutor) {
-			e.syncGrandEcran = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
+			grandEcranOf(e).sync = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
 				return schedule.Dataset{}, grandecran.SyncSummary{}, &grandecran.RequestError{Operation: grandecran.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetNoeCinemas, "cEvent_1", 27, configureNoeCinemasTestExecutor, func(e *ProductionExecutor) {
-			e.syncNoeCinemas = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
+			noeCinemasOf(e).sync = func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error) {
 				return schedule.Dataset{}, noecinemas.SyncSummary{}, &noecinemas.RequestError{Operation: noecinemas.OperationRoom, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
 		{TargetVeo, "cEvent_1", 29, configureVeoTestExecutor, func(e *ProductionExecutor) {
-			e.syncVeo = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+			veoOf(e).sync = func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 				return schedule.Dataset{}, veo.SyncSummary{}, &veo.RequestError{Operation: veo.OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
 			}
 		}},
