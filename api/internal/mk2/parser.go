@@ -181,8 +181,14 @@ func mergeMovie(a, b schedule.MovieRecord) (schedule.MovieRecord, error) {
 }
 func parseAttributes(attributes []attribute) (schedule.Language, string, schedule.Format, error) {
 	tokens := map[string]bool{}
+	formatOnly := true
 	for _, a := range attributes {
 		tokens[a.ShortName] = true
+		switch a.ShortName {
+		case "2D", "3D", "IMAX", "4DX":
+		default:
+			formatOnly = false
+		}
 	}
 	var language schedule.Language
 	var version string
@@ -194,7 +200,8 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 	}
 	// A spoken version takes precedence over the provider's Muet token.
 	silent := spokenVersions == 0 && tokens["Muet"] && !tokens["STFR"]
-	if spokenVersions > 1 || spokenVersions == 0 && !silent && !tokens["STFR"] {
+	// Some listings publish a projection format without a language or version.
+	if spokenVersions > 1 || spokenVersions == 0 && !silent && !tokens["STFR"] && !formatOnly {
 		return "", "", "", payloadError(OperationComplex)
 	}
 	switch {

@@ -13,7 +13,7 @@ import (
 	"messeances/api/internal/schedule"
 )
 
-// Exact expected 063 and 066 CHECK deltas for legacy snapshot fixtures. Capture the
+// Exact expected provider CHECK deltas for legacy snapshot fixtures. Capture the
 // original expression, then have PostgreSQL parse/deparse the expected amended
 // CHECK on an empty temporary table. This compares full predicates (including
 // their legacy branch), not just a provider name or a broad exclusion pattern.
@@ -158,6 +158,10 @@ func assertProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pg
 		if change.ocineTiming {
 			expression = fmt.Sprintf("(provider <> 'ocine' AND (%s)) OR (provider = 'ocine' AND end_time >= start_time)", expression)
 		}
+		if (change.table == "showtimes" || change.table == "screening_history_showtimes") &&
+			(change.name == "showtimes_language_check" || change.name == "showtimes_provider_version_check") {
+			expression = fmt.Sprintf("(%s) OR (provider = 'mk2' AND language = '' AND provider_version = '')", expression)
+		}
 		// LIKE without INCLUDING CONSTRAINTS copies columns, not CHECKs/data.
 		query := fmt.Sprintf("CREATE TEMP TABLE provider_expected_check (LIKE %s) ON COMMIT DROP; ALTER TABLE provider_expected_check ADD CONSTRAINT expected CHECK (%s)", pgx.Identifier{change.table}.Sanitize(), expression)
 		if _, err := tx.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol); err != nil {
@@ -168,7 +172,7 @@ func assertProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pg
 FROM pg_constraint actual CROSS JOIN pg_constraint expected
 WHERE actual.conrelid=$1::regclass AND actual.conname=$2
 AND expected.conrelid='pg_temp.provider_expected_check'::regclass AND expected.conname='expected'`, change.table, change.name).Scan(&matches); err != nil || !matches {
-			t.Fatal("schema differs from the exact 063/066 provider CHECK deltas", change.table, change.name, err)
+			t.Fatal("schema differs from the exact provider CHECK deltas", change.table, change.name, err)
 		}
 		if _, err := tx.Exec(ctx, `DROP TABLE pg_temp.provider_expected_check`); err != nil {
 			t.Fatal(err)

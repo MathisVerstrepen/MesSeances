@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [081_provider_source_variants.sql](081_provider_source_variants.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [082_mk2_unknown_version.sql](082_mk2_unknown_version.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -77,7 +77,7 @@ These rules apply to provider theater IDs, provider movie IDs (including source 
 
 `cineville_decimal_valid(text, boolean)` is an immutable strict SQL helper enforcing exact decimal syntax and int64 range. Cineville theater locations use the same positive identity check. Cineville source aliases additionally require `slug = 'cineville-film-' || source_movie_id` and source alias kind.
 
-`mk2_identity_valid(text, text)` is an immutable strict SQL helper enforcing MK2 source and derived identity bounds. MK2 theater locations use the same cinema identity check. MK2 aliases require source kind and `slug = 'mk2-film-' || source_movie_id`. No schedules are seeded or enabled by the MK2 migration.
+`mk2_identity_valid(text, text)` is an immutable strict SQL helper enforcing MK2 source and derived identity bounds. MK2 theater locations use the same cinema identity check. MK2 aliases require source kind and `slug = 'mk2-film-' || source_movie_id`. No schedules are seeded or enabled by the MK2 migration. Migration 082 permits a showing with unspecified source language and version to store both fields as empty strings in live schedules and screening history.
 
 `cinewest_identity_valid(text, text)` enforces the fixed 13-theater manifest and namespaced source/derived bounds. Ticketingcine local movie IDs use `ticketingcine-EMSdddd-emsxddddHC<number>` with equal site digits and one of four approved sites (`EMS1185`, `EMS1317`, `EMS0042`, `EMS1378`). Cinewest aliases require source kind and `slug = 'cinewest-film-' || source_movie_id`; location IDs use the theater helper. Cinewest is an available manual/scheduled sync target after MK2; no schedule is seeded or enabled.
 
@@ -293,8 +293,8 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `theater_id`, `movie_provider_id` | `varchar(128)` | Referenced schedule identities |
 | `start_time`, `end_time` | `timestamptz` | Cineville, MK2, Grand Ecran, Noé Cinémas, and Cinéode require equality (unknown end), regardless of runtime. Cinewest Cine Office requires its published end after start; ticketingcine permits equality or a later computed end; Capitole requires equality. Véo permits equality or a later end, with exact Boxoffice/source or Castelia/runtime rules enforced by application. Majestic permits equality for unknown runtime or a later computed runtime-plus-first-part end. Other providers require end after start, except CGR and Megarama permit equality |
 | `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama, Majestic, Cinewest ticketingcine and Véo Castelia |
-| `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be query-only `ALL`, `ORIGINAL`, or `VOF`. Empty language requires MK2 `provider_version = 'Muet'` or Cinewest Cine Office `provider_version = 'VERSION_MUET'`; these silent markers require empty language |
-| `provider_version` | `varchar(256)` | Nonblank after trimming |
+| `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be query-only `ALL`, `ORIGINAL`, or `VOF`. MK2 permits empty language with an empty version or `Muet`. Cinewest Cine Office permits empty language with `VERSION_MUET`. Both silent markers require empty language. Ociné permits empty language and version on eligible non-bookable rows |
+| `provider_version` | `varchar(256)` | Nonblank after trimming except for the MK2 and Ociné cases above |
 | `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, or `INFINITY_VISION` |
 | `room` | `varchar(256)` | Empty string permitted except Cinewest; required empty for MK2 |
 | `booking_url` | `varchar(4096)` | Nonblank after trimming; no URL pattern check |

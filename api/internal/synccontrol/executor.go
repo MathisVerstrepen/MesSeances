@@ -212,7 +212,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		fetchCtx, cancel := context.WithTimeout(ctx, 25*time.Minute)
 		data, summary, err = e.syncOcine(fetchCtx, client, ocine.SyncOptions{From: window.From, Now: e.now()})
 		cancel()
-		e.logger.Info("ocine_source_summary", "checkouts", summary.EndsAttempted, "ends", summary.EndsRecovered, "missing_rooms", summary.RoomsMissing, "checkout_transient_failures", summary.CheckoutTransientFailures)
+		e.logger.Info("ocine_source_summary", "checkouts", summary.EndsAttempted, "ends", summary.EndsRecovered, "missing_rooms", summary.RoomsMissing, "checkout_transient_failures", summary.CheckoutTransientFailures, "checkout_budget_skipped", summary.CheckoutBudgetSkipped)
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetUGC:
 		if e.newUGC == nil {

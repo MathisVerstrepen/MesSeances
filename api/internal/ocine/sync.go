@@ -4,16 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"reflect"
 	"sort"
-	"strings"
 	"time"
 
 	"messeances/api/internal/boxoffice"
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
-	"messeances/api/internal/syncproxy"
 )
 
 type Getter interface {
@@ -29,14 +26,14 @@ type SyncOptions struct {
 	Clock func() time.Time
 }
 type SyncSummary struct {
-	Cinemas, Movies, Requests, Showtimes       int
-	GeneratedAt                                time.Time
-	EndsAttempted, EndsRecovered, RoomsMissing int
-	CheckoutTransientFailures                  int
+	Cinemas, Movies, Requests, Showtimes             int
+	GeneratedAt                                      time.Time
+	EndsAttempted, EndsRecovered, RoomsMissing       int
+	CheckoutTransientFailures, CheckoutBudgetSkipped int
 }
 
-// Sync requires the complete fixed census and validates every available checkout.
-// Transient checkout failures retain validated programme rows without end times.
+// Sync requires the complete fixed census. Optional checkout enrichment runs
+// within a separate budget after programme acquisition.
 // Observed dates never attest full activity coverage.
 func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset, summary SyncSummary, resultErr error) {
 	defer func() { summary.Requests = g.RequestCount() }()
@@ -135,80 +132,8 @@ func Sync(ctx context.Context, g Getter, o SyncOptions) (result schedule.Dataset
 		sort.Strings(p.theater.AvailableDates)
 		d.Theaters = append(d.Theaters, p.theater)
 	}
-	indices := []int{}
-	for i, s := range d.Showtimes {
-		if s.BookingURL != "" {
-			indices = append(indices, i)
-		}
-	}
-	summary.EndsAttempted = len(indices)
-	type checkout struct {
-		end       time.Time
-		room      string
-		transient bool
-	}
-	checkouts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: 2}, func(ctx context.Context, i int) (checkout, error) {
-		s := d.Showtimes[i]
-		var body []byte
-		var canonical string
-		var err error
-		id := strings.TrimPrefix(s.TheaterID, "ocine-")
-		if native {
-			body, canonical, err = source.CheckoutBoxoffice(ctx, s, id)
-		} else {
-			body, err = g.Checkout(ctx, s.BookingURL)
-		}
-		if err != nil {
-			observedAt := clock()
-			if ctx.Err() != nil {
-				return checkout{}, ctx.Err()
-			}
-			var requestErr *RequestError
-			if errors.As(err, &requestErr) && requestErr.Kind == syncproxy.FailureStatus && requestErr.StatusCode == http.StatusNotFound && !s.StartTime.After(observedAt.Add(2*time.Minute)) {
-				// Booking closes shortly before start; the grid can retain its anchor. Keep its
-				// identity, URL and grid room, without inventing checkout metadata.
-				return checkout{end: s.StartTime}, nil
-			}
-			if errors.As(err, &requestErr) && (requestErr.Kind == syncproxy.FailureTransport || requestErr.Kind == syncproxy.FailureResponseRead || requestErr.Kind == syncproxy.FailureServer) {
-				// Checkout only enriches a fully validated programme row. A
-				// temporary outage preserves its advertised room and unknown end.
-				return checkout{end: s.StartTime, transient: true}, nil
-			}
-			return checkout{}, err
-		}
-		var end time.Time
-		var room string
-		if native {
-			film, epoch, _, _, ok := canonicalCheckoutParts(canonical, id)
-			if !ok {
-				return checkout{}, fmt.Errorf("%w: checkout destination", errShape)
-			}
-			end, room, err = parseCheckoutFacts(body, s, id, film, epoch, loc)
-		} else {
-			end, room, err = parseCheckout(body, s, id, loc)
-		}
-		return checkout{end: end, room: room}, err
-	})
-	if err != nil {
+	if err := enrichCheckouts(ctx, g, d.Showtimes, &summary, clock, loc); err != nil {
 		return result, summary, err
-	}
-	for i, c := range checkouts {
-		if c.transient {
-			summary.CheckoutTransientFailures++
-		}
-		s := &d.Showtimes[indices[i]]
-		s.EndTime = c.end
-		if c.end.After(s.StartTime) {
-			summary.EndsRecovered++
-		}
-		if s.Room == "" {
-			s.Room = c.room
-		}
-	}
-	for _, s := range d.Showtimes {
-		if s.Room == "" {
-			summary.RoomsMissing++
-		}
 	}
 	sort.Slice(d.Showtimes, func(i, j int) bool {
 		a, b := d.Showtimes[i], d.Showtimes[j]
