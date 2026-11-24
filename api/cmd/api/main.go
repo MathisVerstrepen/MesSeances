@@ -44,6 +44,8 @@ import (
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/syncschedule"
+	"messeances/api/internal/syncsource"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/trailer"
 	"messeances/api/internal/ugc"
@@ -440,7 +442,7 @@ func newSyncRuntime(ctx context.Context, pool *pgxpool.Pool, store *schedulepg.S
 				return &summary, err
 			}
 		}
-		executor, err := synccontrol.NewProductionExecutor(newSyncExecutorOptions(store, proxies, cfg, enrich, time.Now, logger, metrics))
+		executor, err := synccontrol.NewProductionExecutor(newSyncExecutorOptions(store, syncsource.NewPostgresStore(pool), proxies, cfg, enrich, time.Now, logger, metrics))
 		if err != nil {
 			return syncRuntime{}, fmt.Errorf("sync configuration is invalid")
 		}
@@ -543,7 +545,7 @@ func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionSto
 	}
 }
 
-func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
+func newSyncExecutorOptions(writer schedule.SnapshotWriter, sources synccontrol.SourceLister, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
 	return synccontrol.ProductionExecutorOptions{
 		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout, EnrichmentTimeout: cfg.Sync.EnrichmentTimeout,
 		Connectors: []synccontrol.Connector{
@@ -592,6 +594,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 			synccontrol.OcineConnector(func() (ocine.Getter, error) {
 				return ocine.NewClient(ocine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 			}),
+			synccontrol.TicketingcineConnector(func() (ticketingcine.Getter, error) {
+				return ticketingcine.NewClient(ticketingcine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}, sources),
 		},
 	}
 }

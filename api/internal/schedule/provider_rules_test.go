@@ -27,15 +27,16 @@ func TestProviderRulesCoverEverySourceProvider(t *testing.T) {
 // The policy table is intentionally explicit: changing a provider's policy
 // must be a visible, reviewed edit.
 func TestProviderRulesPolicies(t *testing.T) {
-	unknownRuntime := []Provider{ProviderCGR, ProviderMegarama, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo}
-	strictAlias := []Provider{ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine}
+	unknownRuntime := []Provider{ProviderCGR, ProviderMegarama, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderTicketingcine}
+	strictAlias := []Provider{ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderTicketingcine}
 	address := map[Provider]addressRule{ProviderKinepolis: addressOptional, ProviderCineode: addressOptional, ProviderOcine: addressOptional, ProviderCineville: addressPostalOnly}
 	completeCoverage := []Provider{ProviderUGC, ProviderPathe, ProviderCGR, ProviderGrandEcran, ProviderNoeCinemas, ProviderCinemovida, ProviderVeo}
+	runtimeEnd := []Provider{ProviderMegarama, ProviderCinewest, ProviderVeo, ProviderMajestic, ProviderTicketingcine}
 	census := map[Provider]int{ProviderMajestic: 7, ProviderCineode: 37, ProviderOcine: 3}
 	serviceDay := map[Provider]serviceDayRule{
 		ProviderUGC: serviceDayStrictOvernight, ProviderKinepolis: serviceDayStrictOvernight, ProviderCGR: serviceDayStrictOvernight,
 		ProviderPathe:    serviceDayPathe,
-		ProviderMegarama: serviceDayOvernight, ProviderCinewest: serviceDayOvernight, ProviderGrandEcran: serviceDayOvernight, ProviderNoeCinemas: serviceDayOvernight, ProviderVeo: serviceDayOvernight,
+		ProviderMegarama: serviceDayOvernight, ProviderCinewest: serviceDayOvernight, ProviderGrandEcran: serviceDayOvernight, ProviderNoeCinemas: serviceDayOvernight, ProviderVeo: serviceDayOvernight, ProviderTicketingcine: serviceDayOvernight,
 		ProviderCineville: serviceDayCalendar, ProviderMK2: serviceDayCalendar, ProviderMajestic: serviceDayCalendar, ProviderCineode: serviceDayCalendar, ProviderCinemovida: serviceDayCalendar, ProviderOcine: serviceDayCalendar,
 	}
 	for _, provider := range SourceProviders() {
@@ -51,6 +52,9 @@ func TestProviderRulesPolicies(t *testing.T) {
 		}
 		if wantCoverage := slices.Contains(completeCoverage, provider); (rules.completeCoverage != nil) != wantCoverage {
 			t.Fatalf("%s complete coverage=%t", provider, rules.completeCoverage != nil)
+		}
+		if wantRuntimeEnd := slices.Contains(runtimeEnd, provider); (rules.runtimeEnd != nil) != wantRuntimeEnd {
+			t.Fatalf("%s runtime end=%t", provider, rules.runtimeEnd != nil)
 		}
 		if wantPasses := provider == ProviderUGC; (rules.passes != nil) != wantPasses {
 			t.Fatalf("%s passes=%v", provider, rules.passes)

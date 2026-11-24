@@ -142,6 +142,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{81, "081_provider_source_variants.sql"},
 		{82, "082_mk2_unknown_version.sql"},
 		{83, "083_provider_registry.sql"},
+		{84, "084_sync_sources.sql"},
 	}
 
 	items, err := embeddedMigrations()

@@ -34,6 +34,7 @@ const (
 	TargetCineode         Target = "cineode"
 	TargetCinemovida      Target = "cinemovida"
 	TargetOcine           Target = "ocine"
+	TargetTicketingcine   Target = "ticketingcine"
 	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
 	TargetUpcomingMovies  Target = "tmdb_upcoming_movies"
 )

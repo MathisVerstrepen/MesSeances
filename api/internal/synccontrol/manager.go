@@ -31,6 +31,8 @@ const (
 	TargetCineode    Target = "cineode"
 	TargetCinemovida Target = "cinemovida"
 	TargetOcine      Target = "ocine"
+	// TargetTicketingcine syncs the generic TicketingCiné sync sources.
+	TargetTicketingcine Target = "ticketingcine"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"
@@ -397,6 +399,9 @@ func (m *Manager) executeProvider(provider Target, window Window) (result Provid
 		}
 	}()
 	outcomes, err := m.executor.Run(m.ctx, provider, window)
+	if errors.Is(err, ErrNoSources) {
+		return ProviderStatus{State: ProviderSkipped}
+	}
 	if err != nil {
 		return m.providerFailure(provider, err)
 	}

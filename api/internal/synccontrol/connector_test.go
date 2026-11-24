@@ -1,6 +1,7 @@
 package synccontrol
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"slices"
@@ -10,6 +11,8 @@ import (
 	"messeances/api/internal/majestic"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/syncsource"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/veo"
 )
 
@@ -35,7 +38,7 @@ func TestProviderRegistryCoversEverySourceProviderOnce(t *testing.T) {
 }
 
 func TestProviderTargetsFollowCanonicalOrder(t *testing.T) {
-	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine}
+	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine}
 	if got := ProviderTargets(); !slices.Equal(got, want) {
 		t.Fatalf("targets=%v", got)
 	}
@@ -48,7 +51,7 @@ func TestProviderTargetsFollowCanonicalOrder(t *testing.T) {
 }
 
 func TestProviderTraitsPreserveRunPolicies(t *testing.T) {
-	unknownRuntime := []Target{TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine}
+	unknownRuntime := []Target{TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine}
 	budgets := map[Target]fetchBudget{TargetCineode: fetchBudgetOperation, TargetCinemovida: fetchBudgetCrawl, TargetOcine: fetchBudgetCrawl}
 	for _, target := range ProviderTargets() {
 		traits, ok := traitsFor(target)
@@ -140,5 +143,71 @@ func TestClassifyProxyRequestMapsPhases(t *testing.T) {
 				t.Fatalf("details=%+v", details)
 			}
 		})
+	}
+}
+
+func sourceTestExecutor(t *testing.T, sources SourceLister) (*ProductionExecutor, *int) {
+	t.Helper()
+	clients := 0
+	executor := &ProductionExecutor{now: time.Now, logger: slog.New(slog.DiscardHandler), operationTimeout: time.Second, writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+		t.Fatal("source-less provider published")
+		return 0, nil
+	})}
+	connector := ticketingcineOf(executor)
+	connector.sources = sources
+	connector.newClient = func() (ticketingcine.Getter, error) {
+		clients++
+		return nil, errors.New("synthetic client")
+	}
+	return executor, &clients
+}
+
+func TestSourceConnectorSkipsProvidersWithoutEnabledSources(t *testing.T) {
+	window := Window{From: "2026-08-17"}
+	executor, clients := sourceTestExecutor(t, staticSources{})
+	if _, err := executor.Run(t.Context(), TargetTicketingcine, window); !errors.Is(err, ErrNoSources) || *clients != 0 {
+		t.Fatalf("err=%v clients=%d", err, *clients)
+	}
+	manager, err := newTestManager(t.Context(), time.Now, executor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	if _, err := manager.Start(TargetTicketingcine); err != nil {
+		t.Fatal(err)
+	}
+	status := waitForTerminal(t, manager)
+	if status.State != StateSucceeded || status.Providers[string(TargetTicketingcine)].State != ProviderSkipped || status.Providers[string(TargetTicketingcine)].Outcome != nil {
+		t.Fatalf("status=%+v", status)
+	}
+}
+
+func TestSourceConnectorReportsSourceLoadFailures(t *testing.T) {
+	executor, clients := sourceTestExecutor(t, staticSources{err: errors.New("database-secret")})
+	_, err := executor.Run(t.Context(), TargetTicketingcine, Window{From: "2026-08-17"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Stage != StageClientCreation || runErr.Code != FailureClientCreation || *clients != 0 {
+		t.Fatalf("err=%v clients=%d", err, *clients)
+	}
+	executor, _ = sourceTestExecutor(t, nil)
+	if _, err := executor.Run(t.Context(), TargetTicketingcine, Window{From: "2026-08-17"}); !errors.As(err, &runErr) || runErr.Code != FailureInternal {
+		t.Fatalf("missing source lister err=%v", err)
+	}
+}
+
+func TestSourceConnectorPassesEnabledSourcesToSync(t *testing.T) {
+	executor, _ := sourceTestExecutor(t, staticSources{sources: []syncsource.Source{{Key: "EMS1234"}, {Key: "EMS0042"}}})
+	connector := ticketingcineOf(executor)
+	connector.newClient = func() (ticketingcine.Getter, error) { return nil, nil }
+	var got []ticketingcine.Source
+	connector.sync = func(_ context.Context, _ ticketingcine.Getter, options ticketingcine.SyncOptions) (schedule.Dataset, ticketingcine.SyncSummary, error) {
+		got = options.Sources
+		return schedule.Dataset{}, ticketingcine.SyncSummary{}, errors.New("stop after options")
+	}
+	if _, err := executor.Run(t.Context(), TargetTicketingcine, Window{From: "2026-08-17"}); err == nil {
+		t.Fatal("expected synthetic sync failure")
+	}
+	if len(got) != 2 || got[0].SiteID != "EMS1234" || got[1].SiteID != "EMS0042" {
+		t.Fatalf("sources=%+v", got)
 	}
 }

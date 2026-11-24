@@ -16,6 +16,8 @@ import (
 	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncsource"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
 )
@@ -103,4 +105,18 @@ func cinemovidaOf(e *ProductionExecutor) *SourceConnector[cinemovida.Getter, cin
 
 func ocineOf(e *ProductionExecutor) *SourceConnector[ocine.Getter, ocine.SyncOptions, ocine.SyncSummary] {
 	return connectorOf(e, OcineConnector(nil))
+}
+
+func ticketingcineOf(e *ProductionExecutor) *SourceConnector[ticketingcine.Getter, ticketingcine.SyncOptions, ticketingcine.SyncSummary] {
+	return connectorOf(e, TicketingcineConnector(nil, nil))
+}
+
+// staticSources lists fixed sources, or fails with err.
+type staticSources struct {
+	sources []syncsource.Source
+	err     error
+}
+
+func (s staticSources) Enabled(context.Context, schedule.Provider) ([]syncsource.Source, error) {
+	return s.sources, s.err
 }

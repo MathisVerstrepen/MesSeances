@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [083_provider_registry.sql](083_provider_registry.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [084_sync_sources.sql](084_sync_sources.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -21,7 +21,7 @@ It is created by the Go runner, not by a numbered migration:
 ## Conventions and relationships
 
 - In the column tables below, columns are **not null with no default** unless marked nullable or given a default. Primary keys also imply not null. `identity` means `GENERATED ALWAYS AS IDENTITY`.
-- Cinema providers are rows of `providers` (`key text` primary key matching `^[a-z][a-z0-9]{1,31}$`), seeded with `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, and `ocine`. Columns documented as "Provider" reference `providers(key)` through a noncascading foreign key, unless a table explicitly allows another value. Adding a provider only requires inserting its key. Provider-specific identity, booking, poster, address, timing and version rules are enforced by the application (`schedule.ValidateDataset`, see `api/internal/schedule/provider_rules.go`), not by SQL. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
+- Cinema providers are rows of `providers` (`key text` primary key matching `^[a-z][a-z0-9]{1,31}$`), seeded with `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, `ocine` and (migration 084) `ticketingcine`. Columns documented as "Provider" reference `providers(key)` through a noncascading foreign key, unless a table explicitly allows another value. Adding a provider only requires inserting its key. Provider-specific identity, booking, poster, address, timing and version rules are enforced by the application (`schedule.ValidateDataset`, see `api/internal/schedule/provider_rules.go`), not by SQL. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
 - Runtime fields are `integer >= 0`; `0` represents an unknown runtime. The old `smallint`, 600-minute limit, and positive-only checks no longer apply.
 - `timestamptz` stores instants; `date` stores calendar/service dates. Schedule metadata fixes the timezone to `Europe/Paris`.
 - Primary keys and unique constraints create implicit indexes. Additional indexes are listed separately below. Foreign keys use default `NO ACTION` deletion behavior unless `CASCADE` is specified.
@@ -62,6 +62,23 @@ Migration 083 replaced the provider-specific identity, booking, poster, slug and
 - derived identities keep their existing generic checks (`id = provider || '-' || provider_id`, `slug = provider || '-film-' || provider_id`, `id = provider || '-showing-' || provider_showing_id`).
 
 Exact per-provider formats (for example UGC positive decimals, Majestic's seven-site EMS manifest, Véo relay booking links, Cinéode cinema/film/epoch showing bindings or Ociné Boxoffice reservations) are application rules. Snapshots read back from the database are revalidated, so a row edited outside the application is rejected when loaded. `cineville_decimal_valid(text, boolean)` is the only remaining provider helper; trailer candidate checks still use it. The dropped helpers are the `*_identity_valid`, `*_booking_valid`, `*_poster_valid` and `ocine_showing_valid` functions of Cinéode, Ciné-Movida, Cinewest, Grand Ecran, Majestic, MK2, Noé Cinémas, Ociné and Véo, plus `cineode_slug`, `ocine_slug`, `majestic_website`, `veo_relay_decode`, `veo_gueret_relay_valid` and `veo_saint_affrique_relay_valid`.
+
+### `sync_sources`
+
+Cinemas served by a generic platform connector are configured as rows instead of code. Migration 084 creates the table empty and registers the generic `ticketingcine` provider; with no enabled rows that provider is skipped by sync runs.
+
+Primary key: `(provider, source_key)`. Partial index `sync_sources_enabled_idx` on `(provider, source_key)` where `enabled`.
+
+| Column | Type | Definition |
+| --- | --- | --- |
+| `provider` | `varchar(32)` | Provider; references `providers` |
+| `source_key` | `varchar(128)` | Native cinema identifier, `^[A-Za-z0-9_-]+$` (TicketingCiné: `EMSdddd` site, validated by the application) |
+| `enabled` | `boolean` | Default `false`; only enabled rows are synchronized |
+| `name` | `varchar(1024)` | Default empty; operator label without surrounding whitespace |
+| `website` | `varchar(2048)` | Nullable; HTTPS URL without credentials, query-only form, whitespace or backslash |
+| `cnc_id` | `varchar(32)` | Nullable; CNC establishment identifier, `^[A-Za-z0-9_-]{1,32}$` |
+| `params` | `jsonb` | Default `{}`; must be an object; connector-specific settings |
+| `created_at`, `updated_at` | `timestamptz` | Default `now()`; `updated_at >= created_at` |
 
 Capitole's current identity is `cinewest-ticketingcine-EMS1378`; migration 060 re-keyed its retired `webediamovies-W8400` references across generation, history, activity, location and image rows without merging relational rows.
 

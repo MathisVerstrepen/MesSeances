@@ -34,8 +34,10 @@ func TestProviderRegistryMigrationPreservesEveryProviderIntegration(t *testing.T
 	for _, d := range datasets {
 		covered[d.Provider] = true
 	}
+	// Providers registered by 083 existed under the 082 checks; later ones
+	// (TicketingCiné, 084) cannot be published at 082.
 	for _, provider := range schedule.SourceProviders() {
-		if !covered[provider] {
+		if !covered[provider] && provider != schedule.ProviderTicketingcine {
 			t.Fatalf("no upgrade fixture for %s", provider)
 		}
 	}
@@ -92,6 +94,7 @@ func TestProviderRegistryMigrationPreservesEveryProviderIntegration(t *testing.T
 	for _, provider := range schedule.SourceProviders() {
 		want = append(want, string(provider))
 	}
+	// The registry must cover every application provider after all migrations.
 	slices.Sort(want)
 	if !slices.Equal(keys, want) {
 		t.Fatalf("providers=%v want=%v", keys, want)

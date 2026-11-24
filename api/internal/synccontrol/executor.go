@@ -79,9 +79,16 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	datasets := make([]schedule.Dataset, 0, len(providers))
 	syncOutcomes := make(map[Target]SyncOutcome, len(providers))
 	providerLogs := make(map[Target][]string, len(providers))
+	prepared := make([]Target, 0, len(providers))
 	for _, provider := range providers {
 		lines := []string{lifecycleLog(e.now().UTC(), provider, eventProviderStarted)}
 		data, syncOutcome, err := e.prepare(ctx, provider, window, &lines)
+		if errors.Is(err, ErrNoSources) {
+			// Nothing is configured for this provider: skip it without
+			// publishing or failing the run.
+			e.logger.Info("sync_provider_skipped", "component", "sync", "provider", string(provider), "reason", "no_enabled_sources")
+			continue
+		}
 		if err != nil {
 			var runErr *RunError
 			stage := StageOrchestration
@@ -96,7 +103,12 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 		datasets = append(datasets, data)
 		syncOutcomes[provider] = syncOutcome
 		providerLogs[provider] = lines
+		prepared = append(prepared, provider)
 	}
+	if len(prepared) == 0 {
+		return nil, ErrNoSources
+	}
+	providers = prepared
 	for _, provider := range providers {
 		providerLogs[provider] = append(providerLogs[provider], lifecycleLog(e.now().UTC(), provider, eventPublicationStarted))
 	}
@@ -149,6 +161,9 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
 	}
 	data, outcome, err := connector.fetch(ctx, e, window, lines)
+	if errors.Is(err, ErrNoSources) {
+		return data, outcome, err
+	}
 	var runErr *RunError
 	if errors.As(err, &runErr) && runErr.Stage == StageClientCreation {
 		return data, outcome, err

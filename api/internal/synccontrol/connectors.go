@@ -20,6 +20,8 @@ import (
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/syncsource"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
 )
@@ -49,6 +51,7 @@ var providerRegistry = [...]providerTraits{
 	{target: TargetCineode, budget: fetchBudgetOperation, enrichUnknownRuntime: true, classify: classifyProgramPages},
 	{target: TargetCinemovida, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProxy},
 	{target: TargetOcine, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProgramPages},
+	{target: TargetTicketingcine, enrichUnknownRuntime: true, classify: classifyProxy},
 }
 
 // sourceOutcome maps the summary counters most providers share.
@@ -229,6 +232,27 @@ func OcineConnector(newClient func() (ocine.Getter, error)) *SourceConnector[oci
 		},
 		report: func(e *ProductionExecutor, s ocine.SyncSummary, _ error, _ *[]string) {
 			e.logger.Info("ocine_source_summary", "checkouts", s.EndsAttempted, "ends", s.EndsRecovered, "missing_rooms", s.RoomsMissing, "checkout_transient_failures", s.CheckoutTransientFailures, "checkout_budget_skipped", s.CheckoutBudgetSkipped)
+		},
+	}
+}
+
+// TicketingcineConnector serves the generic TicketingCiné cinemas listed in
+// sync sources; source keys are EMSdddd sites.
+func TicketingcineConnector(newClient func() (ticketingcine.Getter, error), sources SourceLister) *SourceConnector[ticketingcine.Getter, ticketingcine.SyncOptions, ticketingcine.SyncSummary] {
+	return &SourceConnector[ticketingcine.Getter, ticketingcine.SyncOptions, ticketingcine.SyncSummary]{
+		target: TargetTicketingcine, newClient: newClient, sync: ticketingcine.Sync, sources: sources,
+		options: func(from string, now time.Time) ticketingcine.SyncOptions {
+			return ticketingcine.SyncOptions{From: from, Now: now}
+		},
+		withSources: func(o ticketingcine.SyncOptions, sources []syncsource.Source) ticketingcine.SyncOptions {
+			o.Sources = make([]ticketingcine.Source, len(sources))
+			for i, source := range sources {
+				o.Sources[i] = ticketingcine.Source{SiteID: source.Key}
+			}
+			return o
+		},
+		outcome: func(s ticketingcine.SyncSummary) SyncOutcome {
+			return sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
 		},
 	}
 }

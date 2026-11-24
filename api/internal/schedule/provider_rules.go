@@ -71,7 +71,12 @@ type providerRules struct {
 	// completeCoverage reports whether a theater's acquisition can attest
 	// complete per-date activity coverage; nil means never.
 	completeCoverage func(TheaterRecord) bool
+	// runtimeEnd reports whether a showing's end is derived from runtime plus
+	// first part, so public reads may complete it from TMDB runtime.
+	runtimeEnd func(ShowtimeRecord) bool
 }
+
+func alwaysRuntimeEnd(ShowtimeRecord) bool { return true }
 
 func anyTheater(TheaterRecord) bool { return true }
 
@@ -94,6 +99,11 @@ func validProviderIdentity(provider Provider, kind, value string) bool {
 func validBookingURL(provider Provider, raw, showingID, theaterProviderID string) bool {
 	rules, ok := rulesFor(provider)
 	return ok && rules.booking(raw, showingID, theaterProviderID)
+}
+
+// ValidProviderPosterURL validates a source poster URL for provider.
+func ValidProviderPosterURL(provider Provider, raw string) bool {
+	return validProviderImageURL(provider, raw)
 }
 
 func validProviderImageURL(provider Provider, raw string) bool {
@@ -129,6 +139,7 @@ var providerRuleSet = map[Provider]providerRules{
 	ProviderMegarama: {
 		identity: validMegaramaIdentity, booking: reorderedBooking(ValidMegaramaBookingURL), poster: ValidMegaramaPosterURL,
 		unknownRuntime: true, serviceDay: serviceDayOvernight, firstPart: alwaysFirstPart, showing: megaramaShowingRule,
+		runtimeEnd: alwaysRuntimeEnd,
 	},
 	ProviderCineville: {
 		identity: ValidCinevilleIdentity, booking: reorderedBooking(ValidCinevilleBookingURL), poster: ValidCinevillePosterURL,
@@ -142,6 +153,7 @@ var providerRuleSet = map[Provider]providerRules{
 		identity: ValidCinewestIdentity, booking: reorderedBooking(ValidCinewestBookingURL), poster: ValidCinewestPosterURL,
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
 		firstPart: cinewestFirstPartRule, showing: cinewestShowingRule, version: cinewestVersionRule,
+		runtimeEnd: func(s ShowtimeRecord) bool { return strings.HasPrefix(s.ProviderShowingID, "ticketingcine-") },
 	},
 	ProviderGrandEcran: {
 		identity: ValidGrandEcranIdentity, poster: ValidGrandEcranPosterURL,
@@ -166,11 +178,13 @@ var providerRuleSet = map[Provider]providerRules{
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
 		firstPart: veoFirstPartRule, showing: veoShowingRule,
 		completeCoverage: func(t TheaterRecord) bool { return !veoTicketingTheater(t) },
+		runtimeEnd:       func(s ShowtimeRecord) bool { return s.TheaterID == "veo-EMS1361" },
 	},
 	ProviderMajestic: {
 		identity: ValidMajesticIdentity, booking: reorderedBooking(ValidMajesticBookingURL), poster: ValidMajesticPosterURL,
 		unknownRuntime: true, census: 7, strictAliasSlug: true, serviceDay: serviceDayCalendar,
 		firstPart: alwaysFirstPart, showing: majesticShowingRule,
+		runtimeEnd: alwaysRuntimeEnd,
 	},
 	ProviderCineode: {
 		identity: ValidCineodeIdentity, booking: reorderedBooking(ValidCineodeBookingURL), poster: ValidCineodePosterURL,
@@ -185,6 +199,11 @@ var providerRuleSet = map[Provider]providerRules{
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayCalendar,
 		showing:          theaterScopedShowing("invalid Ciné-Movida cinema", endNotBeforeStart),
 		completeCoverage: anyTheater,
+	},
+	ProviderTicketingcine: {
+		identity: ValidTicketingcineIdentity, booking: reorderedBooking(ValidTicketingcineBookingURL), poster: validTicketingcinePosterURL,
+		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
+		firstPart: alwaysFirstPart, showing: ticketingcineShowingRule, runtimeEnd: alwaysRuntimeEnd,
 	},
 	ProviderOcine: {
 		identity: ValidOcineIdentity, booking: reorderedBooking(ValidOcineBookingURL), poster: ValidOcinePosterURL,

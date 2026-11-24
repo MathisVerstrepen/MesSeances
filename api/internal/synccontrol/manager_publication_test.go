@@ -12,6 +12,7 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 )
 
@@ -93,6 +94,8 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			configureCineodeTestExecutor(t, executor, window)
 			configureCinemovidaTestExecutor(t, executor, window)
 			configureOcineTestExecutor(t, executor, window)
+			ticketingcineOf(executor).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
+			ticketingcineOf(executor).sources = staticSources{}
 			manager, err := newTestManager(t.Context(), executor.now, executor)
 			if err != nil {
 				t.Fatal(err)
@@ -112,6 +115,13 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			}
 			for _, provider := range allTestProviders {
 				got := status.Providers[string(provider)]
+				if provider == TargetTicketingcine {
+					// No enabled source: skipped, never failed or published.
+					if got.State != ProviderSkipped || got.Outcome != nil {
+						t.Errorf("source-less provider status=%+v", got)
+					}
+					continue
+				}
 				if provider == failed {
 					if got.State != ProviderFailed || got.ErrorCode != code || got.Outcome != nil || versions[provider] != 1 || enriched[provider] {
 						t.Errorf("failed provider=%s status=%+v version=%d enriched=%t", provider, got, versions[provider], enriched[provider])

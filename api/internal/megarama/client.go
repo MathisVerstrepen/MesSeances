@@ -2,7 +2,6 @@ package megarama
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,11 +10,12 @@ import (
 
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/ticketingcine"
 )
 
 const (
 	ConfigURL        = "https://ws.ticketingcine.com/config.js?site_id=CHN0042"
-	ProgramURL       = "https://ws.ticketingcine.com/site"
+	ProgramURL       = ticketingcine.ProgramURL
 	MaxResponseBytes = 16 << 20
 )
 
@@ -74,12 +74,7 @@ func (c *Client) Program(ctx context.Context, id, website string) ([]byte, error
 	if !schedule.ValidMegaramaBookingURL(website, id, "") {
 		return nil, syncproxy.InvalidRequest(sourceName, OperationProgram)
 	}
-	body, _ := json.Marshal(struct {
-		JSONRPC string            `json:"jsonrpc"`
-		Method  string            `json:"method"`
-		Params  map[string]string `json:"params"`
-		ID      int               `json:"id"`
-	}{"2.0", "get_prog", map[string]string{"site_id": id}, 1})
+	body := ticketingcine.ProgramRequestBody(id)
 	return c.request(ctx, OperationProgram, syncproxy.Request{Method: http.MethodPost, URL: ProgramURL, Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {strings.TrimSuffix(website, "/") + "/"}}, NoRedirect: true})
 }
 func (c *Client) Poster(ctx context.Context, id string) ([]byte, error) {

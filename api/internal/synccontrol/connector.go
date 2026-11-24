@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncsource"
 )
 
 // Connector binds one provider's client factory to its synchronizer. The
@@ -32,6 +33,15 @@ const (
 )
 
 var errMissingClientFactory = errors.New("sync client factory is not configured")
+
+// ErrNoSources reports a provider without enabled sync sources. Runs skip it
+// instead of failing.
+var ErrNoSources = errors.New("provider has no enabled sync source")
+
+// SourceLister reads the enabled sources of a source-configured provider.
+type SourceLister interface {
+	Enabled(ctx context.Context, provider schedule.Provider) ([]syncsource.Source, error)
+}
 
 // crawlFetchTimeout bounds providers that resolve per-session pages; they need
 // a crawl budget, not the short database/metadata operation timeout.
@@ -76,6 +86,10 @@ type SourceConnector[C, O, S any] struct {
 	outcome   func(S) SyncOutcome
 	// report emits provider diagnostics after the fetch, successful or not.
 	report func(e *ProductionExecutor, summary S, err error, lines *[]string)
+	// sources, when set, lists the provider's configured cinemas before any
+	// request; withSources hands them to the synchronizer options.
+	sources     SourceLister
+	withSources func(O, []syncsource.Source) O
 }
 
 func (c *SourceConnector[C, O, S]) Target() Target { return c.target }
@@ -93,6 +107,22 @@ func (c *SourceConnector[C, O, S]) fetch(ctx context.Context, e *ProductionExecu
 	if c.newClient == nil || c.sync == nil {
 		return data, outcome, newProviderRunError(c.target, StageClientCreation, FailureInternal, nil)
 	}
+	var configured []syncsource.Source
+	if c.withSources != nil {
+		if c.sources == nil {
+			return data, outcome, newProviderRunError(c.target, StageClientCreation, FailureInternal, nil)
+		}
+		loadCtx, cancel := context.WithTimeout(ctx, e.operationTimeout)
+		loaded, err := c.sources.Enabled(loadCtx, schedule.Provider(c.target))
+		cancel()
+		if err != nil {
+			return data, outcome, newProviderRunError(c.target, StageClientCreation, FailureClientCreation, err)
+		}
+		if len(loaded) == 0 {
+			return data, outcome, ErrNoSources
+		}
+		configured = loaded
+	}
 	client, err := c.newClient()
 	if err != nil {
 		return data, outcome, newProviderRunError(c.target, StageClientCreation, FailureClientCreation, err)
@@ -106,7 +136,11 @@ func (c *SourceConnector[C, O, S]) fetch(ctx context.Context, e *ProductionExecu
 	case fetchBudgetCrawl:
 		fetchCtx, cancel = context.WithTimeout(ctx, crawlFetchTimeout)
 	}
-	data, summary, err := c.sync(fetchCtx, client, c.options(window.From, e.now()))
+	options := c.options(window.From, e.now())
+	if c.withSources != nil {
+		options = c.withSources(options, configured)
+	}
+	data, summary, err := c.sync(fetchCtx, client, options)
 	cancel()
 	if c.report != nil {
 		c.report(e, summary, err, lines)

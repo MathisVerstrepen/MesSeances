@@ -2,7 +2,6 @@ package majestic
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -10,9 +9,10 @@ import (
 
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/ticketingcine"
 )
 
-const ProgramURL = "https://ws.ticketingcine.com/site"
+const ProgramURL = ticketingcine.ProgramURL
 const MaxResponseBytes = 16 << 20
 
 // sourceName labels Majestic request errors.
@@ -50,12 +50,7 @@ func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	if !schedule.ValidMajesticIdentity("theater", id) {
 		return nil, syncproxy.InvalidRequest(sourceName, operationProgram)
 	}
-	body, _ := json.Marshal(struct {
-		JSONRPC string            `json:"jsonrpc"`
-		Method  string            `json:"method"`
-		Params  map[string]string `json:"params"`
-		ID      int               `json:"id"`
-	}{"2.0", "get_prog", map[string]string{"site_id": id}, 1})
+	body := ticketingcine.ProgramRequestBody(id)
 	body, failure := c.executor.Do(ctx, syncproxy.Request{Method: http.MethodPost, URL: ProgramURL, Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {"https://www.ticketingcine.com/"}}, NoRedirect: true}, syncproxy.StandardResponsePolicy())
 	if failure == nil {
 		return body, nil

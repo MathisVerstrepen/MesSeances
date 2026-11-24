@@ -240,7 +240,7 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	cfg.Sync.CinevilleRequestInterval = 3 * time.Second
 	cfg.Sync.OperationTimeout = 37 * time.Second
 	cfg.Sync.EnrichmentTimeout = 11 * time.Minute
-	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
+	options := newSyncExecutorOptions(testSnapshotWriter{}, nil, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
 	if options.OperationTimeout != cfg.Sync.OperationTimeout || options.EnrichmentTimeout != cfg.Sync.EnrichmentTimeout {
 		t.Fatalf("options=%+v", options)
 	}
@@ -267,7 +267,7 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Sync.CinevilleRequestInterval = 999 * time.Millisecond
-	invalid := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
+	invalid := newSyncExecutorOptions(testSnapshotWriter{}, nil, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
 	for _, connector := range invalid.Connectors {
 		if connector.Target() == synccontrol.TargetCineville {
 			if _, err := connector.NewClient(); err == nil {
