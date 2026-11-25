@@ -92,6 +92,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 
 	builder := schedule.NewDatasetBuilder(schedule.ProviderScare, options.From, options.Now, schedule.BuilderOptions{})
 	seen := map[string]bool{}
+	var pending []pendingShowing
 	for _, cinema := range cinemas {
 		if err := ctx.Err(); err != nil {
 			return result, summary, err
@@ -119,15 +120,22 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 			if !builder.MergeMovie(showing.Movie) {
 				summary.MovieConflicts++
 			}
-			showing.Movie = builder.Movie(showing.Movie.ProviderID)
-			showing.EndTime = endTime(showing.StartTime, r, showing.Movie.RuntimeMinutes, location)
-			builder.ExtendWindow(showing.StartTime.Format(time.DateOnly))
-			if err := builder.AddShowtime(showing); err != nil {
-				summary.Skipped++
-			}
+			pending = append(pending, pendingShowing{showing, r})
 		}
 		builder.AddTheater(theater)
 		summary.Cinemas++
+	}
+	// Later rows may complete a film (runtime, overview), so every session is
+	// bound to the final merged record: publication requires one record per
+	// film.
+	for _, p := range pending {
+		showing := p.showing
+		showing.Movie = builder.Movie(showing.Movie.ProviderID)
+		showing.EndTime = endTime(showing.StartTime, p.row, showing.Movie.RuntimeMinutes, location)
+		builder.ExtendWindow(showing.StartTime.Format(time.DateOnly))
+		if err := builder.AddShowtime(showing); err != nil {
+			summary.Skipped++
+		}
 	}
 	summary.Movies = builder.MovieCount()
 	dataset, err := builder.Build("SCARE")
@@ -136,6 +144,12 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 	}
 	summary.Showtimes = len(dataset.Showtimes)
 	return dataset, summary, nil
+}
+
+// pendingShowing is a mapped session waiting for its film's final record.
+type pendingShowing struct {
+	showing schedule.ShowtimeRecord
+	row     Row
 }
 
 // theaterRecord takes the cinema metadata of its first complete row.
