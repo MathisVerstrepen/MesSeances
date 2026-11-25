@@ -24,7 +24,10 @@ const (
 	// ProviderTicketingcine serves independent TicketingCiné cinemas configured
 	// as sync sources.
 	ProviderTicketingcine Provider = "ticketingcine"
-	ProviderCombined      Provider = "combined"
+	// ProviderScare serves independent cinemas of the SCARE open programme
+	// configured as sync sources.
+	ProviderScare    Provider = "scare"
+	ProviderCombined Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
 	ScopeSingle Scope = "single_cinema"

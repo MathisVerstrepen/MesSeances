@@ -38,7 +38,7 @@ func TestProviderRegistryCoversEverySourceProviderOnce(t *testing.T) {
 }
 
 func TestProviderTargetsFollowCanonicalOrder(t *testing.T) {
-	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine}
+	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine, TargetScare}
 	if got := ProviderTargets(); !slices.Equal(got, want) {
 		t.Fatalf("targets=%v", got)
 	}
@@ -51,7 +51,7 @@ func TestProviderTargetsFollowCanonicalOrder(t *testing.T) {
 }
 
 func TestProviderTraitsPreserveRunPolicies(t *testing.T) {
-	unknownRuntime := []Target{TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine}
+	unknownRuntime := []Target{TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine, TargetScare}
 	budgets := map[Target]fetchBudget{TargetCineode: fetchBudgetOperation, TargetCinemovida: fetchBudgetCrawl, TargetOcine: fetchBudgetCrawl}
 	for _, target := range ProviderTargets() {
 		traits, ok := traitsFor(target)

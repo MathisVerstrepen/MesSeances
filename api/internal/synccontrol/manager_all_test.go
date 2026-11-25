@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var allTestProviders = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine}
+var allTestProviders = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine, TargetScare}
 
 func TestManagerAllIsolatesProviderFailures(t *testing.T) {
 	for _, test := range []struct {

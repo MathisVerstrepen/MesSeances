@@ -24,9 +24,17 @@ func TestSyncSourcesStoreAndConstraintsIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='ticketingcine' AND source_key ~ '^EMS[0-9]{4}$' AND cnc_id IS NOT NULL AND name <> ''`).Scan(&seeded, &enabled); err != nil || seeded != 134 || enabled != 0 {
 		t.Fatal("seeded TicketingCiné sources", seeded, enabled, err)
 	}
+	var scare, scareEnabled int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='scare' AND source_key ~ '^[1-9][0-9]*$' AND cnc_id IS NOT NULL AND name <> ''`).Scan(&scare, &scareEnabled); err != nil || scare != 94 || scareEnabled != 0 {
+		t.Fatal("seeded SCARE sources", scare, scareEnabled, err)
+	}
 	var total int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded+scare {
 		t.Fatal("unexpected seeded sources", total, err)
+	}
+	var shared int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources a JOIN sync_sources b ON a.cnc_id = b.cnc_id AND a.provider < b.provider`).Scan(&shared); err != nil || shared != 0 {
+		t.Fatal("a cinema is seeded for two providers", shared, err)
 	}
 	for _, statement := range []string{
 		`INSERT INTO sync_sources (provider,source_key,enabled,name,website,cnc_id) VALUES ('ticketingcine','EMS1234',true,'Cinéma A','https://cinema-a.example/','123456')`,
