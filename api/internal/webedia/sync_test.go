@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,12 +16,15 @@ import (
 )
 
 type fixtureGetter struct {
+	mu     sync.Mutex
 	bodies map[string][]byte // keyed by host + path
 	urls   []string
 	fail   string
 }
 
 func (g *fixtureGetter) Get(_ context.Context, _ syncproxy.Operation, raw string) ([]byte, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.urls = append(g.urls, raw)
 	u, err := url.Parse(raw)
 	if err != nil || !allowedURL(u) {
@@ -32,7 +36,11 @@ func (g *fixtureGetter) Get(_ context.Context, _ syncproxy.Operation, raw string
 	return g.bodies[u.Host+u.Path], nil
 }
 
-func (g *fixtureGetter) RequestCount() int { return len(g.urls) }
+func (g *fixtureGetter) RequestCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.urls)
+}
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
@@ -137,6 +145,32 @@ func TestSyncMapsConfiguredSites(t *testing.T) {
 	}
 	if len(byMovie["W0001-c42"]) != 1 {
 		t.Fatal("site-local films must be scoped by theater")
+	}
+}
+
+// A national film published without runtime or poster by the first site and
+// completed by the second must give every session the same record, or
+// publication rejects the snapshot.
+func TestSyncBindsSessionsToTheMergedFilm(t *testing.T) {
+	bodies := siteFixtures(t, "www.a.fr", "P0001")
+	bodies["www.a.fr"+moviesPath] = mustJSON(t, []any{
+		map[string]any{"id": "204864", "title": "Le Chat chapeauté", "runtime": nil},
+		map[string]any{"id": "c42", "title": "Ciné-débat"},
+	})
+	for k, v := range siteFixtures(t, "www.b.fr", "P0002") {
+		bodies[k] = v
+	}
+	data, _, err := run(&fixtureGetter{bodies: bodies}, Source{TheaterID: "P0001", Origin: "https://www.a.fr/"}, Source{TheaterID: "P0002", Origin: "https://www.b.fr/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedule.PreparePublication(data); err != nil {
+		t.Fatalf("publication: %v", err)
+	}
+	for _, s := range data.Showtimes {
+		if s.Movie.ProviderID == "204864" && (s.Movie.RuntimeMinutes != 114 || s.Movie.PosterURL == "" || !s.EndTime.Equal(s.StartTime.Add(114*time.Minute))) {
+			t.Fatalf("session=%+v", s)
+		}
 	}
 }
 
