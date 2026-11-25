@@ -19,8 +19,8 @@ export const THEATER_PROVIDER_COLORS = {
   cinemovida: '#4c0519',
   ocine: '#a5b4fc',
   ticketingcine: '#78716c',
-  scare: '#a8a29e',
-  webedia: '#57534e',
+  scare: '#78716c',
+  webedia: '#78716c',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -39,10 +39,23 @@ export const THEATER_PROVIDER_LABELS = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
-  ticketingcine: 'Indépendants (TicketingCiné)',
-  scare: 'Indépendants (SCARE)',
-  webedia: 'Indépendants (Webedia)',
+  ticketingcine: 'Cinémas indépendants',
+  scare: 'Cinémas indépendants',
+  webedia: 'Cinémas indépendants',
 } satisfies Record<Provider, string>
+
+// One legend entry per distinct label: independent providers share theirs.
+export const THEATER_MAP_LEGEND = Object.entries(THEATER_PROVIDER_LABELS)
+  .filter(
+    ([, label], index, entries) =>
+      entries.findIndex(([, other]) => other === label) === index,
+  )
+  .map(([provider, label]) => ({
+    provider,
+    label,
+    // SAFETY: entries come from the Provider-keyed label record.
+    color: THEATER_PROVIDER_COLORS[provider as Provider],
+  }))
 
 export interface TheaterMapProperties {
   id: string

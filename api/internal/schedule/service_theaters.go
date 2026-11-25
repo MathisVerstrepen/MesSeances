@@ -4,7 +4,7 @@ import "strings"
 
 func (s *Service) Theaters(query TheaterCatalogQuery) []TheaterCatalogItem {
 	chain := strings.TrimSpace(string(query.Chain))
-	if _, known := SourceProviderFold(chain); chain != "" && !known {
+	if _, known := SourceProviderFold(chain); chain != "" && !known && !strings.EqualFold(chain, string(ChainIndependent)) {
 		return []TheaterCatalogItem{}
 	}
 	city := strings.TrimSpace(query.City)
@@ -17,7 +17,7 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []TheaterCatalogItem {
 	for _, position := range positions {
 		theater := view.data.Theaters[position]
 		provider := recordProvider(theater.Provider, theater.ID)
-		if chain != "" && !strings.EqualFold(chain, string(provider)) {
+		if !chainMatches(chain, provider) {
 			continue
 		}
 		base := materializeTheater(view, position)

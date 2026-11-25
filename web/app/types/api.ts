@@ -30,6 +30,12 @@ export type Provider =
   | 'ticketingcine'
   | 'scare'
   | 'webedia'
+/** Providers of independent cinemas, shown as one public chain. */
+export type IndependentProvider = 'ticketingcine' | 'scare' | 'webedia'
+/** Public chain: a provider, or the group of independent cinemas. */
+export type CinemaChain =
+  | Exclude<Provider, IndependentProvider>
+  | 'independants'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'
@@ -47,7 +53,7 @@ export interface StatisticsQuery {
   date_to?: string
   city?: string[]
   theater?: string[]
-  chain?: Provider
+  chain?: Provider | 'independants'
   language?: Exclude<ShowtimeLanguage, ''> | 'VOF' | 'unknown'
   format?: ShowtimeFormat | 'unknown'
   genre?: string
@@ -110,7 +116,7 @@ export interface StatisticsOptions {
     chain: Provider
     passes: string[]
   }[]
-  chains: Provider[]
+  chains: CinemaChain[]
   languages: string[]
   formats: string[]
   genres: { value: string; label: string }[]
@@ -172,7 +178,7 @@ export interface StatisticsDailyShowtimes {
   showtime_count: number
 }
 export interface HistoryChainRank {
-  chain: Provider
+  chain: CinemaChain
   showtime_count: number
   movie_count: number
   theater_count: number

@@ -1,5 +1,5 @@
 import type { LocationQuery } from 'vue-router'
-import type { Provider } from '../types/api'
+import type { CinemaChain } from '../types/api'
 import { normalizeCinemaChains } from './cinemaDirectoryChains.ts'
 import { normalizeCinemaTechnologies } from './cinemaDirectoryTechnologies.ts'
 import type { FormatBrand } from './formats.ts'
@@ -9,7 +9,7 @@ export interface CinemaDirectoryState {
   search: string
   view: 'list' | 'map'
   location: 'city' | 'nearby'
-  chains: Provider[]
+  chains: CinemaChain[]
   technologies: FormatBrand[]
 }
 

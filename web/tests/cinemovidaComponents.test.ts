@@ -33,6 +33,7 @@ import { selectLatestProviderRun } from '../app/utils/adminSyncSchedules.ts'
 import { publicCinemaImageUrl } from '../app/utils/cinemaImage.ts'
 import { cinemaDescription } from '../app/utils/entityDescriptions.ts'
 import { cinemovidaTheaters } from '../e2e/data.mjs'
+import * as cinemaChains from '../app/utils/cinemaChains.ts'
 
 const source = (path: string) =>
   readFile(new URL(`../app/${path}`, import.meta.url), 'utf8')
@@ -53,11 +54,13 @@ async function component(name: string): Promise<Component> {
   const localRequire = (id: string) =>
     id.startsWith('~/assets/')
       ? { __esModule: true, default: id }
-      : id === '~/utils/bookingUrl'
-        ? { safeBookingUrl }
-        : id === '~/utils/statistics'
-          ? { statisticsChainLabels, statisticsCount }
-          : require(id)
+      : id === '~/utils/cinemaChains'
+        ? cinemaChains
+        : id === '~/utils/bookingUrl'
+          ? { safeBookingUrl }
+          : id === '~/utils/statistics'
+            ? { statisticsChainLabels, statisticsCount }
+            : require(id)
   new Function('require', 'exports', 'computed', compiled)(
     localRequire,
     exports,

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { HistoryChainRank } from '~/types/api'
+import { chainDisplayProvider } from '~/utils/cinemaChains'
 import { statisticsChainLabels, statisticsCount } from '~/utils/statistics'
 
 withDefaults(
@@ -57,7 +58,7 @@ withDefaults(
             >
               <TheaterName
                 :name="statisticsChainLabels[row.chain]"
-                :provider="row.chain"
+                :provider="chainDisplayProvider(row.chain)"
                 class="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-3"
                 logo-class="justify-self-center"
               />

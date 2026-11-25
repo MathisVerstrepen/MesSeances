@@ -175,7 +175,7 @@ func TestHistorySummarySnapshotIntegration(t *testing.T) {
 			return err
 		}
 		var raw []byte
-		if err := tx.QueryRow(ctx, historyStatisticsSQL, "", "", []string{}, []string{}, "", "", "", "", "", nil).Scan(&raw); err != nil {
+		if err := tx.QueryRow(ctx, historyStatisticsSQL, "", "", []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()).Scan(&raw); err != nil {
 			return err
 		}
 		var got schedule.HistoryStatistics
@@ -240,8 +240,8 @@ func TestHistoryScreeningGrowthIntegration(t *testing.T) {
 			args []any
 		}{
 			{historyIntegritySQL, nil},
-			{historyStatisticsSQL, []any{"", "", []string{}, []string{}, "", "", "", "", "", nil}},
-			{historyStatisticsSQL, []any{data.Showtimes[0].ServiceDate, data.Showtimes[0].ServiceDate, []string{}, []string{}, "", "", "", "", "", nil}},
+			{historyStatisticsSQL, []any{"", "", []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()}},
+			{historyStatisticsSQL, []any{data.Showtimes[0].ServiceDate, data.Showtimes[0].ServiceDate, []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()}},
 			{historyStatisticsOptionsSQL, []any{[]string{}, []string{}, "", ""}},
 			{historyOptionsSQL, []any{"theater", "", []string{}}},
 		} {
