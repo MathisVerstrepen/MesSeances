@@ -82,9 +82,12 @@ func TestProxySeededSourcesContractIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Minute)
 	defer cancel()
-	_, summary, err := Sync(ctx, client, SyncOptions{From: from, Now: now, Sources: sources})
+	dataset, summary, err := Sync(ctx, client, SyncOptions{From: from, Now: now, Sources: sources})
 	if err != nil {
 		t.Fatalf("combined requests=%d: %v", summary.Requests, err)
+	}
+	if _, err := schedule.PreparePublication(dataset); err != nil {
+		t.Fatalf("combined snapshot cannot be published: %v", err)
 	}
 	t.Logf("combined cinemas=%d movies=%d conflicts=%d sessions=%d skipped=%d requests=%d", summary.Cinemas, summary.Movies, summary.MovieConflicts, summary.Showtimes, summary.Skipped, summary.Requests)
 }
