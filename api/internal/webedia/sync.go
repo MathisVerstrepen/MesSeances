@@ -132,6 +132,15 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 	}
 
 	builder := schedule.NewDatasetBuilder(schedule.ProviderWebedia, options.From, options.Now, schedule.BuilderOptions{})
+	// Merge every site's films first: a later site may complete a national
+	// film (runtime, poster) that an earlier site published incomplete.
+	for _, st := range sites {
+		for _, sourceMovie := range sortedKeys(st.sessions) {
+			if m, ok := movieRecord(st, sourceMovie); ok && !builder.MergeMovie(m) {
+				summary.MovieConflicts++
+			}
+		}
+	}
 	for _, st := range sites {
 		theaterID := string(schedule.ProviderWebedia) + "-" + st.source.TheaterID
 		l := st.theater.PracticalInfo.Location
@@ -142,12 +151,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 		}
 		builder.AddTheater(record)
 		summary.Cinemas++
-		ids := make([]string, 0, len(st.sessions))
-		for id := range st.sessions {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
-		for _, sourceMovie := range ids {
+		for _, sourceMovie := range sortedKeys(st.sessions) {
 			m, ok := movieRecord(st, sourceMovie)
 			if !ok {
 				for _, sessions := range st.sessions[sourceMovie] {
@@ -155,9 +159,8 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 				}
 				continue
 			}
-			if !builder.MergeMovie(m) {
-				summary.MovieConflicts++
-			}
+			// Bound to the final merged record: publication requires one
+			// record per film across sites.
 			m = builder.Movie(m.ProviderID)
 			dates := make([]string, 0, len(st.sessions[sourceMovie]))
 			for date := range st.sessions[sourceMovie] {
@@ -395,6 +398,15 @@ func genres(raw json.RawMessage) []string {
 		}
 	}
 	return result
+}
+
+func sortedKeys[V any](values map[string]V) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func clean(value string) string { return strings.Join(strings.Fields(value), " ") }

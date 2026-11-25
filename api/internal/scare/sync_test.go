@@ -99,6 +99,27 @@ func TestSyncPaginatesAndMapsRows(t *testing.T) {
 	}
 }
 
+// A film completed by a later row (runtime) must give every session the same
+// record, or publication rejects the snapshot.
+func TestSyncBindsSessionsToTheMergedFilm(t *testing.T) {
+	first := row("1854", "1", "F1", "Film", "2026-11-25T14:00:00+01:00")
+	first["filmduration"] = 0
+	second := row("1854", "2", "F1", "Film", "2026-11-25T18:00:00+01:00")
+	g := &fixtureGetter{pages: [][]byte{page(t, "", first, second)}}
+	data, _, err := run(g, "1854")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := schedule.PreparePublication(data); err != nil {
+		t.Fatalf("publication: %v", err)
+	}
+	for _, s := range data.Showtimes {
+		if s.Movie.RuntimeMinutes != 103 || !s.EndTime.Equal(s.StartTime.Add(103*time.Minute)) {
+			t.Fatalf("session=%+v", s)
+		}
+	}
+}
+
 func TestSyncSkipsUnmappableRows(t *testing.T) {
 	bad := []map[string]any{
 		row("1854", "", "F1", "Sans séance", "2026-11-25T14:00:00+01:00"),
