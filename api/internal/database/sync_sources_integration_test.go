@@ -20,9 +20,13 @@ func TestSyncSourcesStoreAndConstraintsIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM providers WHERE key='ticketingcine')`).Scan(&registered); err != nil || !registered {
 		t.Fatal("ticketingcine provider not registered", err)
 	}
-	var seeded int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&seeded); err != nil || seeded != 0 {
-		t.Fatal("sources seeded", seeded, err)
+	var seeded, enabled int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='ticketingcine' AND source_key ~ '^EMS[0-9]{4}$' AND cnc_id IS NOT NULL AND name <> ''`).Scan(&seeded, &enabled); err != nil || seeded != 134 || enabled != 0 {
+		t.Fatal("seeded TicketingCiné sources", seeded, enabled, err)
+	}
+	var total int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded {
+		t.Fatal("unexpected seeded sources", total, err)
 	}
 	for _, statement := range []string{
 		`INSERT INTO sync_sources (provider,source_key,enabled,name,website,cnc_id) VALUES ('ticketingcine','EMS1234',true,'Cinéma A','https://cinema-a.example/','123456')`,

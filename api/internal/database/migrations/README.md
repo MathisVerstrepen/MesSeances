@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [084_sync_sources.sql](084_sync_sources.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [085_ticketingcine_sources.sql](085_ticketingcine_sources.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -65,7 +65,7 @@ Exact per-provider formats (for example UGC positive decimals, Majestic's seven-
 
 ### `sync_sources`
 
-Cinemas served by a generic platform connector are configured as rows instead of code. Migration 084 creates the table empty and registers the generic `ticketingcine` provider; with no enabled rows that provider is skipped by sync runs.
+Cinemas served by a generic platform connector are configured as rows instead of code. Migration 084 creates the table and registers the generic `ticketingcine` provider. Migration 085 seeds 134 TicketingCiné cinemas (`EMSdddd` sites verified against their live programme, with name, website when HTTPS and CNC establishment number), all disabled; existing rows are left untouched. A provider without enabled rows is skipped by sync runs, so seeded cinemas are synchronized only once an operator enables them.
 
 Primary key: `(provider, source_key)`. Partial index `sync_sources_enabled_idx` on `(provider, source_key)` where `enabled`.
 
