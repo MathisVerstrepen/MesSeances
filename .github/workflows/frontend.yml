@@ -3,6 +3,7 @@ name: Frontend CI
 on:
   pull_request:
     branches: [dev, main]
+    types: [opened, edited, synchronize, reopened]
 
 permissions:
   contents: read
@@ -42,10 +43,16 @@ jobs:
         run: npm run lint
 
       - name: Build
+        if: >-
+          github.base_ref == 'main' && github.head_ref == 'dev' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         run: npm run build
 
   browser:
     name: Frontend CI / browser
+    if: >-
+      github.base_ref == 'main' && github.head_ref == 'dev' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
