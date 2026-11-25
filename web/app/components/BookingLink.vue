@@ -50,6 +50,8 @@ const reservation = computed(() => {
     cinemovida: 'Réserver sur Ciné-Movida',
     ocine: 'Réserver sur Ociné',
     ticketingcine: 'Réserver sur TicketingCiné',
+    scare: 'Réserver sur le site du cinéma',
+    webedia: 'Réserver sur le site du cinéma',
   } satisfies Record<Provider, string>
   return {
     url: booking.url,

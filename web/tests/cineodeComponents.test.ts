@@ -371,7 +371,7 @@ test('Cinéode schedule target availability and latest all-run status use existi
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('ticketingcine') + 1,
+    result.targets.indexOf('webedia') + 1,
   )
   assert.equal(result.targetLabels.cineode, 'Cinéode')
   assert.equal(result.latest, job)
@@ -680,7 +680,7 @@ test('Ociné admin ordering, latest all-run status and public statistics use coh
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('ticketingcine') + 1,
+    result.targets.indexOf('webedia') + 1,
   )
   assert.equal(
     result.targets.indexOf('ticketingcine'),
