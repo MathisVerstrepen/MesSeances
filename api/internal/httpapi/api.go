@@ -64,6 +64,7 @@ type AdminOptions struct {
 	LocalMovies      *enrichment.LocalMovieService
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
+	SyncSources      SyncSourceController
 	TheaterLocations TheaterLocationController
 	TheaterGeocoding TheaterGeocodingController
 	TheaterImages    TheaterImageController
@@ -232,6 +233,9 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
 			router.Get("/syncs", api.admin.syncStatus)
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
+			router.Get("/sync-sources", api.admin.syncSources)
+			router.With(api.admin.requireOrigin).Post("/sync-sources/enabled", api.admin.setSyncSources)
+			router.With(api.admin.requireOrigin).Patch("/sync-sources/{provider}/{key}", api.admin.setSyncSource)
 			router.Get("/sync-schedules", api.admin.syncSchedules)
 			router.With(api.admin.requireOrigin).Post("/sync-schedules/{target}", api.admin.createSyncSchedule)
 			router.With(api.admin.requireOrigin).Put("/sync-schedules/{target}/{id}", api.admin.updateSyncSchedule)

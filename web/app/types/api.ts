@@ -1222,3 +1222,22 @@ export interface MovieShowtimesBundleResponse {
   scoped: MovieShowtimesResponse
   nationwide: MovieShowtimesResponse
 }
+
+/** A cinema configured for a generic platform connector (sync_sources). */
+export interface AdminSyncSource {
+  provider: Provider
+  key: string
+  name: string
+  website?: string
+  cnc_id?: string
+  enabled: boolean
+  updated_at: string
+}
+
+export interface AdminSyncSourcesResponse {
+  sources: AdminSyncSource[]
+}
+
+export interface AdminSetSyncSourcesResponse {
+  updated: number
+}

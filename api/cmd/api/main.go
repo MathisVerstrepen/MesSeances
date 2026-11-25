@@ -293,6 +293,7 @@ func run(ctx context.Context) error {
 	}()
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
+	admin.options.SyncSources = syncsource.NewPostgresStore(pool)
 	cinemaImages := newCinemaImageService(pool, cinemaMedia, proxies, logger)
 	admin.options.TheaterImages = cinemaImages
 	var publicTheaterImages httpapi.PublicTheaterImageController

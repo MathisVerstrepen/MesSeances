@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -69,5 +70,39 @@ func TestSyncSourcesStoreAndConstraintsIntegration(t *testing.T) {
 		if _, err := pool.Exec(ctx, statement); err == nil {
 			t.Fatal("invalid source accepted", statement)
 		}
+	}
+}
+
+func TestSyncSourcesAdminTogglesIntegration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	pool, _ := newMigrationTestPool(t, ctx, "sync_sources_admin_")
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	store := syncsource.NewPostgresStore(pool)
+	all, err := store.List(ctx)
+	if err != nil || len(all) != 134+94+67 || all[0].Provider != schedule.ProviderScare || all[0].Enabled {
+		t.Fatalf("list=%d first=%+v err=%v", len(all), all[0], err)
+	}
+	updated, err := store.SetEnabled(ctx, schedule.ProviderTicketingcine, "EMS0963", true)
+	if err != nil || !updated.Enabled || updated.Name == "" || updated.UpdatedAt.Before(all[0].UpdatedAt) {
+		t.Fatalf("toggle=%+v err=%v", updated, err)
+	}
+	if _, err := store.SetEnabled(ctx, schedule.ProviderTicketingcine, "EMS0000", true); !errors.Is(err, syncsource.ErrNotFound) {
+		t.Fatalf("missing source err=%v", err)
+	}
+	if n, err := store.SetAllEnabled(ctx, schedule.ProviderScare, true); err != nil || n != 94 {
+		t.Fatalf("provider bulk=%d err=%v", n, err)
+	}
+	enabled, err := store.Enabled(ctx, schedule.ProviderScare)
+	if err != nil || len(enabled) != 94 {
+		t.Fatalf("enabled=%d err=%v", len(enabled), err)
+	}
+	if n, err := store.SetAllEnabled(ctx, "", true); err != nil || n != 134+67-1 {
+		t.Fatalf("all bulk=%d err=%v", n, err)
+	}
+	if n, err := store.SetAllEnabled(ctx, "", false); err != nil || n != 134+94+67 {
+		t.Fatalf("disable all=%d err=%v", n, err)
 	}
 }
