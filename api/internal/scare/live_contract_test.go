@@ -59,5 +59,8 @@ func TestProxySeededSourcesContractIntegration(t *testing.T) {
 	if len(dataset.Showtimes) == 0 {
 		t.Fatal("empty live snapshot")
 	}
+	if _, err := schedule.PreparePublication(dataset); err != nil {
+		t.Fatalf("live snapshot cannot be published: %v", err)
+	}
 	t.Logf("sources=%d cinemas=%d empty=%d movies=%d conflicts=%d sessions=%d skipped=%d requests=%d", len(sources), summary.Cinemas, summary.EmptyCinemas, summary.Movies, summary.MovieConflicts, summary.Showtimes, summary.Skipped, summary.Requests)
 }
