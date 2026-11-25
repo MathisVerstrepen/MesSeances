@@ -30,14 +30,23 @@ const providerBrands = {
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
   ticketingcine: 'Indépendant',
+  scare: 'Indépendant',
+  webedia: 'Indépendant',
 } as const satisfies Record<Provider, string>
 
-// Booking platforms of independent cinemas are named as the film page source.
-const sourceName = computed(() =>
-  props.provider === 'ticketingcine'
-    ? 'TicketingCiné'
-    : providerBrands[props.provider],
-)
+// Independent cinemas are named by their data source, not a chain brand.
+const sourceName = computed(() => {
+  switch (props.provider) {
+    case 'ticketingcine':
+      return 'TicketingCiné'
+    case 'scare':
+      return 'SCARE'
+    case 'webedia':
+      return 'le site du cinéma'
+    default:
+      return providerBrands[props.provider]
+  }
+})
 
 // Normalize only for accessible-name detection, never for visible source text.
 // Accent folding also covers multi-word Grand Écran, including decomposed accents.

@@ -99,6 +99,11 @@ const creditSections: Array<{
         name: 'TicketingCiné (cinémas indépendants)',
         url: 'https://www.ticketingcine.com/',
       },
+      {
+        brand: 'Indépendant',
+        name: 'SCARE, Programmation des cinémas indépendants (Licence Ouverte)',
+        url: 'https://datacinesindes.fr/datasets/programmation-cinemas',
+      },
     ],
   },
   {

@@ -408,6 +408,9 @@ function reservationUrl(showtime) {
     if (ticketingcine) return ticketingcine
   }
   if (showtime.provider === 'ticketingcine') return null
+  // Open-data and platform links are never inferred from their host.
+  if (showtime.provider === 'scare' || showtime.provider === 'webedia')
+    return independentReservationUrl(showtime)
   // Match Véo original bytes and cinema-qualified identity before generic parsing.
   if (!showtime.provider || showtime.provider === 'veo') {
     const raw = String(showtime.booking_url ?? '')
@@ -658,6 +661,50 @@ function majesticReservationUrl(showtime) {
       return raw
   }
   return null
+}
+
+// SCARE and Webedia link to each cinema's own ticketing pages: canonical
+// public HTTPS URLs bound to the showing's cinema. Mirrors
+// app/utils/independentProviders.ts.
+function independentReservationUrl(showtime) {
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url || raw.length > 2048 || /[\s\\]/.test(raw))
+    return null
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.href !== raw ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(
+      url.hostname,
+    )
+  )
+    return null
+  const pattern =
+    showtime.provider === 'scare'
+      ? /^scare-showing-([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$/
+      : /^webedia-showing-([A-Z][A-Z0-9]{4})-[a-f0-9]{32}$/
+  if (showtime.id !== undefined) {
+    const match = pattern.exec(showtime.id ?? '')
+    if (!match || match[0] !== showtime.id) return null
+    if (
+      showtime.theater_id !== undefined &&
+      showtime.theater_id !== `${showtime.provider}-${match[1]}`
+    )
+      return null
+  } else if (
+    showtime.theater_id !== undefined &&
+    !String(showtime.theater_id ?? '').startsWith(`${showtime.provider}-`)
+  )
+    return null
+  return raw
 }
 
 // Generic TicketingCiné sites are configured sources: any EMS site, bound to

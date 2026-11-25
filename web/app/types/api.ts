@@ -28,6 +28,8 @@ export type Provider =
   | 'cinemovida'
   | 'ocine'
   | 'ticketingcine'
+  | 'scare'
+  | 'webedia'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'
