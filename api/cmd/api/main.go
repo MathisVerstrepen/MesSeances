@@ -24,6 +24,7 @@ import (
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
 	runtimeconfig "messeances/api/internal/config"
+	"messeances/api/internal/cotecine"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
@@ -605,6 +606,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, sources synccontrol.
 			}, sources),
 			synccontrol.WebediaConnector(func() (webedia.Getter, error) {
 				return webedia.NewClient(webedia.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}, sources),
+			synccontrol.CotecineConnector(func() (cotecine.Getter, error) {
+				return cotecine.NewClient(cotecine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 			}, sources),
 		},
 	}

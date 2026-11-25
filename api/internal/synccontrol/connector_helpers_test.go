@@ -8,6 +8,7 @@ import (
 	"messeances/api/internal/cineode"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
+	"messeances/api/internal/cotecine"
 	"messeances/api/internal/grandecran"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/majestic"
@@ -123,6 +124,12 @@ func skipSourceProviders(e *ProductionExecutor) {
 	scareOf(e).sources = staticSources{}
 	webediaOf(e).newClient = func() (webedia.Getter, error) { return nil, errors.New("unused") }
 	webediaOf(e).sources = staticSources{}
+	cotecineOf(e).newClient = func() (cotecine.Getter, error) { return nil, errors.New("unused") }
+	cotecineOf(e).sources = staticSources{}
+}
+
+func cotecineOf(e *ProductionExecutor) *SourceConnector[cotecine.Getter, cotecine.SyncOptions, cotecine.SyncSummary] {
+	return connectorOf(e, CotecineConnector(nil, nil))
 }
 
 func webediaOf(e *ProductionExecutor) *SourceConnector[webedia.Getter, webedia.SyncOptions, webedia.SyncSummary] {

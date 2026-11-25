@@ -35,9 +35,10 @@ func TestProviderRegistryMigrationPreservesEveryProviderIntegration(t *testing.T
 		covered[d.Provider] = true
 	}
 	// Providers registered by 083 existed under the 082 checks; later ones
-	// (TicketingCiné 084, SCARE 086, Webedia 087) cannot be published at 082.
+	// (TicketingCiné 084, SCARE 086, Webedia 087, Cotecine 088) cannot be published
+	// at 082.
 	for _, provider := range schedule.SourceProviders() {
-		if !covered[provider] && provider != schedule.ProviderTicketingcine && provider != schedule.ProviderScare && provider != schedule.ProviderWebedia {
+		if !covered[provider] && provider != schedule.ProviderTicketingcine && provider != schedule.ProviderScare && provider != schedule.ProviderWebedia && provider != schedule.ProviderCotecine {
 			t.Fatalf("no upgrade fixture for %s", provider)
 		}
 	}

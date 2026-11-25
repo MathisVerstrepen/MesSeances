@@ -10,6 +10,8 @@ export function adminSyncSourceProviderLabel(provider: Provider): string {
       return 'SCARE (open data)'
     case 'webedia':
       return 'Webedia Movies Pro'
+    case 'cotecine':
+      return 'Cotecine (Cinegroup)'
     default:
       return provider
   }

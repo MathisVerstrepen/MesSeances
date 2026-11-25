@@ -350,6 +350,8 @@ function onMapLoad() {
           THEATER_PROVIDER_COLORS.scare,
           'webedia',
           THEATER_PROVIDER_COLORS.webedia,
+          'cotecine',
+          THEATER_PROVIDER_COLORS.cotecine,
           '#52525b',
         ],
         'circle-stroke-color': '#ffffff',

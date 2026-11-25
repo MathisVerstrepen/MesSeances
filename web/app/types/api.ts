@@ -30,8 +30,13 @@ export type Provider =
   | 'ticketingcine'
   | 'scare'
   | 'webedia'
+  | 'cotecine'
 /** Providers of independent cinemas, shown as one public chain. */
-export type IndependentProvider = 'ticketingcine' | 'scare' | 'webedia'
+export type IndependentProvider =
+  | 'ticketingcine'
+  | 'scare'
+  | 'webedia'
+  | 'cotecine'
 /** Public chain: a provider, or the group of independent cinemas. */
 export type CinemaChain =
   | Exclude<Provider, IndependentProvider>

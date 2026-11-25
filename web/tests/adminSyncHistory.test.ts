@@ -65,6 +65,7 @@ function run(
       ticketingcine: { state: 'not_requested' },
       scare: { state: 'not_requested' },
       webedia: { state: 'not_requested' },
+      cotecine: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -285,12 +286,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all eighteen decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all nineteen decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 19)
+  assert.equal(buttons.length, 20)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -311,6 +312,7 @@ test('idle launch buttons use all eighteen decorative chain logos with visible n
     'Cinéode',
     'Ciné-Movida',
     'Ociné',
+    'Indépendant',
     'Indépendant',
     'Indépendant',
     'Indépendant',

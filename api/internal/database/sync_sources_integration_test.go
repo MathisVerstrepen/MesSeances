@@ -33,8 +33,12 @@ func TestSyncSourcesStoreAndConstraintsIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='webedia' AND source_key ~ '^[A-Z][A-Z0-9]{4}$' AND website ~ '^https://[a-z0-9.-]+/$' AND cnc_id IS NOT NULL`).Scan(&webedia, &webediaEnabled); err != nil || webedia != 67 || webediaEnabled != 0 {
 		t.Fatal("seeded Webedia sources", webedia, webediaEnabled, err)
 	}
+	var cotecine, cotecineEnabled int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='cotecine' AND source_key ~ '^[1-9][0-9]*$' AND website ~ '^https://[a-z0-9.-]+/([a-z0-9-]+/)*$' AND cnc_id IS NOT NULL AND params->>'address' <> '' AND params->>'postal_code' ~ '^[0-9]{5}$' AND params->>'city' <> ''`).Scan(&cotecine, &cotecineEnabled); err != nil || cotecine != 24 || cotecineEnabled != 0 {
+		t.Fatal("seeded Cotecine sources", cotecine, cotecineEnabled, err)
+	}
 	var total int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded+scare+webedia {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded+scare+webedia+cotecine {
 		t.Fatal("unexpected seeded sources", total, err)
 	}
 	var shared int
@@ -82,7 +86,7 @@ func TestSyncSourcesAdminTogglesIntegration(t *testing.T) {
 	}
 	store := syncsource.NewPostgresStore(pool)
 	all, err := store.List(ctx)
-	if err != nil || len(all) != 134+94+67 || all[0].Provider != schedule.ProviderScare || all[0].Enabled {
+	if err != nil || len(all) != 134+94+67+24 || all[0].Provider != schedule.ProviderCotecine || all[0].Enabled {
 		t.Fatalf("list=%d first=%+v err=%v", len(all), all[0], err)
 	}
 	updated, err := store.SetEnabled(ctx, schedule.ProviderTicketingcine, "EMS0963", true)
@@ -99,10 +103,10 @@ func TestSyncSourcesAdminTogglesIntegration(t *testing.T) {
 	if err != nil || len(enabled) != 94 {
 		t.Fatalf("enabled=%d err=%v", len(enabled), err)
 	}
-	if n, err := store.SetAllEnabled(ctx, "", true); err != nil || n != 134+67-1 {
+	if n, err := store.SetAllEnabled(ctx, "", true); err != nil || n != 134+67+24-1 {
 		t.Fatalf("all bulk=%d err=%v", n, err)
 	}
-	if n, err := store.SetAllEnabled(ctx, "", false); err != nil || n != 134+94+67 {
+	if n, err := store.SetAllEnabled(ctx, "", false); err != nil || n != 134+94+67+24 {
 		t.Fatalf("disable all=%d err=%v", n, err)
 	}
 }

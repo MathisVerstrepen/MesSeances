@@ -213,6 +213,7 @@ function encodeShowtimeSelectionKey(key: string): string | null {
   for (const [provider, token] of [
     ['scare', 's'],
     ['webedia', 'b'],
+    ['cotecine', 'a'],
   ] as const) {
     const prefix = `${provider}:${provider}-showing-`
     if (key.startsWith(prefix)) {
@@ -296,6 +297,7 @@ function decodeShowtimeSelectionToken(token: string): string | null {
   for (const [provider, letter] of [
     ['scare', 's'],
     ['webedia', 'b'],
+    ['cotecine', 'a'],
   ] as const) {
     if (token.startsWith(letter)) {
       const showing = `${provider}-showing-${token.slice(1)}`

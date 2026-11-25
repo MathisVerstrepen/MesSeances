@@ -76,6 +76,7 @@ const providers = [
   'ticketingcine',
   'scare',
   'webedia',
+  'cotecine',
 ] as const
 const targets = [
   ...providers,
@@ -116,6 +117,7 @@ const targetLabels = {
   ticketingcine: 'TicketingCiné',
   scare: 'SCARE',
   webedia: 'Webedia',
+  cotecine: 'Cotecine',
   tmdb_metadata_refresh: 'Actualiser toutes les métadonnées TMDB',
   tmdb_upcoming_movies: 'TMDB - Prochainement',
 } satisfies Record<AdminSyncScheduleTarget, string>
@@ -248,6 +250,11 @@ const latestRuns = computed<Record<Provider, AdminSyncJob | null>>(() => ({
   ),
   webedia: selectLatestProviderRun(
     'webedia',
+    syncStatus.value?.job ?? null,
+    syncStatus.value?.runs ?? [],
+  ),
+  cotecine: selectLatestProviderRun(
+    'cotecine',
     syncStatus.value?.job ?? null,
     syncStatus.value?.runs ?? [],
   ),

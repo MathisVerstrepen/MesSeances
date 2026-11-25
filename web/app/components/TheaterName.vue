@@ -32,6 +32,7 @@ const providerBrands = {
   ticketingcine: 'Indépendant',
   scare: 'Indépendant',
   webedia: 'Indépendant',
+  cotecine: 'Indépendant',
 } as const satisfies Record<Provider, string>
 
 // Independent cinemas are named by their data source, not a chain brand.
@@ -42,6 +43,7 @@ const sourceName = computed(() => {
     case 'scare':
       return 'SCARE'
     case 'webedia':
+    case 'cotecine':
       return 'le site du cinéma'
     default:
       return providerBrands[props.provider]

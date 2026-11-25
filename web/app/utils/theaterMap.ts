@@ -21,6 +21,7 @@ export const THEATER_PROVIDER_COLORS = {
   ticketingcine: '#78716c',
   scare: '#78716c',
   webedia: '#78716c',
+  cotecine: '#78716c',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -42,6 +43,7 @@ export const THEATER_PROVIDER_LABELS = {
   ticketingcine: 'Cinémas indépendants',
   scare: 'Cinémas indépendants',
   webedia: 'Cinémas indépendants',
+  cotecine: 'Cinémas indépendants',
 } satisfies Record<Provider, string>
 
 // One legend entry per distinct label: independent providers share theirs.
