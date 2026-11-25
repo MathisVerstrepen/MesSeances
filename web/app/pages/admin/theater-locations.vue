@@ -94,6 +94,7 @@ const providerLabels = {
   ticketingcine: 'TicketingCiné',
   scare: 'SCARE',
   webedia: 'Webedia',
+  cotecine: 'Cotecine',
 } satisfies Record<Provider, string>
 
 const geocodingFailureLabels = {

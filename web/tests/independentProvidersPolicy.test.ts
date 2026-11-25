@@ -32,10 +32,16 @@ const cases = {
     url: 'https://tickets.allocine.fr/cinepolesud/reserver/r/376105',
     otherTheater: 'webedia-W0001',
   },
+  cotecine: {
+    showing: 'cotecine-showing-1824-628177-1796758200',
+    theater: 'cotecine-1824',
+    url: 'https://www.cinema-confluences.com/varennes/reserver/F628177/D1796758200/VF/188300/',
+    otherTheater: 'cotecine-4464',
+  },
 } as const
 
 function parity(
-  provider: 'scare' | 'webedia',
+  provider: keyof typeof cases,
   url: string,
   expected: boolean,
   id?: string | null,
@@ -58,8 +64,8 @@ function parity(
   )
 }
 
-test('SCARE and Webedia accept canonical public HTTPS links bound to the cinema', () => {
-  for (const provider of ['scare', 'webedia'] as const) {
+test('SCARE, Webedia and Cotecine accept canonical public HTTPS links bound to the cinema', () => {
+  for (const provider of ['scare', 'webedia', 'cotecine'] as const) {
     const c = cases[provider]
     parity(provider, c.url, true, c.showing, c.theater)
     parity(provider, c.url, true)
@@ -92,10 +98,11 @@ test('Independent links are never inferred from their host', () => {
   )
 })
 
-test('SCARE s and Webedia b selections round-trip only complete showings', () => {
+test('SCARE s, Webedia b and Cotecine a selections round-trip only complete showings', () => {
   for (const [provider, token] of [
     ['scare', 's1854-12560'],
     ['webedia', 'bP5385-0123456789abcdef0123456789abcdef'],
+    ['cotecine', 'a1824-628177-1796758200'],
   ] as const) {
     const key = `${provider}:${cases[provider].showing}`
     assert.equal(serializeShowtimeSelection([key]), token)
@@ -105,4 +112,22 @@ test('SCARE s and Webedia b selections round-trip only complete showings', () =>
   }
   assert.deepEqual(parseShowtimeSelection('s0854-1'), [])
   assert.deepEqual(parseShowtimeSelection('bp5385-00'), [])
+  // Repertory films are scoped to their cinema by slug.
+  const repertory =
+    'cotecine:cotecine-showing-4013-4013-lady-bird-0000-1795698000'
+  assert.equal(
+    serializeShowtimeSelection([repertory]),
+    'a4013-4013-lady-bird-0000-1795698000',
+  )
+  assert.deepEqual(
+    parseShowtimeSelection('a4013-4013-lady-bird-0000-1795698000'),
+    [repertory],
+  )
+  for (const invalid of [
+    'a0-628177-1',
+    'a1824-628177',
+    'a1824-Lady-1',
+    'a1824-628177-01',
+  ])
+    assert.deepEqual(parseShowtimeSelection(invalid), [])
 })

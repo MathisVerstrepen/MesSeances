@@ -48,6 +48,7 @@ test('defines an exhaustive provider palette', () => {
     'ticketingcine',
     'scare',
     'webedia',
+    'cotecine',
   ]
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
@@ -69,6 +70,7 @@ test('defines an exhaustive provider palette', () => {
     ticketingcine: '#78716c',
     scare: '#78716c',
     webedia: '#78716c',
+    cotecine: '#78716c',
   })
   assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
   assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')
@@ -80,7 +82,7 @@ test('markers and legend share the provider palette, one entry per chain', async
     'utf8',
   )
   // Independent cinema providers share one public chain, color and label.
-  const independent = ['ticketingcine', 'scare', 'webedia'] as const
+  const independent = ['ticketingcine', 'scare', 'webedia', 'cotecine'] as const
   const grouped = new Set<string>(independent.slice(1))
   const colors = Object.entries(THEATER_PROVIDER_COLORS)
     .filter(([provider]) => !grouped.has(provider))

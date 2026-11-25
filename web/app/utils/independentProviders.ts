@@ -1,15 +1,17 @@
 // Generic open-data and platform providers of independent cinemas (SCARE,
-// Webedia). Their booking links point to each cinema's own ticketing pages,
+// Webedia, Cotecine). Their booking links point to each cinema's own ticketing pages,
 // which no manifest can list, so they are accepted only as canonical public
 // HTTPS URLs bound to the showing's cinema. Mirrors schedule.ValidPublicHTTPSURL.
 
-export type IndependentProvider = 'scare' | 'webedia'
+export type IndependentProvider = 'scare' | 'webedia' | 'cotecine'
 
 const PUBLIC_HOST = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
 
 const SHOWING_PATTERNS = {
   scare: /^scare-showing-([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$/,
   webedia: /^webedia-showing-([A-Z][A-Z0-9]{4})-[a-f0-9]{32}$/,
+  cotecine:
+    /^cotecine-showing-([1-9][0-9]{0,6})-(?:[1-9][0-9]{0,9}|[1-9][0-9]{0,6}-[a-z0-9]+(?:-[a-z0-9]+)*)-[1-9][0-9]{0,11}$/,
 } as const satisfies Record<IndependentProvider, RegExp>
 
 export function isPublicHttpsUrl(raw: string): boolean {

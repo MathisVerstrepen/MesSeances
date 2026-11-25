@@ -29,7 +29,10 @@ const (
 	ProviderScare Provider = "scare"
 	// ProviderWebedia serves independent Webedia Movies Pro (Boxoffice)
 	// cinemas configured as sync sources.
-	ProviderWebedia  Provider = "webedia"
+	ProviderWebedia Provider = "webedia"
+	// ProviderCotecine serves independent Cotecine (Cinegroup) cinemas
+	// configured as sync sources.
+	ProviderCotecine Provider = "cotecine"
 	ProviderCombined Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"

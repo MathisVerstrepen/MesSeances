@@ -1253,6 +1253,7 @@ function providerLabel(provider: Provider): string {
     ticketingcine: 'TicketingCiné',
     scare: 'SCARE',
     webedia: 'Webedia',
+    cotecine: 'Cotecine',
   } satisfies Record<Provider, string>
   return labels[provider]
 }

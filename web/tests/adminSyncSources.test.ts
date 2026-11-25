@@ -45,6 +45,7 @@ test('groups sources by provider and counts before filtering', () => {
     ],
   )
   assert.equal(adminSyncSourceProviderLabel('webedia'), 'Webedia Movies Pro')
+  assert.equal(adminSyncSourceProviderLabel('cotecine'), 'Cotecine (Cinegroup)')
 })
 
 test('filters by accent-insensitive search on name, key and CNC number, and by status', () => {

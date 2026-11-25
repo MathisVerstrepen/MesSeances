@@ -5,7 +5,7 @@ import "testing"
 func TestPublicChainGroupsIndependentProviders(t *testing.T) {
 	for _, provider := range SourceProviders() {
 		want := provider
-		if provider == ProviderTicketingcine || provider == ProviderScare || provider == ProviderWebedia {
+		if provider == ProviderTicketingcine || provider == ProviderScare || provider == ProviderWebedia || provider == ProviderCotecine {
 			want = ChainIndependent
 		}
 		if got := PublicChain(provider); got != want {
@@ -21,7 +21,7 @@ func TestPublicChainGroupsIndependentProviders(t *testing.T) {
 	if !chainMatches("INDEPENDANTS", ProviderScare) || chainMatches("independants", ProviderUGC) || chainMatches("scare", ProviderWebedia) {
 		t.Fatal("chain matching")
 	}
-	if len(IndependentProviders()) != 3 {
+	if len(IndependentProviders()) != 4 {
 		t.Fatal("independent providers")
 	}
 }

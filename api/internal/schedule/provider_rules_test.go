@@ -27,8 +27,8 @@ func TestProviderRulesCoverEverySourceProvider(t *testing.T) {
 // The policy table is intentionally explicit: changing a provider's policy
 // must be a visible, reviewed edit.
 func TestProviderRulesPolicies(t *testing.T) {
-	unknownRuntime := []Provider{ProviderCGR, ProviderMegarama, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderTicketingcine, ProviderScare, ProviderWebedia}
-	strictAlias := []Provider{ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderTicketingcine, ProviderScare, ProviderWebedia}
+	unknownRuntime := []Provider{ProviderCGR, ProviderMegarama, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderTicketingcine, ProviderScare, ProviderWebedia, ProviderCotecine}
+	strictAlias := []Provider{ProviderCineville, ProviderMK2, ProviderCinewest, ProviderGrandEcran, ProviderNoeCinemas, ProviderVeo, ProviderMajestic, ProviderCineode, ProviderCinemovida, ProviderOcine, ProviderTicketingcine, ProviderScare, ProviderWebedia, ProviderCotecine}
 	address := map[Provider]addressRule{ProviderKinepolis: addressOptional, ProviderCineode: addressOptional, ProviderOcine: addressOptional, ProviderCineville: addressPostalOnly, ProviderScare: addressPostalOnly}
 	completeCoverage := []Provider{ProviderUGC, ProviderPathe, ProviderCGR, ProviderGrandEcran, ProviderNoeCinemas, ProviderCinemovida, ProviderVeo}
 	runtimeEnd := []Provider{ProviderMegarama, ProviderCinewest, ProviderVeo, ProviderMajestic, ProviderTicketingcine}
@@ -36,7 +36,7 @@ func TestProviderRulesPolicies(t *testing.T) {
 	serviceDay := map[Provider]serviceDayRule{
 		ProviderUGC: serviceDayStrictOvernight, ProviderKinepolis: serviceDayStrictOvernight, ProviderCGR: serviceDayStrictOvernight,
 		ProviderPathe:    serviceDayPathe,
-		ProviderMegarama: serviceDayOvernight, ProviderCinewest: serviceDayOvernight, ProviderGrandEcran: serviceDayOvernight, ProviderNoeCinemas: serviceDayOvernight, ProviderVeo: serviceDayOvernight, ProviderTicketingcine: serviceDayOvernight, ProviderScare: serviceDayOvernight, ProviderWebedia: serviceDayOvernight,
+		ProviderMegarama: serviceDayOvernight, ProviderCinewest: serviceDayOvernight, ProviderGrandEcran: serviceDayOvernight, ProviderNoeCinemas: serviceDayOvernight, ProviderVeo: serviceDayOvernight, ProviderTicketingcine: serviceDayOvernight, ProviderScare: serviceDayOvernight, ProviderWebedia: serviceDayOvernight, ProviderCotecine: serviceDayOvernight,
 		ProviderCineville: serviceDayCalendar, ProviderMK2: serviceDayCalendar, ProviderMajestic: serviceDayCalendar, ProviderCineode: serviceDayCalendar, ProviderCinemovida: serviceDayCalendar, ProviderOcine: serviceDayCalendar,
 	}
 	for _, provider := range SourceProviders() {

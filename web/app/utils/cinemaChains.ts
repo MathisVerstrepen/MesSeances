@@ -1,6 +1,6 @@
 import type { CinemaChain, IndependentProvider, Provider } from '../types/api'
 
-// TicketingCiné, SCARE and Webedia serve independent cinemas, not chains:
+// TicketingCiné, SCARE, Webedia and Cotecine serve independent cinemas, not chains:
 // public filters, map legend and statistics group them as one chain.
 export const INDEPENDENT_CHAIN = 'independants'
 export const INDEPENDENT_CHAIN_LABEL = 'Cinémas indépendants'
@@ -9,6 +9,7 @@ const independentProviders: ReadonlySet<string> = new Set([
   'ticketingcine',
   'scare',
   'webedia',
+  'cotecine',
 ] satisfies IndependentProvider[])
 
 export function isIndependentProvider(
