@@ -26,6 +26,7 @@ import {
 } from '../app/utils/cinemaSelection.ts'
 import { sortTheatersByDistance } from '../app/utils/theaterDistance.ts'
 import * as theaterMap from '../app/utils/theaterMap.ts'
+import * as cinemaChains from '../app/utils/cinemaChains.ts'
 
 function theater(id: string, provider: Provider, city = 'Lille'): Theater {
   return {
@@ -243,6 +244,7 @@ async function component(name: string): Promise<Component> {
   function localRequire(id: string) {
     if (id === '~/utils/cinemaDirectoryChains') return chainHelpers
     if (id === '~/utils/theaterMap') return theaterMap
+    if (id === '~/utils/cinemaChains') return cinemaChains
     if (id.startsWith('~/assets/')) return { __esModule: true, default: id }
     return require(id)
   }
@@ -358,7 +360,7 @@ test('page shares filtered results and groups both filters under one disclosure 
   )
   assert.match(
     page,
-    /function setChains\(chains: Provider\[\]\) \{\s*setDisplayMode\(\{ chains \}\)/,
+    /function setChains\(chains: CinemaChain\[\]\) \{\s*setDisplayMode\(\{ chains \}\)/,
   )
   const searchWorkspace = page.slice(
     page.indexOf('class="search-workspace'),

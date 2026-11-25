@@ -79,7 +79,7 @@ func TestHistoryCanonicalIntegration(t *testing.T) {
 	// One snapshot even while a second connection publishes and changes classification.
 	err := s.historyRead(t.Context(), func(ctx context.Context, tx pgx.Tx) error {
 		var before, after []byte
-		args := []any{"", "", []string{}, []string{}, "", "", "", "", "", nil}
+		args := []any{"", "", []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()}
 		if err := tx.QueryRow(ctx, historyStatisticsSQL, args...).Scan(&before); err != nil {
 			return err
 		}
@@ -488,7 +488,7 @@ func TestHistoryFilmIdentityIntegration(t *testing.T) {
 			return fmt.Errorf("film resolution changed within history transaction")
 		}
 		var raw []byte
-		if err := tx.QueryRow(ctx, historyStatisticsSQL, "", "", []string{}, []string{}, "", "", "", "", "", after).Scan(&raw); err != nil {
+		if err := tx.QueryRow(ctx, historyStatisticsSQL, "", "", []string{}, []string{}, "", "", "", "", "", after, independentChainProviders()).Scan(&raw); err != nil {
 			return err
 		}
 		var got schedule.HistoryStatistics

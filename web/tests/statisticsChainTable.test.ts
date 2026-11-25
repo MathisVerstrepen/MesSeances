@@ -11,6 +11,7 @@ import {
   statisticsChainLabels,
   statisticsCount,
 } from '../app/utils/statistics.ts'
+import * as cinemaChains from '../app/utils/cinemaChains.ts'
 
 const require = createRequire(import.meta.url)
 const source = await readFile(
@@ -40,6 +41,7 @@ async function component(name: string): Promise<Component> {
   const localRequire = (id: string) => {
     if (id === '~/utils/statistics')
       return { statisticsChainLabels, statisticsCount }
+    if (id === '~/utils/cinemaChains') return cinemaChains
     if (id.startsWith('~/assets/')) return { __esModule: true, default: id }
     return require(id)
   }

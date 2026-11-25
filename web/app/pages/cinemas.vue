@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
   X,
 } from '@lucide/vue'
-import type { Provider, Theater } from '~/types/api'
+import type { CinemaChain, Theater } from '~/types/api'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import {
   cinemaListSections,
@@ -262,7 +262,7 @@ function setDisplayMode(
   if (!queriesEqual(route.query, query)) router.push({ query })
 }
 
-function setChains(chains: Provider[]) {
+function setChains(chains: CinemaChain[]) {
   setDisplayMode({ chains })
 }
 

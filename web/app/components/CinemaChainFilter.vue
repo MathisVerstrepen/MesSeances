@@ -9,17 +9,20 @@ import {
   watch,
 } from 'vue'
 import { Check, ChevronDown } from '@lucide/vue'
-import type { Provider } from '~/types/api'
-import { toggleCinemaChain } from '~/utils/cinemaDirectoryChains'
-import { THEATER_PROVIDER_LABELS } from '~/utils/theaterMap'
+import type { CinemaChain } from '~/types/api'
+import { chainDisplayProvider } from '~/utils/cinemaChains'
+import {
+  cinemaChainLabel,
+  toggleCinemaChain,
+} from '~/utils/cinemaDirectoryChains'
 
 const props = defineProps<{
-  modelValue: Provider[]
-  options: readonly Provider[]
+  modelValue: CinemaChain[]
+  options: readonly CinemaChain[]
   inSettings?: boolean
 }>()
 const emit = defineEmits<{
-  'update:modelValue': [value: Provider[]]
+  'update:modelValue': [value: CinemaChain[]]
 }>()
 const disclosure = useTemplateRef<HTMLElement>('disclosure')
 const summary = useTemplateRef<HTMLElement>('summary')
@@ -34,7 +37,7 @@ const summaryText = computed(() => {
   const first = props.modelValue[0]
   if (!first) return 'Toutes les enseignes'
   return props.modelValue.length === 1
-    ? THEATER_PROVIDER_LABELS[first]
+    ? cinemaChainLabel(first)
     : `${props.modelValue.length} enseignes`
 })
 
@@ -216,8 +219,8 @@ onBeforeUnmount(() => {
               />
             </span>
             <TheaterName
-              :name="THEATER_PROVIDER_LABELS[provider]"
-              :provider="provider"
+              :name="cinemaChainLabel(provider)"
+              :provider="chainDisplayProvider(provider)"
               class="flex min-w-0 flex-1 flex-col items-center gap-1 text-center leading-4 [overflow-wrap:anywhere]"
               logo-class="!h-6 !w-12 !max-w-full object-contain"
             />

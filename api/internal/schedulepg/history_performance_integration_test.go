@@ -119,8 +119,8 @@ func TestHistoryPerformanceIntegration(t *testing.T) {
 		name, sql string
 		args      []any
 	}{
-		{"all-aggregate", historyStatisticsSQL, []any{"", "", []string{}, []string{}, "", "", "", "", "", nil}},
-		{"selective-date", historyStatisticsSQL, []any{"2018-01-01", "2018-01-01", []string{}, []string{}, "", "", "", "", "", nil}},
+		{"all-aggregate", historyStatisticsSQL, []any{"", "", []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()}},
+		{"selective-date", historyStatisticsSQL, []any{"2018-01-01", "2018-01-01", []string{}, []string{}, "", "", "", "", "", nil, independentChainProviders()}},
 		{"option-search", historyOptionsSQL, []any{"theater", "1127", []string{"ugc-1127"}}},
 	} {
 		rows, err := pool.Query(t.Context(), `EXPLAIN (ANALYZE,BUFFERS,FORMAT TEXT) `+tc.sql, tc.args...)

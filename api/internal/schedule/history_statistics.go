@@ -125,7 +125,7 @@ func NormalizeHistoryQuery(query StatisticsQuery) (StatisticsQuery, error) {
 		*value = strings.TrimSpace(*value)
 	}
 	query.Genre, _ = statisticsGenre(query.Genre)
-	if query.Chain != "" && !validProvider(Provider(query.Chain), false) ||
+	if query.Chain != "" && !validChain(query.Chain) ||
 		query.Language != "" && query.Language != string(LanguageVOF) && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
 		query.Format != "" && query.Format != statisticsUnknown && statisticsFormat(Format(query.Format)) == statisticsUnknown {
 		return query, invalid("Les filtres statistiques sont invalides.")

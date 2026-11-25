@@ -15,6 +15,7 @@ import {
   theaterFeatureBounds,
   THEATER_PROVIDER_COLORS,
   THEATER_PROVIDER_LABELS,
+  THEATER_MAP_LEGEND,
 } from '~/utils/theaterMap'
 
 maplibregl.setWorkerUrl(workerUrl)
@@ -501,14 +502,14 @@ onBeforeUnmount(() => {
             aria-label="Légende des exploitants"
           >
             <span
-              v-for="(label, provider) in THEATER_PROVIDER_LABELS"
-              :key="provider"
+              v-for="entry in THEATER_MAP_LEGEND"
+              :key="entry.provider"
               class="inline-flex items-center gap-[0.35rem]"
               ><i
                 class="inline-block size-[0.8rem] rounded-full border-2 border-ink"
-                :style="{ backgroundColor: THEATER_PROVIDER_COLORS[provider] }"
+                :style="{ backgroundColor: entry.color }"
                 aria-hidden="true"
-              ></i>{{ label }}</span
+              ></i>{{ entry.label }}</span
             >
             <span class="inline-flex items-center gap-[0.35rem]"
               ><i
