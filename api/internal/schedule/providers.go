@@ -25,6 +25,8 @@ var sourceProviders = [...]Provider{
 	ProviderCinemovida,
 	ProviderOcine,
 	ProviderTicketingcine,
+	ProviderScare,
+	ProviderWebedia,
 }
 
 // SourceProviders returns a fresh copy of the synchronized providers in

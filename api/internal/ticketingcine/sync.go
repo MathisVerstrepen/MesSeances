@@ -32,7 +32,10 @@ type SyncOptions struct {
 
 type SyncSummary struct {
 	Cinemas, Movies, Jobs, Requests, Showtimes int
-	GeneratedAt                                time.Time
+	// MovieConflicts counts national films whose title or runtime differed
+	// from the record kept for an earlier site.
+	MovieConflicts int
+	GeneratedAt    time.Time
 }
 
 // Sync publishes every configured site atomically: one invalid or failed
@@ -77,8 +80,12 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 		for _, e := range p.Events {
 			id := movieID(sites[i], e.ID)
 			movie := schedule.MovieRecord{Provider: schedule.ProviderTicketingcine, ProviderID: id, Slug: string(schedule.ProviderTicketingcine) + "-film-" + id, Title: Clean(e.Title), RuntimeMinutes: int(e.Duration), PosterURL: PosterURL(e.BillURL, e.ID)}
+			// Independent sites may retitle a national film or round its
+			// runtime differently. Sources are ordered by site, so the first
+			// site's record deterministically wins instead of failing the
+			// snapshot; the other sites only fill missing runtime or poster.
 			if !builder.MergeMovie(movie) {
-				return result, summary, fmt.Errorf("%w: conflicting TicketingCiné movie", schedule.ErrDatasetValidation)
+				summary.MovieConflicts++
 			}
 		}
 	}

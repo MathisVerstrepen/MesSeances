@@ -12,7 +12,6 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
-	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 )
 
@@ -94,8 +93,7 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			configureCineodeTestExecutor(t, executor, window)
 			configureCinemovidaTestExecutor(t, executor, window)
 			configureOcineTestExecutor(t, executor, window)
-			ticketingcineOf(executor).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
-			ticketingcineOf(executor).sources = staticSources{}
+			skipSourceProviders(executor)
 			manager, err := newTestManager(t.Context(), executor.now, executor)
 			if err != nil {
 				t.Fatal(err)
@@ -115,7 +113,7 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			}
 			for _, provider := range allTestProviders {
 				got := status.Providers[string(provider)]
-				if provider == TargetTicketingcine {
+				if provider == TargetTicketingcine || provider == TargetScare || provider == TargetWebedia {
 					// No enabled source: skipped, never failed or published.
 					if got.State != ProviderSkipped || got.Outcome != nil {
 						t.Errorf("source-less provider status=%+v", got)
