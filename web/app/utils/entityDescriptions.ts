@@ -21,6 +21,7 @@ function providerLabel(provider: Provider): string {
     cineode: 'Cinéode',
     cinemovida: 'Ciné-Movida',
     ocine: 'Ociné',
+    ticketingcine: 'TicketingCiné',
   } satisfies Record<Provider, string>
   return labels[provider]
 }

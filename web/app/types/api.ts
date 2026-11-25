@@ -27,6 +27,7 @@ export type Provider =
   | 'cineode'
   | 'cinemovida'
   | 'ocine'
+  | 'ticketingcine'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'

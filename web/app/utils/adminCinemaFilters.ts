@@ -24,6 +24,7 @@ export const cinemaProviderLabels = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'TicketingCiné',
 } satisfies Record<Provider, string>
 
 export interface AdminCinemaRouteState {
