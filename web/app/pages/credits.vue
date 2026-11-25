@@ -15,6 +15,7 @@ type CreditBrand =
   | 'Cinéode'
   | 'Ciné-Movida'
   | 'Ociné'
+  | 'Indépendant'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -92,6 +93,16 @@ const creditSections: Array<{
         brand: 'Ociné',
         name: 'Ociné',
         url: 'https://www.ocine.fr',
+      },
+      {
+        brand: 'Indépendant',
+        name: 'TicketingCiné (cinémas indépendants)',
+        url: 'https://www.ticketingcine.com/',
+      },
+      {
+        brand: 'Indépendant',
+        name: 'SCARE, Programmation des cinémas indépendants (Licence Ouverte)',
+        url: 'https://datacinesindes.fr/datasets/programmation-cinemas',
       },
     ],
   },

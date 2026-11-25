@@ -18,6 +18,9 @@ export const THEATER_PROVIDER_COLORS = {
   cineode: '#06b6d4',
   cinemovida: '#4c0519',
   ocine: '#a5b4fc',
+  ticketingcine: '#78716c',
+  scare: '#a8a29e',
+  webedia: '#57534e',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -36,6 +39,9 @@ export const THEATER_PROVIDER_LABELS = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'Indépendants (TicketingCiné)',
+  scare: 'Indépendants (SCARE)',
+  webedia: 'Indépendants (Webedia)',
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

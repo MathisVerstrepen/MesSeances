@@ -12,6 +12,7 @@ import majesticLogo from '~/assets/brands/majestic_logo.svg?no-inline'
 import cineodeLogo from '~/assets/brands/cineode_logo.svg?no-inline'
 import cinemovidaLogo from '~/assets/brands/cinemovida_logo.svg?no-inline'
 import ocineLogo from '~/assets/brands/ocine_logo.svg?no-inline'
+import independentLogo from '~/assets/brands/independent_logo.svg?no-inline'
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
@@ -47,6 +48,7 @@ type Brand =
   | 'Cinéode'
   | 'Ciné-Movida'
   | 'Ociné'
+  | 'Indépendant'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -84,6 +86,7 @@ const sources = {
   Cinéode: { inline: cineodeLogo, display: cineodeLogo },
   'Ciné-Movida': { inline: cinemovidaLogo, display: cinemovidaLogo },
   Ociné: { inline: ocineLogo, display: ocineLogo },
+  Indépendant: { inline: independentLogo, display: independentLogo },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
   PATHE: { inline: patheLogoSmall, display: patheLogoLarge },
@@ -115,6 +118,7 @@ const accessibleNames = {
   Cinéode: 'Cinéode',
   'Ciné-Movida': 'Ciné-Movida',
   Ociné: 'Ociné',
+  Indépendant: 'Cinéma indépendant',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
   PATHE: 'Pathé',
@@ -140,6 +144,8 @@ const accessibleNames = {
     class="inline-block max-w-full shrink-0 select-none object-contain"
     :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'Ociné'
       ? (variant === 'display' ? 'w-24 sm:w-28' : 'h-[1.6em] w-auto align-middle')
+      : brand === 'Indépendant'
+      ? (variant === 'display' ? 'w-24 sm:w-28' : 'h-[1.15em] w-auto align-[-0.18em]')
       : brand === 'Ciné-Movida'
       ? (variant === 'display' ? 'aspect-square w-20 sm:w-24' : 'h-[2em] w-[2em] align-middle')
       : brand === 'ICE'

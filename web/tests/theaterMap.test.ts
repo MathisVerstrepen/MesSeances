@@ -44,6 +44,9 @@ test('defines an exhaustive provider palette', () => {
     'cineode',
     'cinemovida',
     'ocine',
+    'ticketingcine',
+    'scare',
+    'webedia',
   ]
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
@@ -62,6 +65,9 @@ test('defines an exhaustive provider palette', () => {
     cineode: '#06b6d4',
     cinemovida: '#4c0519',
     ocine: '#a5b4fc',
+    ticketingcine: '#78716c',
+    scare: '#a8a29e',
+    webedia: '#57534e',
   })
   assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
   assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')

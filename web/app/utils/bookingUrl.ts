@@ -6,6 +6,8 @@ import { safeMajesticBooking } from './majestic.ts'
 import { safeCineodeBooking } from './cineode.ts'
 import { safeCinemovidaBooking } from './cinemovida.ts'
 import { safeOcineBooking } from './ocine.ts'
+import { safeTicketingcineBooking } from './ticketingcine.ts'
+import { safeIndependentBooking } from './independentProviders.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -205,6 +207,20 @@ export function safeBookingUrl(
     if (majestic) return { provider: 'majestic', ...majestic }
   }
   if (expectedProvider === 'majestic') return null
+  // Generic TicketingCiné sites resolve after the Majestic manifest.
+  if (raw && (expectedProvider === 'ticketingcine' || !expectedProvider)) {
+    const ticketingcine = safeTicketingcineBooking(raw, showtimeId, theaterId)
+    if (ticketingcine) return { provider: 'ticketingcine', ...ticketingcine }
+  }
+  if (expectedProvider === 'ticketingcine') return null
+  // Open-data and platform links point to any cinema site: never inferred
+  // from the host, only accepted for the expected provider.
+  if (expectedProvider === 'scare' || expectedProvider === 'webedia') {
+    const independent = raw
+      ? safeIndependentBooking(expectedProvider, raw, showtimeId, theaterId)
+      : null
+    return independent ? { provider: expectedProvider, ...independent } : null
+  }
   if (raw && (expectedProvider === 'veo' || !expectedProvider)) {
     const veo = safeVeoBooking(raw, showtimeId, theaterId)
     if (veo) return { provider: 'veo', ...veo }

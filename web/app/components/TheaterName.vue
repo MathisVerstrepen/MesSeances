@@ -29,7 +29,24 @@ const providerBrands = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'Indépendant',
+  scare: 'Indépendant',
+  webedia: 'Indépendant',
 } as const satisfies Record<Provider, string>
+
+// Independent cinemas are named by their data source, not a chain brand.
+const sourceName = computed(() => {
+  switch (props.provider) {
+    case 'ticketingcine':
+      return 'TicketingCiné'
+    case 'scare':
+      return 'SCARE'
+    case 'webedia':
+      return 'le site du cinéma'
+    default:
+      return providerBrands[props.provider]
+  }
+})
 
 // Normalize only for accessible-name detection, never for visible source text.
 // Accent folding also covers multi-word Grand Écran, including decomposed accents.
@@ -75,7 +92,7 @@ const nameIncludesProvider = computed(() => {
       :href="movieUrl"
       target="_blank"
       rel="noopener noreferrer"
-      :aria-label="`Voir ${movieTitle || 'la fiche du film'} sur ${providerBrands[provider]}`"
+      :aria-label="`Voir ${movieTitle || 'la fiche du film'} sur ${sourceName}`"
       class="inline-flex min-h-11 shrink-0 items-center rounded-sm hover:opacity-75 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
       ><BrandLogo
         :brand="providerBrands[provider]"
