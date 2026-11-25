@@ -205,6 +205,11 @@ var providerRuleSet = map[Provider]providerRules{
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
 		firstPart: alwaysFirstPart, showing: ticketingcineShowingRule, runtimeEnd: alwaysRuntimeEnd,
 	},
+	ProviderScare: {
+		identity: ValidScareIdentity, booking: scareBooking, poster: func(string) bool { return false },
+		unknownRuntime: true, address: addressPostalOnly, strictAliasSlug: true, serviceDay: serviceDayOvernight,
+		showing: scareShowingRule, version: scareVersionRule,
+	},
 	ProviderOcine: {
 		identity: ValidOcineIdentity, booking: reorderedBooking(ValidOcineBookingURL), poster: ValidOcinePosterURL,
 		unknownRuntime: true, address: addressOptional, census: 3, strictAliasSlug: true, serviceDay: serviceDayCalendar,

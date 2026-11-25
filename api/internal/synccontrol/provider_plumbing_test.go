@@ -108,7 +108,7 @@ func TestProviderManagerSelectionAndStatusCloning(t *testing.T) {
 						t.Fatal(err)
 					}
 					status := waitForTerminal(t, m)
-					if status.State != StateSucceeded || len(status.Providers) != 16 || len(calls) != 1 || <-calls != provider {
+					if status.State != StateSucceeded || len(status.Providers) != 17 || len(calls) != 1 || <-calls != provider {
 						t.Fatalf("status=%+v", status)
 					}
 					if mode == "scheduled" && (status.Occurrence == nil || status.Occurrence.Provider != provider) {
