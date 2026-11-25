@@ -343,6 +343,8 @@ function onMapLoad() {
           THEATER_PROVIDER_COLORS.cinemovida,
           'ocine',
           THEATER_PROVIDER_COLORS.ocine,
+          'ticketingcine',
+          THEATER_PROVIDER_COLORS.ticketingcine,
           '#52525b',
         ],
         'circle-stroke-color': '#ffffff',

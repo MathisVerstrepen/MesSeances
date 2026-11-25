@@ -61,6 +61,7 @@ const providers = [
   'cineode',
   'cinemovida',
   'ocine',
+  'ticketingcine',
 ] as const
 const targets = ['all', ...providers] as const
 const activeJob = computed(() =>
@@ -111,6 +112,7 @@ const targetLabels = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'TicketingCiné',
 } satisfies Record<AdminSyncTarget, string>
 
 const providerBrands = {
@@ -129,6 +131,7 @@ const providerBrands = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'Indépendant',
 } as const satisfies Record<Provider, string>
 
 const providerLabels = {
@@ -147,6 +150,7 @@ const providerLabels = {
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
   ocine: 'Ociné',
+  ticketingcine: 'TicketingCiné',
 } satisfies Record<Provider, string>
 
 const triggerLabels = {

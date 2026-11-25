@@ -403,6 +403,11 @@ function reservationUrl(showtime) {
     if (majestic) return majestic
   }
   if (showtime.provider === 'majestic') return null
+  if (!showtime.provider || showtime.provider === 'ticketingcine') {
+    const ticketingcine = ticketingcineReservationUrl(showtime)
+    if (ticketingcine) return ticketingcine
+  }
+  if (showtime.provider === 'ticketingcine') return null
   // Match Véo original bytes and cinema-qualified identity before generic parsing.
   if (!showtime.provider || showtime.provider === 'veo') {
     const raw = String(showtime.booking_url ?? '')
@@ -653,6 +658,45 @@ function majesticReservationUrl(showtime) {
       return raw
   }
   return null
+}
+
+// Generic TicketingCiné sites are configured sources: any EMS site, bound to
+// its theater and session. Mirrors app/utils/ticketingcine.ts.
+function ticketingcineReservationUrl(showtime) {
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url || raw.length > 2048) return null
+  let site
+  if (showtime.theater_id !== undefined) {
+    const match = /^ticketingcine-(EMS[0-9]{4})$/.exec(
+      showtime.theater_id ?? '',
+    )
+    if (!match || match[0] !== showtime.theater_id) return null
+    site = match[1]
+  }
+  if (showtime.id !== undefined) {
+    const match = /^ticketingcine-showing-(emsx[0-9]{12})$/.exec(
+      showtime.id ?? '',
+    )
+    if (!match || match[0] !== showtime.id) return null
+    const showingSite = `EMS${match[1].slice(4, 8)}`
+    if (site && site !== showingSite) return null
+    site = showingSite
+  }
+  const ticket =
+    /^https:\/\/www\.ticketingcine\.com(?:\/(EMS[0-9]{4})\/FR[A-Z0-9]{5}|\?(EMS[0-9]{4}))#showsession\?id=(emsx[0-9]{12})(?:&ps=ticketingcine)?$/.exec(
+      raw,
+    )
+  if (ticket?.[0] !== raw) return null
+  const ticketSite = ticket[1] ?? ticket[2]
+  const session = ticket[3]
+  if (
+    ticketSite !== `EMS${session.slice(4, 8)}` ||
+    (site && site !== ticketSite) ||
+    (showtime.id !== undefined &&
+      showtime.id !== `ticketingcine-showing-${session}`)
+  )
+    return null
+  return raw
 }
 
 // Structural only. Source acquisition binds start/tags; transport binds final D.
