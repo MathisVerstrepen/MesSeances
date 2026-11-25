@@ -119,9 +119,33 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
             with self.subTest(workflow=filename):
                 workflow = (ROOT / ".github/workflows" / filename).read_text()
                 triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-                self.assertEqual(triggers, "  pull_request:\n    branches: [dev, main]\n")
+                expected_triggers = "  pull_request:\n    branches: [dev, main]\n"
+                if filename in ("go.yml", "frontend.yml"):
+                    expected_triggers += "    types: [opened, edited, synchronize, reopened]\n"
+                self.assertEqual(triggers, expected_triggers)
                 for name in check_names:
                     self.assertIn(f"    name: {name}\n", workflow)
+
+    def test_slow_ci_checks_require_a_same_repository_release_pull_request(self):
+        workflows = {
+            "go.yml": ("      - name: Race test", "    name: Go CI / integration"),
+            "frontend.yml": ("      - name: Build", "    name: Frontend CI / browser"),
+        }
+        for filename, gated_checks in workflows.items():
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / ".github/workflows" / filename).read_text()
+                checks_header = workflow.split("\n  checks:\n", 1)[1].split("\n    steps:\n", 1)[0]
+                self.assertNotIn("\n    if:", checks_header)
+                for name in gated_checks:
+                    condition = workflow.split(f"\n{name}\n", 1)[1].splitlines()[:3]
+                    self.assertEqual(
+                        [line.strip() for line in condition],
+                        [
+                            "if: >-",
+                            "github.base_ref == 'main' && github.head_ref == 'dev' &&",
+                            "github.event.pull_request.head.repo.full_name == github.repository",
+                        ],
+                    )
 
     def test_release_test_ci_has_read_only_unfiltered_root_suite(self):
         workflow = (ROOT / ".github/workflows/release-tests.yml").read_text()
