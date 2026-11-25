@@ -58,6 +58,7 @@ export const statisticsChainLabels = {
   ticketingcine: 'TicketingCiné',
   scare: 'SCARE',
   webedia: 'Webedia',
+  cotecine: 'Cotecine',
   independants: 'Cinémas indépendants',
 } as const satisfies Record<Provider | 'independants', string>
 const chains = Object.keys(statisticsChainLabels)
@@ -172,6 +173,7 @@ export function parseStatisticsQuery(
       'ticketingcine',
       'scare',
       'webedia',
+      'cotecine',
       'independants',
     ])
   if (values.language)

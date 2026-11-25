@@ -37,6 +37,8 @@ const (
 	TargetScare Target = "scare"
 	// TargetWebedia syncs the Webedia Movies Pro sync sources.
 	TargetWebedia Target = "webedia"
+	// TargetCotecine syncs the Cotecine (Cinegroup) sync sources.
+	TargetCotecine Target = "cotecine"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"

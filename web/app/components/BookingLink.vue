@@ -52,6 +52,7 @@ const reservation = computed(() => {
     ticketingcine: 'Réserver sur TicketingCiné',
     scare: 'Réserver sur le site du cinéma',
     webedia: 'Réserver sur le site du cinéma',
+    cotecine: 'Réserver sur le site du cinéma',
   } satisfies Record<Provider, string>
   return {
     url: booking.url,

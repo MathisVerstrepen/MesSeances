@@ -215,7 +215,11 @@ export function safeBookingUrl(
   if (expectedProvider === 'ticketingcine') return null
   // Open-data and platform links point to any cinema site: never inferred
   // from the host, only accepted for the expected provider.
-  if (expectedProvider === 'scare' || expectedProvider === 'webedia') {
+  if (
+    expectedProvider === 'scare' ||
+    expectedProvider === 'webedia' ||
+    expectedProvider === 'cotecine'
+  ) {
     const independent = raw
       ? safeIndependentBooking(expectedProvider, raw, showtimeId, theaterId)
       : null

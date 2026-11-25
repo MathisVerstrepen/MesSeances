@@ -134,9 +134,9 @@ useHead({
       </NuxtLink>
       <h1 class="editorial-title">Cinémas sources</h1>
       <p class="mt-3 max-w-3xl text-sm text-muted">
-        Cinémas indépendants servis par les connecteurs TicketingCiné, SCARE et
-        Webedia. Seuls les cinémas activés sont synchronisés ; un changement
-        s’applique à la prochaine
+        Cinémas indépendants servis par les connecteurs TicketingCiné, SCARE,
+        Webedia et Cotecine. Seuls les cinémas activés sont synchronisés ; un
+        changement s’applique à la prochaine
         <NuxtLink
           to="/admin/sync"
           class="font-semibold text-ink underline underline-offset-2"

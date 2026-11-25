@@ -409,7 +409,11 @@ function reservationUrl(showtime) {
   }
   if (showtime.provider === 'ticketingcine') return null
   // Open-data and platform links are never inferred from their host.
-  if (showtime.provider === 'scare' || showtime.provider === 'webedia')
+  if (
+    showtime.provider === 'scare' ||
+    showtime.provider === 'webedia' ||
+    showtime.provider === 'cotecine'
+  )
     return independentReservationUrl(showtime)
   // Match Véo original bytes and cinema-qualified identity before generic parsing.
   if (!showtime.provider || showtime.provider === 'veo') {
@@ -663,7 +667,7 @@ function majesticReservationUrl(showtime) {
   return null
 }
 
-// SCARE and Webedia link to each cinema's own ticketing pages: canonical
+// SCARE, Webedia and Cotecine link to each cinema's own ticketing pages: canonical
 // public HTTPS URLs bound to the showing's cinema. Mirrors
 // app/utils/independentProviders.ts.
 function independentReservationUrl(showtime) {
@@ -687,10 +691,12 @@ function independentReservationUrl(showtime) {
     )
   )
     return null
-  const pattern =
-    showtime.provider === 'scare'
-      ? /^scare-showing-([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$/
-      : /^webedia-showing-([A-Z][A-Z0-9]{4})-[a-f0-9]{32}$/
+  const pattern = {
+    scare: /^scare-showing-([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$/,
+    webedia: /^webedia-showing-([A-Z][A-Z0-9]{4})-[a-f0-9]{32}$/,
+    cotecine:
+      /^cotecine-showing-([1-9][0-9]{0,6})-(?:[1-9][0-9]{0,9}|[1-9][0-9]{0,6}-[a-z0-9]+(?:-[a-z0-9]+)*)-[1-9][0-9]{0,11}$/,
+  }[showtime.provider]
   if (showtime.id !== undefined) {
     const match = pattern.exec(showtime.id ?? '')
     if (!match || match[0] !== showtime.id) return null

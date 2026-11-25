@@ -10,7 +10,7 @@ import (
 // one "Cinémas indépendants" chain; each cinema keeps its own provider.
 const ChainIndependent Provider = "independants"
 
-var independentProviders = [...]Provider{ProviderTicketingcine, ProviderScare, ProviderWebedia}
+var independentProviders = [...]Provider{ProviderTicketingcine, ProviderScare, ProviderWebedia, ProviderCotecine}
 
 // IndependentProviders returns the providers grouped under ChainIndependent.
 func IndependentProviders() []Provider { return slices.Clone(independentProviders[:]) }

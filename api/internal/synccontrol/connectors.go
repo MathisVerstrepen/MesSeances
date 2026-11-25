@@ -1,6 +1,7 @@
 package synccontrol
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"messeances/api/internal/cineode"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
+	"messeances/api/internal/cotecine"
 	"messeances/api/internal/grandecran"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/majestic"
@@ -56,6 +58,7 @@ var providerRegistry = [...]providerTraits{
 	{target: TargetTicketingcine, enrichUnknownRuntime: true, classify: classifyProxy},
 	{target: TargetScare, enrichUnknownRuntime: true, classify: classifyProxy},
 	{target: TargetWebedia, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetCotecine, enrichUnknownRuntime: true, classify: classifyProgramProxy},
 }
 
 // sourceOutcome maps the summary counters most providers share.
@@ -301,6 +304,39 @@ func WebediaConnector(newClient func() (webedia.Getter, error), sources SourceLi
 			return o
 		},
 		outcome: func(s webedia.SyncSummary) SyncOutcome {
+			outcome := sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
+			outcome.Skipped = s.Skipped
+			return outcome
+		},
+	}
+}
+
+// CotecineConnector serves the Cotecine (Cinegroup) cinemas listed in
+// sync_sources: the source key is the Cinegroup theater id, the website the
+// site base URL and params the cinema address. A source whose params do not
+// decode keeps an empty address, which the synchronizer rejects.
+func CotecineConnector(newClient func() (cotecine.Getter, error), sources SourceLister) *SourceConnector[cotecine.Getter, cotecine.SyncOptions, cotecine.SyncSummary] {
+	return &SourceConnector[cotecine.Getter, cotecine.SyncOptions, cotecine.SyncSummary]{
+		target: TargetCotecine, newClient: newClient, sync: cotecine.Sync, sources: sources,
+		options: func(from string, now time.Time) cotecine.SyncOptions {
+			return cotecine.SyncOptions{From: from, Now: now}
+		},
+		withSources: func(o cotecine.SyncOptions, sources []syncsource.Source) cotecine.SyncOptions {
+			o.Sources = make([]cotecine.Source, len(sources))
+			for i, source := range sources {
+				var address struct {
+					Address    string `json:"address"`
+					PostalCode string `json:"postal_code"`
+					City       string `json:"city"`
+				}
+				if json.Unmarshal(source.Params, &address) != nil {
+					address.Address, address.PostalCode, address.City = "", "", ""
+				}
+				o.Sources[i] = cotecine.Source{TheaterID: source.Key, Website: source.Website, Address: address.Address, PostalCode: address.PostalCode, City: address.City}
+			}
+			return o
+		},
+		outcome: func(s cotecine.SyncSummary) SyncOutcome {
 			outcome := sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
 			outcome.Skipped = s.Skipped
 			return outcome

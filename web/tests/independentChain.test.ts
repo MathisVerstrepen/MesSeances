@@ -41,7 +41,12 @@ const theaters = [
 ]
 
 test('independent providers form one public chain', () => {
-  for (const provider of ['ticketingcine', 'scare', 'webedia'] as const) {
+  for (const provider of [
+    'ticketingcine',
+    'scare',
+    'webedia',
+    'cotecine',
+  ] as const) {
     assert.equal(publicChain(provider), 'independants')
   }
   assert.equal(publicChain('ugc'), 'ugc')

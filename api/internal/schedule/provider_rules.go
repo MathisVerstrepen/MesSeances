@@ -215,6 +215,11 @@ var providerRuleSet = map[Provider]providerRules{
 		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
 		showing: webediaShowingRule,
 	},
+	ProviderCotecine: {
+		identity: ValidCotecineIdentity, booking: cotecineBooking, poster: ValidCotecinePosterURL,
+		unknownRuntime: true, strictAliasSlug: true, serviceDay: serviceDayOvernight,
+		showing: cotecineShowingRule,
+	},
 	ProviderOcine: {
 		identity: ValidOcineIdentity, booking: reorderedBooking(ValidOcineBookingURL), poster: ValidOcinePosterURL,
 		unknownRuntime: true, address: addressOptional, census: 3, strictAliasSlug: true, serviceDay: serviceDayCalendar,
