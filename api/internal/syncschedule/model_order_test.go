@@ -6,7 +6,7 @@ import (
 )
 
 func TestOrderedTargetsKeepDisplayOrder(t *testing.T) {
-	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine, TargetScare, TargetMetadataRefresh, TargetUpcomingMovies}
+	want := []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetTicketingcine, TargetScare, TargetWebedia, TargetMetadataRefresh, TargetUpcomingMovies}
 	if got := OrderedTargets(); !slices.Equal(got, want) {
 		t.Fatalf("targets=%v", got)
 	}

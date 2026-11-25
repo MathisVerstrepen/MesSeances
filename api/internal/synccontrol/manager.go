@@ -35,6 +35,8 @@ const (
 	TargetTicketingcine Target = "ticketingcine"
 	// TargetScare syncs the SCARE open programme sync sources.
 	TargetScare Target = "scare"
+	// TargetWebedia syncs the Webedia Movies Pro sync sources.
+	TargetWebedia Target = "webedia"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"

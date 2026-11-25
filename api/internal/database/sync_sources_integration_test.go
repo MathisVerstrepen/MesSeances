@@ -28,8 +28,12 @@ func TestSyncSourcesStoreAndConstraintsIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='scare' AND source_key ~ '^[1-9][0-9]*$' AND cnc_id IS NOT NULL AND name <> ''`).Scan(&scare, &scareEnabled); err != nil || scare != 94 || scareEnabled != 0 {
 		t.Fatal("seeded SCARE sources", scare, scareEnabled, err)
 	}
+	var webedia, webediaEnabled int
+	if err := pool.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE enabled) FROM sync_sources WHERE provider='webedia' AND source_key ~ '^[A-Z][A-Z0-9]{4}$' AND website ~ '^https://[a-z0-9.-]+/$' AND cnc_id IS NOT NULL`).Scan(&webedia, &webediaEnabled); err != nil || webedia != 67 || webediaEnabled != 0 {
+		t.Fatal("seeded Webedia sources", webedia, webediaEnabled, err)
+	}
 	var total int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded+scare {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_sources`).Scan(&total); err != nil || total != seeded+scare+webedia {
 		t.Fatal("unexpected seeded sources", total, err)
 	}
 	var shared int

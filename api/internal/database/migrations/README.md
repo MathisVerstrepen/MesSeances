@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [086_scare_sources.sql](086_scare_sources.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [087_webedia_sources.sql](087_webedia_sources.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -21,7 +21,7 @@ It is created by the Go runner, not by a numbered migration:
 ## Conventions and relationships
 
 - In the column tables below, columns are **not null with no default** unless marked nullable or given a default. Primary keys also imply not null. `identity` means `GENERATED ALWAYS AS IDENTITY`.
-- Cinema providers are rows of `providers` (`key text` primary key matching `^[a-z][a-z0-9]{1,31}$`), seeded with `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, `ocine`, (migration 084) `ticketingcine` and (migration 086) `scare`. Columns documented as "Provider" reference `providers(key)` through a noncascading foreign key, unless a table explicitly allows another value. Adding a provider only requires inserting its key. Provider-specific identity, booking, poster, address, timing and version rules are enforced by the application (`schedule.ValidateDataset`, see `api/internal/schedule/provider_rules.go`), not by SQL. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
+- Cinema providers are rows of `providers` (`key text` primary key matching `^[a-z][a-z0-9]{1,31}$`), seeded with `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, `grandecran`, `noecinemas`, `veo`, `majestic`, `cineode`, `cinemovida`, `ocine`, (migration 084) `ticketingcine`, (migration 086) `scare` and (migration 087) `webedia`. Columns documented as "Provider" reference `providers(key)` through a noncascading foreign key, unless a table explicitly allows another value. Adding a provider only requires inserting its key. Provider-specific identity, booking, poster, address, timing and version rules are enforced by the application (`schedule.ValidateDataset`, see `api/internal/schedule/provider_rules.go`), not by SQL. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
 - Runtime fields are `integer >= 0`; `0` represents an unknown runtime. The old `smallint`, 600-minute limit, and positive-only checks no longer apply.
 - `timestamptz` stores instants; `date` stores calendar/service dates. Schedule metadata fixes the timezone to `Europe/Paris`.
 - Primary keys and unique constraints create implicit indexes. Additional indexes are listed separately below. Foreign keys use default `NO ACTION` deletion behavior unless `CASCADE` is specified.
@@ -65,14 +65,14 @@ Exact per-provider formats (for example UGC positive decimals, Majestic's seven-
 
 ### `sync_sources`
 
-Cinemas served by a generic platform connector are configured as rows instead of code. Migration 084 creates the table and registers the generic `ticketingcine` provider. Migration 085 seeds 134 TicketingCiné cinemas (`EMSdddd` sites verified against their live programme, with name, website when HTTPS and CNC establishment number), all disabled; existing rows are left untouched. A provider without enabled rows is skipped by sync runs, so seeded cinemas are synchronized only once an operator enables them. Migration 086 registers the `scare` provider (SCARE open programme on datacinesindes.fr) and seeds 94 member cinemas, keyed by the dataset's numeric cinema id, all disabled; cinemas whose programme is served by TicketingCiné are seeded only for `ticketingcine`, so no CNC establishment is seeded for two providers.
+Cinemas served by a generic platform connector are configured as rows instead of code. Migration 084 creates the table and registers the generic `ticketingcine` provider. Migration 085 seeds 134 TicketingCiné cinemas (`EMSdddd` sites verified against their live programme, with name, website when HTTPS and CNC establishment number), all disabled; existing rows are left untouched. A provider without enabled rows is skipped by sync runs, so seeded cinemas are synchronized only once an operator enables them. Migration 086 registers the `scare` provider (SCARE open programme on datacinesindes.fr) and seeds 94 member cinemas, keyed by the dataset's numeric cinema id, all disabled; cinemas whose programme is served by TicketingCiné are seeded only for `ticketingcine`, so no CNC establishment is seeded for two providers. Migration 087 registers the `webedia` provider (Webedia Movies Pro sites backed by the Boxoffice API) and seeds 67 disabled cinemas, keyed by Boxoffice theater id, with `website` holding the site origin the connector queries; cinemas already seeded by 085 or 086 are left out.
 
 Primary key: `(provider, source_key)`. Partial index `sync_sources_enabled_idx` on `(provider, source_key)` where `enabled`.
 
 | Column | Type | Definition |
 | --- | --- | --- |
 | `provider` | `varchar(32)` | Provider; references `providers` |
-| `source_key` | `varchar(128)` | Native cinema identifier, `^[A-Za-z0-9_-]+$` (TicketingCiné: `EMSdddd` site; SCARE: numeric `cineid`; validated by the application) |
+| `source_key` | `varchar(128)` | Native cinema identifier, `^[A-Za-z0-9_-]+$` (TicketingCiné: `EMSdddd` site; SCARE: numeric `cineid`; Webedia: Boxoffice theater id; validated by the application) |
 | `enabled` | `boolean` | Default `false`; only enabled rows are synchronized |
 | `name` | `varchar(1024)` | Default empty; operator label without surrounding whitespace |
 | `website` | `varchar(2048)` | Nullable; HTTPS URL without credentials, query-only form, whitespace or backslash |

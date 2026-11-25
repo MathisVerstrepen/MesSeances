@@ -113,7 +113,7 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			}
 			for _, provider := range allTestProviders {
 				got := status.Providers[string(provider)]
-				if provider == TargetTicketingcine || provider == TargetScare {
+				if provider == TargetTicketingcine || provider == TargetScare || provider == TargetWebedia {
 					// No enabled source: skipped, never failed or published.
 					if got.State != ProviderSkipped || got.Outcome != nil {
 						t.Errorf("source-less provider status=%+v", got)

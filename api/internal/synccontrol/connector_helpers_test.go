@@ -22,6 +22,7 @@ import (
 	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
+	"messeances/api/internal/webedia"
 )
 
 // testConnectors builds the connector map for executors constructed as
@@ -120,6 +121,12 @@ func skipSourceProviders(e *ProductionExecutor) {
 	ticketingcineOf(e).sources = staticSources{}
 	scareOf(e).newClient = func() (scare.Getter, error) { return nil, errors.New("unused") }
 	scareOf(e).sources = staticSources{}
+	webediaOf(e).newClient = func() (webedia.Getter, error) { return nil, errors.New("unused") }
+	webediaOf(e).sources = staticSources{}
+}
+
+func webediaOf(e *ProductionExecutor) *SourceConnector[webedia.Getter, webedia.SyncOptions, webedia.SyncSummary] {
+	return connectorOf(e, WebediaConnector(nil, nil))
 }
 
 func ticketingcineOf(e *ProductionExecutor) *SourceConnector[ticketingcine.Getter, ticketingcine.SyncOptions, ticketingcine.SyncSummary] {
