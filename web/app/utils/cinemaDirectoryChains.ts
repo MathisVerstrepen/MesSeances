@@ -1,50 +1,70 @@
-import type { Provider, Theater } from '../types/api'
+import type { CinemaChain, Provider, Theater } from '../types/api'
+import {
+  INDEPENDENT_CHAIN,
+  INDEPENDENT_CHAIN_LABEL,
+  publicChain,
+} from './cinemaChains.ts'
 import { THEATER_PROVIDER_LABELS } from './theaterMap.ts'
 import type { FormatBrand } from './formats.ts'
 
 // SAFETY: the existing label record exhaustively covers Provider identifiers.
 const providers = Object.keys(THEATER_PROVIDER_LABELS) as Provider[]
+const chains = [...new Set(providers.map(publicChain))]
 
-export function normalizeCinemaChains(values: readonly string[]): Provider[] {
-  const selected = new Set(values.map((value) => value.trim().toLowerCase()))
-  return providers.filter((provider) => selected.has(provider))
+export function cinemaChainLabel(chain: CinemaChain): string {
+  return chain === INDEPENDENT_CHAIN
+    ? INDEPENDENT_CHAIN_LABEL
+    : THEATER_PROVIDER_LABELS[chain]
+}
+
+// Accepts public chains and, for old links, the providers grouped under one.
+export function normalizeCinemaChains(
+  values: readonly string[],
+): CinemaChain[] {
+  const selected = new Set<string>()
+  for (const value of values) {
+    const key = value.trim().toLowerCase()
+    const provider = providers.find((candidate) => candidate === key)
+    selected.add(provider ? publicChain(provider) : key)
+  }
+  return chains.filter((chain) => selected.has(chain))
 }
 
 export function cinemaDirectoryChains(
   theaters: readonly Theater[],
-): Provider[] {
-  const present = new Set(theaters.map((theater) => theater.provider))
-  return providers
-    .filter((provider) => present.has(provider))
+): CinemaChain[] {
+  const present = new Set(
+    theaters.map((theater) => publicChain(theater.provider)),
+  )
+  return chains
+    .filter((chain) => present.has(chain))
     .sort((left, right) =>
-      THEATER_PROVIDER_LABELS[left].localeCompare(
-        THEATER_PROVIDER_LABELS[right],
-        'fr-FR',
-      ),
+      cinemaChainLabel(left).localeCompare(cinemaChainLabel(right), 'fr-FR'),
     )
 }
 
 export function toggleCinemaChain(
-  selected: readonly Provider[],
-  provider: Provider,
-): Provider[] {
+  selected: readonly CinemaChain[],
+  chain: CinemaChain,
+): CinemaChain[] {
   return normalizeCinemaChains(
-    selected.includes(provider)
-      ? selected.filter((value) => value !== provider)
-      : [...selected, provider],
+    selected.includes(chain)
+      ? selected.filter((value) => value !== chain)
+      : [...selected, chain],
   )
 }
 
 export function filterCinemaDirectory(
   theaters: readonly Theater[],
   search: string,
-  chains: readonly Provider[],
+  chains: readonly CinemaChain[],
   technologies: readonly FormatBrand[] = [],
 ): Theater[] {
   const normalizedSearch = search.trim().toLocaleLowerCase('fr-FR')
   const selected = new Set(chains)
   return theaters.filter((theater) => {
-    if (selected.size > 0 && !selected.has(theater.provider)) return false
+    if (selected.size > 0 && !selected.has(publicChain(theater.provider)))
+      return false
     if (
       technologies.length > 0 &&
       !technologies.some((technology) =>

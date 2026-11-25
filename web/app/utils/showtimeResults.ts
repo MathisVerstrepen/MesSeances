@@ -10,6 +10,8 @@ import { isValidMk2ShowingId } from './mk2.ts'
 import { isValidMajesticSessionId } from './majestic.ts'
 import { cineodeShowingParts } from './cineode.ts'
 import { ocineShowingParts } from './ocine.ts'
+import { isValidTicketingcineSessionId } from './ticketingcine.ts'
+import { independentShowingTheater } from './independentProviders.ts'
 
 export const resultGroupingOptions: [
   { value: ResultGrouping; label: string },
@@ -208,6 +210,23 @@ function encodeShowtimeSelectionKey(key: string): string | null {
     const showing = key.slice(cineodePrefix.length)
     return cineodeShowingParts(showing) ? `o${showing}` : null
   }
+  for (const [provider, token] of [
+    ['scare', 's'],
+    ['webedia', 'b'],
+  ] as const) {
+    const prefix = `${provider}:${provider}-showing-`
+    if (key.startsWith(prefix)) {
+      const showing = key.slice(provider.length + 1)
+      return independentShowingTheater(provider, showing)
+        ? `${token}${key.slice(prefix.length)}`
+        : null
+    }
+  }
+  const ticketingcinePrefix = 'ticketingcine:ticketingcine-showing-'
+  if (key.startsWith(ticketingcinePrefix)) {
+    const session = key.slice(ticketingcinePrefix.length)
+    return isValidTicketingcineSessionId(session) ? `t${session}` : null
+  }
   const majesticPrefix = 'majestic:majestic-showing-'
   if (key.startsWith(majesticPrefix)) {
     const session = key.slice(majesticPrefix.length)
@@ -272,6 +291,23 @@ function decodeShowtimeSelectionToken(token: string): string | null {
     const showing = token.slice(1)
     return cineodeShowingParts(showing)
       ? `cineode:cineode-showing-${showing}`
+      : null
+  }
+  for (const [provider, letter] of [
+    ['scare', 's'],
+    ['webedia', 'b'],
+  ] as const) {
+    if (token.startsWith(letter)) {
+      const showing = `${provider}-showing-${token.slice(1)}`
+      return independentShowingTheater(provider, showing)
+        ? `${provider}:${showing}`
+        : null
+    }
+  }
+  if (token.startsWith('t')) {
+    const session = token.slice(1)
+    return isValidTicketingcineSessionId(session)
+      ? `ticketingcine:ticketingcine-showing-${session}`
       : null
   }
   if (token.startsWith('j')) {

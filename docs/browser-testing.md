@@ -21,9 +21,8 @@ npm --prefix web run test:browser -- --project=desktop e2e/cinema.spec.ts
 
 Linux CI installs browser system libraries explicitly with
 `cd web && npx --no-install playwright install --with-deps chromium`. Local
-checks do not install dependencies automatically. The ordinary `make check`
-gate remains separate; `Frontend CI / browser` runs this opt-in suite on PRs
-to `dev` and `main`. No branch protection settings are changed here.
+checks do not install dependencies automatically. `Frontend CI / browser`
+runs this suite on same-repository release PRs from `dev` to `main`.
 
 Browser package scripts invoke the repository's local Playwright CLI directly.
 The Makefile checks that Playwright Test, Playwright and Playwright Core match

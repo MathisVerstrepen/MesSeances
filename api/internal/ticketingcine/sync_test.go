@@ -122,6 +122,25 @@ func TestSyncBuildsValidatedSnapshotFromSources(t *testing.T) {
 	}
 }
 
+func TestSyncKeepsFirstSiteRecordForConflictingNationalFilm(t *testing.T) {
+	g := fixtures(t, "EMS0042", "EMS1234")
+	p := siteProgram("EMS1234")
+	p.Events[0].Title, p.Events[0].Duration = "FILM NATIONAL (VERSION LONGUE)", 120
+	setProgram(t, g, "EMS1234", p)
+	data, summary, err := run(t, g, "EMS0042", "EMS1234")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.MovieConflicts != 1 || summary.Movies != 3 {
+		t.Fatalf("summary=%+v", summary)
+	}
+	for _, s := range data.Showtimes {
+		if s.Movie.ProviderID == "ABCDE" && (s.Movie.Title != "Film national" || s.Movie.RuntimeMinutes != 100) {
+			t.Fatalf("conflicting record not resolved to the first site: %+v", s.Movie)
+		}
+	}
+}
+
 func TestSyncRequiresSourcesAndValidatesThem(t *testing.T) {
 	g := fixtures(t, "EMS1234")
 	if _, _, err := run(t, g); !errors.Is(err, ErrNoSources) {

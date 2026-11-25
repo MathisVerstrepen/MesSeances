@@ -44,7 +44,7 @@ git worktree remove ../movieflow-my-feature
 git branch -d feat/my-feature
 ```
 
-`dev` is intentionally unprotected. Feature pull requests into `dev` are a required team convention rather than a GitHub rule. Require every registered check to pass before merging, including `Release automation / tests` alongside existing Go, integration, and frontend checks. This adds no branch-protection setting and does not rename existing checks.
+`dev` is intentionally unprotected. Feature pull requests into `dev` must pass every executed check before merging, including `Go CI / checks`, `Frontend CI / checks`, and `Release automation / tests`. Go race and application PostgreSQL integration tests, the frontend build, and browser tests run on same-repository release pull requests from `dev` to `main`.
 
 ## Release pull request
 

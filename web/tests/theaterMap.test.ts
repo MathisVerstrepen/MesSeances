@@ -6,6 +6,7 @@ import {
   buildTheaterFeatureCollection,
   theaterFeatureBounds,
   THEATER_PROVIDER_COLORS,
+  THEATER_MAP_LEGEND,
   THEATER_PROVIDER_LABELS,
 } from '../app/utils/theaterMap.ts'
 import { haversineDistanceKm } from '../app/utils/theaterDistance.ts'
@@ -44,6 +45,9 @@ test('defines an exhaustive provider palette', () => {
     'cineode',
     'cinemovida',
     'ocine',
+    'ticketingcine',
+    'scare',
+    'webedia',
   ]
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
@@ -62,31 +66,51 @@ test('defines an exhaustive provider palette', () => {
     cineode: '#06b6d4',
     cinemovida: '#4c0519',
     ocine: '#a5b4fc',
+    ticketingcine: '#78716c',
+    scare: '#78716c',
+    webedia: '#78716c',
   })
   assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
   assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')
 })
 
-test('markers and legend share the distinct provider palette', async () => {
+test('markers and legend share the provider palette, one entry per chain', async () => {
   const component = await readFile(
     new URL('../app/components/CinemaTheaterMap.client.vue', import.meta.url),
     'utf8',
   )
-  const colors = Object.values(THEATER_PROVIDER_COLORS)
+  // Independent cinema providers share one public chain, color and label.
+  const independent = ['ticketingcine', 'scare', 'webedia'] as const
+  const grouped = new Set<string>(independent.slice(1))
+  const colors = Object.entries(THEATER_PROVIDER_COLORS)
+    .filter(([provider]) => !grouped.has(provider))
+    .map(([, color]) => color)
   assert.equal(new Set(colors).size, colors.length)
+  for (const provider of independent)
+    assert.equal(
+      THEATER_PROVIDER_COLORS[provider],
+      THEATER_PROVIDER_COLORS.ticketingcine,
+    )
   for (const provider of Object.keys(THEATER_PROVIDER_COLORS)) {
     assert.match(
       component,
       new RegExp(`'${provider}',\\s*THEATER_PROVIDER_COLORS\\.${provider}`),
     )
   }
-  assert.match(
-    component,
-    /v-for="\(label, provider\) in THEATER_PROVIDER_LABELS"/,
-  )
-  assert.match(
-    component,
-    /backgroundColor: THEATER_PROVIDER_COLORS\[provider\]/,
+  assert.match(component, /v-for="entry in THEATER_MAP_LEGEND"/)
+  assert.match(component, /backgroundColor: entry\.color/)
+  assert.equal(THEATER_MAP_LEGEND.length, colors.length)
+  assert.deepEqual(
+    THEATER_MAP_LEGEND.filter(
+      (entry) => entry.label === 'Cinémas indépendants',
+    ),
+    [
+      {
+        provider: 'ticketingcine',
+        label: 'Cinémas indépendants',
+        color: '#78716c',
+      },
+    ],
   )
 })
 

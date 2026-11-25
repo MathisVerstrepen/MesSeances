@@ -1,5 +1,8 @@
 import type {
   AdminAcceptTheaterLocationSuggestionRequest,
+  AdminSetSyncSourcesResponse,
+  AdminSyncSource,
+  AdminSyncSourcesResponse,
   AdminAccountsQuery,
   AdminAccountsResponse,
   AdminAddLocalMovieMembersRequest,
@@ -649,6 +652,35 @@ export function useMesSeancesApi() {
             method: 'POST',
             credentials: 'include',
             body: input,
+          },
+        ),
+      )
+    },
+    adminSyncSources() {
+      return withAdminRedirect(
+        apiFetch<AdminSyncSourcesResponse>(
+          `${apiBase}/api/v1/admin/sync-sources`,
+          { credentials: 'include' },
+        ),
+      )
+    },
+    adminSetSyncSource(provider: Provider, key: string, enabled: boolean) {
+      return withAdminRedirect(
+        apiFetch<AdminSyncSource>(
+          `${apiBase}/api/v1/admin/sync-sources/${encodeURIComponent(provider)}/${encodeURIComponent(key)}`,
+          { method: 'PATCH', credentials: 'include', body: { enabled } },
+        ),
+      )
+    },
+    /** Enables or disables every source of provider, or of all providers. */
+    adminSetSyncSources(provider: Provider | null, enabled: boolean) {
+      return withAdminRedirect(
+        apiFetch<AdminSetSyncSourcesResponse>(
+          `${apiBase}/api/v1/admin/sync-sources/enabled`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            body: provider ? { provider, enabled } : { enabled },
           },
         ),
       )

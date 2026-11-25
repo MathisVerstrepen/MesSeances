@@ -18,12 +18,14 @@ import (
 	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
+	"messeances/api/internal/scare"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/syncsource"
 	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
+	"messeances/api/internal/webedia"
 )
 
 // Shared classifiers for providers built on syncproxy.RequestError.
@@ -52,6 +54,8 @@ var providerRegistry = [...]providerTraits{
 	{target: TargetCinemovida, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProxy},
 	{target: TargetOcine, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProgramPages},
 	{target: TargetTicketingcine, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetScare, enrichUnknownRuntime: true, classify: classifyProxy},
+	{target: TargetWebedia, budget: fetchBudgetCrawl, enrichUnknownRuntime: true, classify: classifyProxy},
 }
 
 // sourceOutcome maps the summary counters most providers share.
@@ -253,6 +257,53 @@ func TicketingcineConnector(newClient func() (ticketingcine.Getter, error), sour
 		},
 		outcome: func(s ticketingcine.SyncSummary) SyncOutcome {
 			return sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
+		},
+	}
+}
+
+// ScareConnector serves the SCARE open programme cinemas listed in
+// sync_sources.
+func ScareConnector(newClient func() (scare.Getter, error), sources SourceLister) *SourceConnector[scare.Getter, scare.SyncOptions, scare.SyncSummary] {
+	return &SourceConnector[scare.Getter, scare.SyncOptions, scare.SyncSummary]{
+		target: TargetScare, newClient: newClient, sync: scare.Sync, sources: sources,
+		options: func(from string, now time.Time) scare.SyncOptions {
+			return scare.SyncOptions{From: from, Now: now}
+		},
+		withSources: func(o scare.SyncOptions, sources []syncsource.Source) scare.SyncOptions {
+			o.Sources = make([]scare.Source, len(sources))
+			for i, source := range sources {
+				o.Sources[i] = scare.Source{CinemaID: source.Key}
+			}
+			return o
+		},
+		outcome: func(s scare.SyncSummary) SyncOutcome {
+			outcome := sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
+			outcome.Skipped = s.Skipped
+			return outcome
+		},
+	}
+}
+
+// WebediaConnector serves the Webedia Movies Pro cinemas listed in
+// sync_sources: the source key is the Boxoffice theater id and the website
+// the site origin.
+func WebediaConnector(newClient func() (webedia.Getter, error), sources SourceLister) *SourceConnector[webedia.Getter, webedia.SyncOptions, webedia.SyncSummary] {
+	return &SourceConnector[webedia.Getter, webedia.SyncOptions, webedia.SyncSummary]{
+		target: TargetWebedia, newClient: newClient, sync: webedia.Sync, sources: sources,
+		options: func(from string, now time.Time) webedia.SyncOptions {
+			return webedia.SyncOptions{From: from, Now: now}
+		},
+		withSources: func(o webedia.SyncOptions, sources []syncsource.Source) webedia.SyncOptions {
+			o.Sources = make([]webedia.Source, len(sources))
+			for i, source := range sources {
+				o.Sources[i] = webedia.Source{TheaterID: source.Key, Origin: source.Website}
+			}
+			return o
+		},
+		outcome: func(s webedia.SyncSummary) SyncOutcome {
+			outcome := sourceOutcome(s.Cinemas, s.Movies, s.Requests, s.Showtimes, s.GeneratedAt)
+			outcome.Skipped = s.Skipped
+			return outcome
 		},
 	}
 }

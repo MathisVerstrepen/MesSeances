@@ -403,6 +403,14 @@ function reservationUrl(showtime) {
     if (majestic) return majestic
   }
   if (showtime.provider === 'majestic') return null
+  if (!showtime.provider || showtime.provider === 'ticketingcine') {
+    const ticketingcine = ticketingcineReservationUrl(showtime)
+    if (ticketingcine) return ticketingcine
+  }
+  if (showtime.provider === 'ticketingcine') return null
+  // Open-data and platform links are never inferred from their host.
+  if (showtime.provider === 'scare' || showtime.provider === 'webedia')
+    return independentReservationUrl(showtime)
   // Match Véo original bytes and cinema-qualified identity before generic parsing.
   if (!showtime.provider || showtime.provider === 'veo') {
     const raw = String(showtime.booking_url ?? '')
@@ -653,6 +661,89 @@ function majesticReservationUrl(showtime) {
       return raw
   }
   return null
+}
+
+// SCARE and Webedia link to each cinema's own ticketing pages: canonical
+// public HTTPS URLs bound to the showing's cinema. Mirrors
+// app/utils/independentProviders.ts.
+function independentReservationUrl(showtime) {
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url || raw.length > 2048 || /[\s\\]/.test(raw))
+    return null
+  let url
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.href !== raw ||
+    !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(
+      url.hostname,
+    )
+  )
+    return null
+  const pattern =
+    showtime.provider === 'scare'
+      ? /^scare-showing-([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$/
+      : /^webedia-showing-([A-Z][A-Z0-9]{4})-[a-f0-9]{32}$/
+  if (showtime.id !== undefined) {
+    const match = pattern.exec(showtime.id ?? '')
+    if (!match || match[0] !== showtime.id) return null
+    if (
+      showtime.theater_id !== undefined &&
+      showtime.theater_id !== `${showtime.provider}-${match[1]}`
+    )
+      return null
+  } else if (
+    showtime.theater_id !== undefined &&
+    !String(showtime.theater_id ?? '').startsWith(`${showtime.provider}-`)
+  )
+    return null
+  return raw
+}
+
+// Generic TicketingCiné sites are configured sources: any EMS site, bound to
+// its theater and session. Mirrors app/utils/ticketingcine.ts.
+function ticketingcineReservationUrl(showtime) {
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url || raw.length > 2048) return null
+  let site
+  if (showtime.theater_id !== undefined) {
+    const match = /^ticketingcine-(EMS[0-9]{4})$/.exec(
+      showtime.theater_id ?? '',
+    )
+    if (!match || match[0] !== showtime.theater_id) return null
+    site = match[1]
+  }
+  if (showtime.id !== undefined) {
+    const match = /^ticketingcine-showing-(emsx[0-9]{12})$/.exec(
+      showtime.id ?? '',
+    )
+    if (!match || match[0] !== showtime.id) return null
+    const showingSite = `EMS${match[1].slice(4, 8)}`
+    if (site && site !== showingSite) return null
+    site = showingSite
+  }
+  const ticket =
+    /^https:\/\/www\.ticketingcine\.com(?:\/(EMS[0-9]{4})\/FR[A-Z0-9]{5}|\?(EMS[0-9]{4}))#showsession\?id=(emsx[0-9]{12})(?:&ps=ticketingcine)?$/.exec(
+      raw,
+    )
+  if (ticket?.[0] !== raw) return null
+  const ticketSite = ticket[1] ?? ticket[2]
+  const session = ticket[3]
+  if (
+    ticketSite !== `EMS${session.slice(4, 8)}` ||
+    (site && site !== ticketSite) ||
+    (showtime.id !== undefined &&
+      showtime.id !== `ticketingcine-showing-${session}`)
+  )
+    return null
+  return raw
 }
 
 // Structural only. Source acquisition binds start/tags; transport binds final D.

@@ -35,9 +35,9 @@ func TestProviderRegistryMigrationPreservesEveryProviderIntegration(t *testing.T
 		covered[d.Provider] = true
 	}
 	// Providers registered by 083 existed under the 082 checks; later ones
-	// (TicketingCiné, 084) cannot be published at 082.
+	// (TicketingCiné 084, SCARE 086, Webedia 087) cannot be published at 082.
 	for _, provider := range schedule.SourceProviders() {
-		if !covered[provider] && provider != schedule.ProviderTicketingcine {
+		if !covered[provider] && provider != schedule.ProviderTicketingcine && provider != schedule.ProviderScare && provider != schedule.ProviderWebedia {
 			t.Fatalf("no upgrade fixture for %s", provider)
 		}
 	}
@@ -118,16 +118,16 @@ func TestProviderRegistryAdmitsRegisteredProvidersOnlyIntegration(t *testing.T) 
 VALUES (999,$1||'-'||$2,$1,$2,$1||'-'||$2,'Cinéma','1 rue','Ville','75001')`, provider, id)
 		return err
 	}
-	if err := insertTheater("scare", "1234"); err == nil {
+	if err := insertTheater("futurecine", "1234"); err == nil {
 		t.Fatal("unregistered provider accepted")
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO providers (key) VALUES ('scare')`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO providers (key) VALUES ('futurecine')`); err != nil {
 		t.Fatal(err)
 	}
-	if err := insertTheater("scare", "1234"); err != nil {
+	if err := insertTheater("futurecine", "1234"); err != nil {
 		t.Fatal("registered provider rejected", err)
 	}
-	if err := insertTheater("scare", "bad id"); err == nil {
+	if err := insertTheater("futurecine", "bad id"); err == nil {
 		t.Fatal("identity outside the shared character set accepted")
 	}
 	for _, key := range []string{"Bad", "a", "has-dash", strings.Repeat("x", 40)} {
@@ -143,7 +143,7 @@ VALUES (999,$1||'-'||$2,$1,$2,$1||'-'||$2,'Cinéma','1 rue','Ville','75001')`, p
 		`UPDATE showtimes SET first_part_duration_minutes=-1`,
 		`UPDATE showtimes SET language='ALL'`,
 		`UPDATE showtimes SET provider_showing_id='bad id'`,
-		`UPDATE showtimes SET provider='scare'`,
+		`UPDATE showtimes SET provider='futurecine'`,
 	} {
 		if _, err := pool.Exec(ctx, statement); err == nil {
 			t.Fatal("generic invariant not enforced", statement)

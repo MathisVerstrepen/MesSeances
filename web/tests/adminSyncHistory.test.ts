@@ -62,6 +62,9 @@ function run(
       cineode: { state: 'not_requested' },
       cinemovida: { state: 'not_requested' },
       ocine: { state: 'not_requested' },
+      ticketingcine: { state: 'not_requested' },
+      scare: { state: 'not_requested' },
+      webedia: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -95,8 +98,14 @@ test('single-provider history shows new showtimes, ungrouped and spaced after pl
   assert.equal(summary(job), '+ 8395 séances')
 })
 
-test('Véo, Majestic, Cinéode and Ociné individual and all-run histories include published new sessions', () => {
-  for (const provider of ['veo', 'majestic', 'cineode', 'ocine'] as const) {
+test('Véo, Majestic, Cinéode, Ociné and TicketingCiné individual and all-run histories include published new sessions', () => {
+  for (const provider of [
+    'veo',
+    'majestic',
+    'cineode',
+    'ocine',
+    'ticketingcine',
+  ] as const) {
     const job = run({ [provider]: published(42) })
     job.target = provider
     assert.equal(summary(job), '+ 42 séances')
@@ -276,12 +285,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all fifteen decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all eighteen decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 16)
+  assert.equal(buttons.length, 19)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -302,6 +311,9 @@ test('idle launch buttons use all fifteen decorative chain logos with visible na
     'Cinéode',
     'Ciné-Movida',
     'Ociné',
+    'Indépendant',
+    'Indépendant',
+    'Indépendant',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!

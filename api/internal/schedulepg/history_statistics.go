@@ -231,7 +231,7 @@ func (s *Store) historyStatistics(ctx context.Context, query schedule.Statistics
 		if err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx, historyStatisticsSQL, query.Date, query.DateTo, query.City, query.Theater, query.Chain, query.Language, query.Format, query.Genre, query.Pass, filmID).Scan(&data); err != nil {
+		if err := tx.QueryRow(ctx, historyStatisticsSQL, query.Date, query.DateTo, query.City, query.Theater, query.Chain, query.Language, query.Format, query.Genre, query.Pass, filmID, independentChainProviders()).Scan(&data); err != nil {
 			return err
 		}
 		// Unmarshal only aggregate fields, preserving coverage and request range.
@@ -265,6 +265,17 @@ func historyFilmID(ctx context.Context, tx pgx.Tx, slug string) (*int64, error) 
 	return &id, err
 }
 
+// independentChainProviders lists the providers the statistics group under
+// the public "independants" chain.
+func independentChainProviders() []string {
+	providers := schedule.IndependentProviders()
+	result := make([]string, len(providers))
+	for i, provider := range providers {
+		result[i] = string(provider)
+	}
+	return result
+}
+
 const historyCoverageSQL = `SELECT transaction_timestamp(),applied_revision,processed_at,coverage
  FROM screening_statistics_state WHERE singleton AND ready`
 
@@ -289,7 +300,7 @@ const historyMatchedFiltersSQL = `h.theater_id IN (SELECT id FROM matched_theate
 const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
  SELECT t.id FROM theaters t
  WHERE (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
- AND ($5='' OR t.provider=$5) AND ($9='' OR $9=ANY(t.passes))
+ AND ($5='' OR t.provider=$5 OR ($5='independants' AND t.provider=ANY($11::text[]))) AND ($9='' OR $9=ANY(t.passes))
 ), facts AS NOT MATERIALIZED (
  SELECT NULL::date service_date,weekday,hour,provider,movie_provider_id,theater_id,language,format,showtime_count FROM screening_statistics_all_time WHERE $1::text=''
  UNION ALL
@@ -314,8 +325,8 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
 ), movie_theaters AS MATERIALIZED (
  SELECT movie_id,theater_id,sum(showtime_count) showtime_count FROM matched GROUP BY movie_id,theater_id
 ), chain_counts AS (
- SELECT t.provider chain,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT h.theater_id) theater_count
- FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY t.provider
+ SELECT CASE WHEN t.provider=ANY($11::text[]) THEN 'independants' ELSE t.provider END chain,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT h.theater_id) theater_count
+ FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY 1
 ), movie_counts AS MATERIALIZED (
  SELECT 'film-'||m.id slug,m.id,m.title,m.runtime,c.showtime_count,c.theater_count
  FROM (SELECT movie_id,sum(showtime_count) showtime_count,count(*) theater_count FROM movie_theaters GROUP BY movie_id) c

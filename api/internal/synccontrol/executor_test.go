@@ -18,7 +18,6 @@ import (
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
-	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 )
 
@@ -175,8 +174,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 	configureCineodeTestExecutor(t, executor, window)
 	configureCinemovidaTestExecutor(t, executor, window)
 	configureOcineTestExecutor(t, executor, window)
-	ticketingcineOf(executor).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
-	ticketingcineOf(executor).sources = staticSources{}
+	skipSourceProviders(executor)
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
 	if err != nil || writes != 1 || enrichments != 15 || outcomes[TargetOcine].Sync.Version != 11 || outcomes[TargetCinemovida].Sync.Version != 11 || outcomes[TargetCineode].Sync.Version != 11 || outcomes[TargetMajestic].Sync.Version != 11 || outcomes[TargetVeo].Sync.Version != 11 || outcomes[TargetNoeCinemas].Sync.Version != 11 || outcomes[TargetCinewest].Sync.Version != 11 || outcomes[TargetGrandEcran].Sync.Version != 11 || outcomes[TargetMK2].Sync.Version != 11 || outcomes[TargetCineville].Sync.Version != 11 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
@@ -349,8 +347,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	configureCineodeTestExecutor(t, executor, window)
 	configureCinemovidaTestExecutor(t, executor, window)
 	configureOcineTestExecutor(t, executor, window)
-	ticketingcineOf(executor).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
-	ticketingcineOf(executor).sources = staticSources{}
+	skipSourceProviders(executor)
 	_, err := executor.Run(context.Background(), TargetAll, window)
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {

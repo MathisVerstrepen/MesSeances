@@ -9,24 +9,25 @@ import (
 )
 
 type adminAPI struct {
-	origin         string
-	password       string
-	key            [32]byte
-	hasKey         bool
-	reviews        *enrichment.ReviewService
-	tmdbReruns     TMDBRerunner
-	tmdbRefreshes  TMDBMetadataRefresher
-	tmdbUpcoming   TMDBUpcomingSyncer
-	upcomingReview *enrichment.UpcomingReviewService
-	locals         *enrichment.LocalMovieService
-	syncs          SyncController
-	schedules      SyncScheduleController
-	locations      TheaterLocationController
-	geocoding      TheaterGeocodingController
-	theaterImages  TheaterImageController
-	movies         *enrichment.AdminMovieService
-	accounts       AdminAccountsLister
-	now            func() time.Time
+	origin          string
+	password        string
+	key             [32]byte
+	hasKey          bool
+	reviews         *enrichment.ReviewService
+	tmdbReruns      TMDBRerunner
+	tmdbRefreshes   TMDBMetadataRefresher
+	tmdbUpcoming    TMDBUpcomingSyncer
+	upcomingReview  *enrichment.UpcomingReviewService
+	locals          *enrichment.LocalMovieService
+	syncs           SyncController
+	schedules       SyncScheduleController
+	syncSourceStore SyncSourceController
+	locations       TheaterLocationController
+	geocoding       TheaterGeocodingController
+	theaterImages   TheaterImageController
+	movies          *enrichment.AdminMovieService
+	accounts        AdminAccountsLister
+	now             func() time.Time
 }
 
 type sessionResponse struct {
@@ -52,7 +53,7 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 		upcomingReview: options.UpcomingReviews,
 		accounts:       options.Accounts,
 		theaterImages:  options.TheaterImages,
-		reviews:        options.Reviews, tmdbReruns: options.TMDBReruns, tmdbRefreshes: options.TMDBRefreshes, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, locations: options.TheaterLocations, geocoding: options.TheaterGeocoding, movies: options.Movies, now: options.Now,
+		reviews:        options.Reviews, tmdbReruns: options.TMDBReruns, tmdbRefreshes: options.TMDBRefreshes, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, syncSourceStore: options.SyncSources, locations: options.TheaterLocations, geocoding: options.TheaterGeocoding, movies: options.Movies, now: options.Now,
 	}
 }
 

@@ -164,7 +164,7 @@ func (s *Service) statisticsQuery(query StatisticsQuery, now time.Time) (Statist
 		*value = strings.TrimSpace(*value)
 	}
 	query.Genre, _ = statisticsGenre(query.Genre)
-	if query.Chain != "" && !validProvider(Provider(query.Chain), false) ||
+	if query.Chain != "" && !validChain(query.Chain) ||
 		query.Language != "" && query.Language != string(LanguageVOF) && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
 		query.Format != "" && query.Format != statisticsUnknown && statisticsFormat(Format(query.Format)) == statisticsUnknown {
 		return query, Window{}, invalid("Les filtres statistiques sont invalides.")
@@ -271,7 +271,7 @@ func statisticsInventory(ctx context.Context, view *SnapshotView) (StatisticsOpt
 		item := StatisticsTheaterOption{ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: city.city, CitySlug: city.slug, Chain: recordProvider(theater.Provider, theater.ID), Passes: statisticsSortedKeys(theaterPasses)}
 		theaters[item.ID] = item
 		options.Theaters = append(options.Theaters, item)
-		chains[item.Chain] = true
+		chains[PublicChain(item.Chain)] = true
 	}
 	for chain := range chains {
 		options.Chains = append(options.Chains, chain)
@@ -377,7 +377,7 @@ func statisticsMatches(filters statisticsFilters, window Window, showing Showtim
 	_, genre := movie.genres[query.Genre]
 	return showing.ServiceDate >= window.From && showing.ServiceDate <= window.Through &&
 		(len(filters.cities) == 0 || filters.cities[theater.CitySlug]) && (len(filters.theaters) == 0 || filters.theaters[theater.ID]) &&
-		(query.Chain == "" || query.Chain == string(theater.Chain)) && (query.Language == "" || query.Language == language) &&
+		chainMatches(query.Chain, theater.Chain) && (query.Language == "" || query.Language == language) &&
 		(query.Format == "" || query.Format == format) && (query.Genre == "" || genre) &&
 		(query.Pass == "" || slices.Contains(theater.Passes, query.Pass))
 }

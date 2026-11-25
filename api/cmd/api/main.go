@@ -38,6 +38,7 @@ import (
 	"messeances/api/internal/observability"
 	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
+	"messeances/api/internal/scare"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/schedulepg"
 	"messeances/api/internal/shortlink"
@@ -50,6 +51,7 @@ import (
 	"messeances/api/internal/trailer"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
+	"messeances/api/internal/webedia"
 	"messeances/api/internal/wikidata"
 )
 
@@ -291,6 +293,7 @@ func run(ctx context.Context) error {
 	}()
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
+	admin.options.SyncSources = syncsource.NewPostgresStore(pool)
 	cinemaImages := newCinemaImageService(pool, cinemaMedia, proxies, logger)
 	admin.options.TheaterImages = cinemaImages
 	var publicTheaterImages httpapi.PublicTheaterImageController
@@ -596,6 +599,12 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, sources synccontrol.
 			}),
 			synccontrol.TicketingcineConnector(func() (ticketingcine.Getter, error) {
 				return ticketingcine.NewClient(ticketingcine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}, sources),
+			synccontrol.ScareConnector(func() (scare.Getter, error) {
+				return scare.NewClient(scare.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}, sources),
+			synccontrol.WebediaConnector(func() (webedia.Getter, error) {
+				return webedia.NewClient(webedia.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 			}, sources),
 		},
 	}

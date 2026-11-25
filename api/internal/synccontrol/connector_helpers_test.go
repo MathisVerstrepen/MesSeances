@@ -2,6 +2,7 @@ package synccontrol
 
 import (
 	"context"
+	"errors"
 
 	"messeances/api/internal/cinemovida"
 	"messeances/api/internal/cineode"
@@ -15,11 +16,13 @@ import (
 	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
+	"messeances/api/internal/scare"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncsource"
 	"messeances/api/internal/ticketingcine"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
+	"messeances/api/internal/webedia"
 )
 
 // testConnectors builds the connector map for executors constructed as
@@ -105,6 +108,25 @@ func cinemovidaOf(e *ProductionExecutor) *SourceConnector[cinemovida.Getter, cin
 
 func ocineOf(e *ProductionExecutor) *SourceConnector[ocine.Getter, ocine.SyncOptions, ocine.SyncSummary] {
 	return connectorOf(e, OcineConnector(nil))
+}
+
+func scareOf(e *ProductionExecutor) *SourceConnector[scare.Getter, scare.SyncOptions, scare.SyncSummary] {
+	return connectorOf(e, ScareConnector(nil, nil))
+}
+
+// skipSourceProviders registers the sync-source providers without enabled
+// sources, so TargetAll runs skip them.
+func skipSourceProviders(e *ProductionExecutor) {
+	ticketingcineOf(e).newClient = func() (ticketingcine.Getter, error) { return nil, errors.New("unused") }
+	ticketingcineOf(e).sources = staticSources{}
+	scareOf(e).newClient = func() (scare.Getter, error) { return nil, errors.New("unused") }
+	scareOf(e).sources = staticSources{}
+	webediaOf(e).newClient = func() (webedia.Getter, error) { return nil, errors.New("unused") }
+	webediaOf(e).sources = staticSources{}
+}
+
+func webediaOf(e *ProductionExecutor) *SourceConnector[webedia.Getter, webedia.SyncOptions, webedia.SyncSummary] {
+	return connectorOf(e, WebediaConnector(nil, nil))
 }
 
 func ticketingcineOf(e *ProductionExecutor) *SourceConnector[ticketingcine.Getter, ticketingcine.SyncOptions, ticketingcine.SyncSummary] {

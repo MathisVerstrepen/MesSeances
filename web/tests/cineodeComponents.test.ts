@@ -52,6 +52,7 @@ import {
   toTheaterShowtimeResults,
 } from '../app/utils/showtimeResults.ts'
 import { ocineTheaters, ocineShowtimes } from '../e2e/data.mjs'
+import * as cinemaChains from '../app/utils/cinemaChains.ts'
 
 const source = (path: string) =>
   readFile(new URL(`../app/${path}`, import.meta.url), 'utf8')
@@ -72,13 +73,15 @@ async function component(name: string): Promise<Component> {
   const localRequire = (id: string) =>
     id.startsWith('~/assets/')
       ? { __esModule: true, default: id }
-      : id === '~/utils/bookingUrl'
-        ? { safeBookingUrl }
-        : id === '~/utils/safeImageUrl'
-          ? { safeBackdropUrl, safePosterUrl }
-          : id === '~/utils/statistics'
-            ? { statisticsChainLabels, statisticsCount }
-            : require(id)
+      : id === '~/utils/cinemaChains'
+        ? cinemaChains
+        : id === '~/utils/bookingUrl'
+          ? { safeBookingUrl }
+          : id === '~/utils/safeImageUrl'
+            ? { safeBackdropUrl, safePosterUrl }
+            : id === '~/utils/statistics'
+              ? { statisticsChainLabels, statisticsCount }
+              : require(id)
   new Function(
     'require',
     'exports',
@@ -371,7 +374,7 @@ test('Cinéode schedule target availability and latest all-run status use existi
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('ocine') + 1,
+    result.targets.indexOf('webedia') + 1,
   )
   assert.equal(result.targetLabels.cineode, 'Cinéode')
   assert.equal(result.latest, job)
@@ -680,6 +683,10 @@ test('Ociné admin ordering, latest all-run status and public statistics use coh
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
+    result.targets.indexOf('webedia') + 1,
+  )
+  assert.equal(
+    result.targets.indexOf('ticketingcine'),
     result.targets.indexOf('ocine') + 1,
   )
   assert.equal(result.targetLabels.ocine, 'Ociné')
