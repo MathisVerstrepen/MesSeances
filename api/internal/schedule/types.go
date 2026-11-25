@@ -26,7 +26,10 @@ const (
 	ProviderTicketingcine Provider = "ticketingcine"
 	// ProviderScare serves independent cinemas of the SCARE open programme
 	// configured as sync sources.
-	ProviderScare    Provider = "scare"
+	ProviderScare Provider = "scare"
+	// ProviderWebedia serves independent Webedia Movies Pro (Boxoffice)
+	// cinemas configured as sync sources.
+	ProviderWebedia  Provider = "webedia"
 	ProviderCombined Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"

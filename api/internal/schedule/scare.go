@@ -2,8 +2,6 @@ package schedule
 
 import (
 	"errors"
-	"net"
-	"net/url"
 	"regexp"
 	"strings"
 )
@@ -17,7 +15,6 @@ var (
 	scareTheater = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 	scareMovie   = regexp.MustCompile(`^([1-9][0-9]{0,18})-([A-Za-z0-9]{1,40}|t[a-f0-9]{16})$`)
 	scareShowing = regexp.MustCompile(`^([1-9][0-9]{0,18})-[A-Za-z0-9]{1,64}$`)
-	scareHost    = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
 )
 
 var errScareBinding = errors.New("invalid SCARE cinema binding")
@@ -36,18 +33,9 @@ func ValidScareIdentity(kind, value string) bool {
 	}
 }
 
-// ValidScareBookingURL accepts canonical public HTTPS URLs: a DNS host, no
-// credentials, port or backslash, spelled exactly as Go re-encodes it.
-func ValidScareBookingURL(raw string) bool {
-	if len(raw) > maxURLLength || strings.ContainsAny(raw, "\\ \t\r\n") {
-		return false
-	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" || u.Port() != "" || u.Host != u.Hostname() || net.ParseIP(u.Hostname()) != nil || !scareHost.MatchString(u.Host) {
-		return false
-	}
-	return u.String() == raw
-}
+// ValidScareBookingURL accepts the cinemas' own ticketing pages as canonical
+// public HTTPS URLs.
+func ValidScareBookingURL(raw string) bool { return ValidPublicHTTPSURL(raw) }
 
 func scareBooking(raw, showingID, theaterID string) bool {
 	return strings.HasPrefix(showingID, theaterID+"-") && (raw == "" || ValidScareBookingURL(raw))

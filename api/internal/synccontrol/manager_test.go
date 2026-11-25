@@ -221,7 +221,7 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.ID != "1" || accepted.State != StateRunning || accepted.Providers["ugc"].State != ProviderPending || accepted.Providers["kinepolis"].State != ProviderPending || accepted.Providers["pathe"].State != ProviderPending || accepted.Providers["cgr"].State != ProviderPending || accepted.Providers["megarama"].State != ProviderPending || accepted.Providers["cineville"].State != ProviderPending || accepted.Providers["mk2"].State != ProviderPending || accepted.Providers["cinewest"].State != ProviderPending || accepted.Providers["grandecran"].State != ProviderPending || accepted.Providers["noecinemas"].State != ProviderPending || accepted.Providers["veo"].State != ProviderPending || accepted.Providers["majestic"].State != ProviderPending || accepted.Providers["cineode"].State != ProviderPending || accepted.Providers["cinemovida"].State != ProviderPending || accepted.Providers["ocine"].State != ProviderPending || len(accepted.Providers) != 17 || accepted.StartedAt.Location() != time.UTC {
+	if accepted.ID != "1" || accepted.State != StateRunning || accepted.Providers["ugc"].State != ProviderPending || accepted.Providers["kinepolis"].State != ProviderPending || accepted.Providers["pathe"].State != ProviderPending || accepted.Providers["cgr"].State != ProviderPending || accepted.Providers["megarama"].State != ProviderPending || accepted.Providers["cineville"].State != ProviderPending || accepted.Providers["mk2"].State != ProviderPending || accepted.Providers["cinewest"].State != ProviderPending || accepted.Providers["grandecran"].State != ProviderPending || accepted.Providers["noecinemas"].State != ProviderPending || accepted.Providers["veo"].State != ProviderPending || accepted.Providers["majestic"].State != ProviderPending || accepted.Providers["cineode"].State != ProviderPending || accepted.Providers["cinemovida"].State != ProviderPending || accepted.Providers["ocine"].State != ProviderPending || len(accepted.Providers) != 18 || accepted.StartedAt.Location() != time.UTC {
 		t.Fatalf("accepted=%+v", accepted)
 	}
 	if accepted.From != "2026-08-18" || accepted.Through != accepted.From {
@@ -303,7 +303,7 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := waitForTerminal(t, manager)
-			if status.Providers["ugc"].State != test.wantUGC || status.Providers["kinepolis"].State != test.wantKin || status.Providers["pathe"].State != test.wantPathe || status.Providers["cgr"].State != test.wantCGR || len(status.Providers) != 17 || status.FinishedAt == nil {
+			if status.Providers["ugc"].State != test.wantUGC || status.Providers["kinepolis"].State != test.wantKin || status.Providers["pathe"].State != test.wantPathe || status.Providers["cgr"].State != test.wantCGR || len(status.Providers) != 18 || status.FinishedAt == nil {
 				t.Fatalf("status=%+v", status)
 			}
 			for provider, providerStatus := range status.Providers {
@@ -509,6 +509,7 @@ func TestManagerTargetAllUsesLatestProviderEnd(t *testing.T) {
 			TargetOcine:         {Sync: SyncOutcome{Through: "2027-06-30"}},
 			TargetTicketingcine: {Sync: SyncOutcome{Through: "2027-06-30"}},
 			TargetScare:         {Sync: SyncOutcome{Through: "2027-06-30"}},
+			TargetWebedia:       {Sync: SyncOutcome{Through: "2027-06-30"}},
 		}, nil
 	}))
 	if err != nil {
@@ -635,7 +636,7 @@ func TestManagerReconcilesAbandonedRunDuringStartup(t *testing.T) {
 		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
 	}
 	got := snapshot.Runs[0]
-	if got.ID != stale.ID || got.State != StateFailed || got.FinishedAt == nil || !got.FinishedAt.Equal(now) || got.Providers[string(TargetUGC)].ErrorCode != FailureCanceled || got.Providers[string(TargetKinepolis)].State != ProviderSkipped || got.Providers[string(TargetPathe)].State != ProviderNotRequested || got.Providers[string(TargetCGR)].State != ProviderNotRequested || got.Providers[string(TargetMegarama)].State != ProviderNotRequested || got.Providers[string(TargetCineville)].State != ProviderNotRequested || got.Providers[string(TargetMK2)].State != ProviderNotRequested || got.Providers[string(TargetCinewest)].State != ProviderNotRequested || got.Providers[string(TargetGrandEcran)].State != ProviderNotRequested || got.Providers[string(TargetNoeCinemas)].State != ProviderNotRequested || got.Providers[string(TargetVeo)].State != ProviderNotRequested || got.Providers[string(TargetMajestic)].State != ProviderNotRequested || got.Providers[string(TargetCineode)].State != ProviderNotRequested || got.Providers[string(TargetCinemovida)].State != ProviderNotRequested || got.Providers[string(TargetOcine)].State != ProviderNotRequested || len(got.Providers) != 17 {
+	if got.ID != stale.ID || got.State != StateFailed || got.FinishedAt == nil || !got.FinishedAt.Equal(now) || got.Providers[string(TargetUGC)].ErrorCode != FailureCanceled || got.Providers[string(TargetKinepolis)].State != ProviderSkipped || got.Providers[string(TargetPathe)].State != ProviderNotRequested || got.Providers[string(TargetCGR)].State != ProviderNotRequested || got.Providers[string(TargetMegarama)].State != ProviderNotRequested || got.Providers[string(TargetCineville)].State != ProviderNotRequested || got.Providers[string(TargetMK2)].State != ProviderNotRequested || got.Providers[string(TargetCinewest)].State != ProviderNotRequested || got.Providers[string(TargetGrandEcran)].State != ProviderNotRequested || got.Providers[string(TargetNoeCinemas)].State != ProviderNotRequested || got.Providers[string(TargetVeo)].State != ProviderNotRequested || got.Providers[string(TargetMajestic)].State != ProviderNotRequested || got.Providers[string(TargetCineode)].State != ProviderNotRequested || got.Providers[string(TargetCinemovida)].State != ProviderNotRequested || got.Providers[string(TargetOcine)].State != ProviderNotRequested || len(got.Providers) != 18 {
 		t.Fatalf("reconciled=%+v", got)
 	}
 	if executed || lease.releaseCount() != 1 || strings.Join(order, ",") != "acquire,reconcile,release" {

@@ -51,6 +51,7 @@ import (
 	"messeances/api/internal/trailer"
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
+	"messeances/api/internal/webedia"
 	"messeances/api/internal/wikidata"
 )
 
@@ -600,6 +601,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, sources synccontrol.
 			}, sources),
 			synccontrol.ScareConnector(func() (scare.Getter, error) {
 				return scare.NewClient(scare.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+			}, sources),
+			synccontrol.WebediaConnector(func() (webedia.Getter, error) {
+				return webedia.NewClient(webedia.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 			}, sources),
 		},
 	}
