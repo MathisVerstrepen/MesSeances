@@ -19,6 +19,7 @@ import type {
 } from '../app/types/api.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
 import * as filters from '../app/utils/showtimeFilters.ts'
+import * as showtimeTiming from '../app/utils/showtimeTiming.ts'
 import * as initialSchedule from '../app/utils/filmInitialSchedule.ts'
 import { isShowtimeFormat } from '../app/utils/formats.ts'
 import { buildFilmJsonLd } from '../app/utils/filmJsonLd.ts'
@@ -174,6 +175,8 @@ async function harness(options: Options = {}) {
     todayInParis: () => TODAY,
     isShowtimeFormat,
     buildFilmJsonLd,
+    ...showtimeTiming,
+    useShowtimeClock: () => ref(null),
     serializeJsonLd,
     absoluteSiteUrl,
     buildMovieExternalLinks,

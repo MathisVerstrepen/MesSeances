@@ -11,6 +11,7 @@ import type {
 } from '../app/types/api.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
 import * as filters from '../app/utils/showtimeFilters.ts'
+import * as showtimeTiming from '../app/utils/showtimeTiming.ts'
 import { isShowtimeFormat } from '../app/utils/formats.ts'
 import { resolveShowtimeEnd } from '../app/utils/showtimeEnd.ts'
 import { withSharedTheaterSelection } from '../app/utils/sharedTheaterSelection.ts'
@@ -127,6 +128,8 @@ function harness(
     nextTick,
     isShowtimeFormat,
     resolveShowtimeEnd,
+    ...showtimeTiming,
+    useShowtimeClock: () => ref(null),
     todayInParis: () => '2027-06-27',
     useRoute: () => route,
     useRouter: () => ({
