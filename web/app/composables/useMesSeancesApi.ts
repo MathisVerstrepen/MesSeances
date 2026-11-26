@@ -38,6 +38,8 @@ import type {
   AdminRemoveTheaterImageRequest,
   AdminTMDBMetadataRefreshResponse,
   AdminTMDBRerunResponse,
+  AdminMergeLocalMovieGroupsRequest,
+  AdminMergeLocalMovieGroupsResponse,
   AdminUnmergeLocalMovieResponse,
   AdminUpcomingSyncResponse,
   AdminUpcomingMovie,
@@ -520,6 +522,21 @@ export function useMesSeancesApi() {
       return withAdminRedirect(
         apiFetch<AdminAddLocalMovieMembersResponse>(
           `${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/members`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            body: input,
+          },
+        ),
+      )
+    },
+    adminMergeLocalMovieGroups(
+      localMovieId: string,
+      input: AdminMergeLocalMovieGroupsRequest,
+    ) {
+      return withAdminRedirect(
+        apiFetch<AdminMergeLocalMovieGroupsResponse>(
+          `${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/merge-groups`,
           {
             method: 'POST',
             credentials: 'include',

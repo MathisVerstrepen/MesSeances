@@ -13,6 +13,8 @@ type localMovieMemoryStore struct {
 	addedMembers   []LocalMovieSource
 	addedMembersID int64
 	unmerge        int64
+	mergeTarget    int64
+	mergeSources   []int64
 }
 
 func (s *localMovieMemoryStore) LocalMovieGroups(context.Context, int, int) ([]LocalMovieGroup, error) {
@@ -29,6 +31,42 @@ func (s *localMovieMemoryStore) AddLocalMovieMembers(_ context.Context, id int64
 func (s *localMovieMemoryStore) UnmergeLocalMovie(_ context.Context, id int64) error {
 	s.unmerge = id
 	return nil
+}
+func (s *localMovieMemoryStore) MergeLocalMovieGroups(_ context.Context, target int64, sources []int64) error {
+	s.mergeTarget, s.mergeSources = target, sources
+	return nil
+}
+
+func TestLocalMovieServiceValidatesGroupMerge(t *testing.T) {
+	tooMany := make([]string, MaxMergedLocalMovieGroups+1)
+	for index := range tooMany {
+		tooMany[index] = LocalMovieID(int64(index + 10))
+	}
+	tests := []struct {
+		name    string
+		target  string
+		sources []string
+	}{
+		{name: "invalid target", target: "local-film-01", sources: []string{"local-film-2"}},
+		{name: "empty", target: "local-film-1"},
+		{name: "invalid source", target: "local-film-1", sources: []string{"ugc-film-2"}},
+		{name: "target as source", target: "local-film-1", sources: []string{"local-film-2", "local-film-1"}},
+		{name: "duplicate source", target: "local-film-1", sources: []string{"local-film-2", "local-film-2"}},
+		{name: "too many", target: "local-film-1", sources: tooMany},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &localMovieMemoryStore{}
+			err := NewLocalMovieService(store).MergeGroups(context.Background(), test.target, test.sources)
+			if !errors.Is(err, ErrLocalMovieInvalid) || store.mergeTarget != 0 {
+				t.Fatalf("target=%d error=%v", store.mergeTarget, err)
+			}
+		})
+	}
+	store := &localMovieMemoryStore{}
+	if err := NewLocalMovieService(store).MergeGroups(context.Background(), "local-film-1", []string{"local-film-3", "local-film-2"}); err != nil || store.mergeTarget != 1 || len(store.mergeSources) != 2 || store.mergeSources[0] != 3 || store.mergeSources[1] != 2 {
+		t.Fatalf("target=%d sources=%v error=%v", store.mergeTarget, store.mergeSources, err)
+	}
 }
 
 func TestLocalMovieServiceValidatesMerge(t *testing.T) {

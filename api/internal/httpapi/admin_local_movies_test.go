@@ -23,6 +23,9 @@ type adminLocalMovieStore struct {
 	addedMembers   []enrichment.LocalMovieSource
 	addedMembersID int64
 	unmergedID     int64
+	mergeGroupsErr error
+	mergeTargetID  int64
+	mergeSourceIDs []int64
 }
 
 func (s *adminLocalMovieStore) LocalMovieGroups(_ context.Context, limit, offset int) ([]enrichment.LocalMovieGroup, error) {
@@ -46,6 +49,58 @@ func (s *adminLocalMovieStore) AddLocalMovieMembers(_ context.Context, id int64,
 func (s *adminLocalMovieStore) UnmergeLocalMovie(_ context.Context, id int64) error {
 	s.unmergedID = id
 	return s.unmergeErr
+}
+
+func (s *adminLocalMovieStore) MergeLocalMovieGroups(_ context.Context, target int64, sources []int64) error {
+	s.mergeTargetID, s.mergeSourceIDs = target, sources
+	return s.mergeGroupsErr
+}
+
+func TestAdminLocalMovieGroupMergeContract(t *testing.T) {
+	store := &adminLocalMovieStore{}
+	handler := localMovieAdminHandler(t, store)
+	unauthorized := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", `{"local_movie_ids":["local-film-8"]}`, "http://localhost:3000", nil)
+	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	cookie := loginAdmin(t, handler, "password")
+	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", `{"local_movie_ids":["local-film-8"]}`, "https://evil.example", cookie)
+	assertAPIError(t, wrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+	merge := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", `{"local_movie_ids":["local-film-9","local-film-8"]}`, "http://localhost:3000", cookie)
+	if merge.Code != http.StatusOK || merge.Header().Get("Cache-Control") != "no-store" || store.mergeTargetID != 7 || len(store.mergeSourceIDs) != 2 || store.mergeSourceIDs[0] != 9 || strings.TrimSpace(merge.Body.String()) != `{"status":"groups_merged","local_movie_id":"local-film-7"}` {
+		t.Fatalf("merge status=%d target=%d sources=%v body=%s", merge.Code, store.mergeTargetID, store.mergeSourceIDs, merge.Body.String())
+	}
+	for _, test := range []struct {
+		target string
+		body   string
+	}{
+		{target: "/api/v1/admin/local-movie-groups/not-local/merge-groups", body: `{"local_movie_ids":["local-film-8"]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", body: `{}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", body: `{"local_movie_ids":[]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", body: `{"local_movie_ids":["local-film-7"]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", body: `{"local_movie_ids":["local-film-8","local-film-8"]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", body: `{"local_movie_ids":["local-film-8"],"unknown":true}`},
+	} {
+		store.mergeTargetID = 0
+		response := adminRequest(handler, http.MethodPost, test.target, test.body, "http://localhost:3000", cookie)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+		if store.mergeTargetID != 0 {
+			t.Fatalf("invalid merge reached store: %s %s", test.target, test.body)
+		}
+	}
+	for _, test := range []struct {
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{err: enrichment.ErrLocalMovieNotFound, wantStatus: http.StatusNotFound, wantCode: "not_found"},
+		{err: enrichment.ErrLocalMovieConflict, wantStatus: http.StatusConflict, wantCode: "local_movie_conflict"},
+		{err: errors.New("database detail must not escape"), wantStatus: http.StatusBadGateway, wantCode: "local_movie_failed"},
+	} {
+		store.mergeGroupsErr = test.err
+		response := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/merge-groups", `{"local_movie_ids":["local-film-8"]}`, "http://localhost:3000", cookie)
+		if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), `"code":"`+test.wantCode+`"`) || strings.Contains(response.Body.String(), "database detail") {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
 }
 
 func localMovieAdminHandler(t *testing.T, store *adminLocalMovieStore) http.Handler {
