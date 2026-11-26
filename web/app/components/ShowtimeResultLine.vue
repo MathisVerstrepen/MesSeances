@@ -6,6 +6,10 @@ import type {
 } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { languageLabel } from '~/utils/showtimeFilters'
+import {
+  showtimeTimingState,
+  showtimeTimingSuffix,
+} from '~/utils/showtimeTiming'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
 const props = withDefaults(
@@ -25,6 +29,25 @@ const emit = defineEmits<{
 }>()
 
 const advertisedStartTooltipId = useId()
+const now = useShowtimeClock()
+const timingState = computed(() =>
+  showtimeTimingState(props.result.advertisedStartTime, now.value),
+)
+const isSelected = computed(
+  () => props.scope === 'multi-theater' && props.selected,
+)
+const rowClass = computed(() => [
+  isSelected.value ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined,
+  timingState.value === 'past' ? 'opacity-60' : undefined,
+  timingState.value === 'warning' && !isSelected.value
+    ? 'shadow-[inset_5px_0_0_#f59e0b]'
+    : undefined,
+])
+const timeClass = computed(() =>
+  timingState.value === 'past'
+    ? 'line-through decoration-2 decoration-muted'
+    : undefined,
+)
 const backdropFailed = ref(false)
 const posterBackdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
@@ -75,9 +98,10 @@ onMounted(() =>
 )
 
 function bookingLabel() {
+  const timing = showtimeTimingSuffix(timingState.value)
   if (props.scope === 'single-theater')
-    return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}, réserver`
-  return `Réserver ${props.result.movieTitle}, séance annoncée à ${formatParisTime(props.result.advertisedStartTime)} au cinéma ${props.result.theaterName}`
+    return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}${timing}, réserver`
+  return `Réserver ${props.result.movieTitle}, séance annoncée à ${formatParisTime(props.result.advertisedStartTime)} au cinéma ${props.result.theaterName}${timing}`
 }
 
 function formatRoom(room: string) {
@@ -90,7 +114,7 @@ function formatRoom(room: string) {
   <article
     v-if="isChronological"
     class="relative p-4 hover:bg-[#f1efe8] sm:p-5"
-    :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined"
+    :class="rowClass"
   >
     <button
       v-if="scope === 'multi-theater'"
@@ -154,7 +178,10 @@ function formatRoom(room: string) {
       <div
         class="col-start-2 self-center border-l-2 border-ink pl-3 sm:col-start-auto"
       >
-        <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
+        <p
+          class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink"
+          :class="timeClass"
+        >
           {{ formatParisTime(displayedStartTime) }}
           <span
             v-if="hasDelayedStart"
@@ -230,6 +257,7 @@ function formatRoom(room: string) {
             ><span>{{ formatRoom(result.room) }}</span></template
           >
         </div>
+        <ShowtimeTimingNotice :state="timingState" />
       </div>
       <BookingLink
         :url="result.bookingUrl"
@@ -254,7 +282,7 @@ function formatRoom(room: string) {
   <li
     v-else
     class="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:px-5"
-    :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined"
+    :class="rowClass"
   >
     <button
       v-if="scope === 'multi-theater'"
@@ -265,7 +293,10 @@ function formatRoom(room: string) {
       @click="emit('toggleSelection', result.key)"
     />
     <div class="min-w-0">
-      <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
+      <p
+        class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink"
+        :class="timeClass"
+      >
         {{ formatParisTime(displayedStartTime) }}
         <span
           v-if="hasDelayedStart"
@@ -327,6 +358,7 @@ function formatRoom(room: string) {
           ><span>{{ formatRoom(result.room) }}</span></template
         >
       </div>
+      <ShowtimeTimingNotice :state="timingState" />
     </div>
     <BookingLink
       :url="result.bookingUrl"

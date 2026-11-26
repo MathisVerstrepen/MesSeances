@@ -6,6 +6,10 @@ import type {
 } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { languageLabel } from '~/utils/showtimeFilters'
+import {
+  showtimeTimingState,
+  showtimeTimingSuffix,
+} from '~/utils/showtimeTiming'
 import { posterImageSources, safeBackdropUrl } from '~/utils/safeImageUrl'
 
 const props = withDefaults(
@@ -25,6 +29,17 @@ const emit = defineEmits<{
 }>()
 
 const advertisedStartTooltipId = useId()
+const now = useShowtimeClock()
+const timingState = computed(() =>
+  showtimeTimingState(props.result.advertisedStartTime, now.value),
+)
+const timingClass = computed(() =>
+  timingState.value === 'past'
+    ? 'opacity-60'
+    : timingState.value === 'warning'
+      ? 'outline-[3px] outline-offset-2 outline-[#f59e0b]'
+      : undefined,
+)
 const backdropFailed = ref(false)
 const posterFailed = ref(false)
 const mediaImage = ref<HTMLImageElement | null>(null)
@@ -76,9 +91,10 @@ function handleMediaError() {
 }
 
 function bookingLabel() {
+  const timing = showtimeTimingSuffix(timingState.value)
   if (props.scope === 'single-theater')
-    return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}, réserver`
-  return `Réserver ${props.result.movieTitle}, séance annoncée à ${formatParisTime(props.result.advertisedStartTime)} au cinéma ${props.result.theaterName}`
+    return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}${timing}, réserver`
+  return `Réserver ${props.result.movieTitle}, séance annoncée à ${formatParisTime(props.result.advertisedStartTime)} au cinéma ${props.result.theaterName}${timing}`
 }
 
 function formatRoom(room: string) {
@@ -98,8 +114,9 @@ function formatRoom(room: string) {
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled
-      class="group flex h-full min-h-32 w-full flex-col items-start justify-between border-2 p-3 text-left"
-      available-class="border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]"
+      class="group relative flex h-full min-h-32 w-full flex-col items-start justify-between border-2 p-3 text-left"
+      :class="timingClass"
+      :available-class="timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
       unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
     >
       <div class="flex w-full items-baseline justify-between gap-2">
@@ -129,9 +146,11 @@ function formatRoom(room: string) {
           ><span>{{ formatRoom(result.room) }}</span></template
         >
       </div>
+      <ShowtimeTimingNotice :state="timingState" />
       <span v-if="!available" class="mt-2 text-xs font-black"
         >Réservation indisponible</span
       >
+      <ShowtimePastStrike v-if="timingState === 'past'" class="text-muted" />
     </BookingLink>
     <span
       v-if="result.end?.estimated"
@@ -147,7 +166,8 @@ function formatRoom(room: string) {
 
   <article
     v-else-if="scope === 'single-theater'"
-    class="flex h-full min-h-48 min-w-0 flex-col border-2 border-ink bg-surface p-3 text-left shadow-[4px_4px_0_#27272a]"
+    class="relative flex h-full min-h-48 min-w-0 flex-col border-2 border-ink bg-surface p-3 text-left"
+    :class="[timingClass, timingState === 'past' ? undefined : 'shadow-[4px_4px_0_#27272a]']"
   >
     <div
       class="relative -mx-3 -mt-3 mb-3 flex h-24 items-center justify-center overflow-hidden border-b-2 border-ink bg-[#e8e6de]"
@@ -223,6 +243,7 @@ function formatRoom(room: string) {
         ><span>{{ formatRoom(result.room) }}</span></template
       >
     </div>
+    <ShowtimeTimingNotice :state="timingState" />
     <BookingLink
       :url="result.bookingUrl"
       :provider="result.provider"
@@ -239,12 +260,16 @@ function formatRoom(room: string) {
         kind === 'website' ? label : available ? 'Réserver' : 'Réservation indisponible'
       }}</template>
     </BookingLink>
+    <ShowtimePastStrike v-if="timingState === 'past'" class="text-muted" />
   </article>
 
   <article
     v-else
     class="@container relative flex h-full min-h-32 min-w-0 flex-col border-2 p-3 text-left"
-    :class="selected ? 'border-primary bg-[#fff0b3] shadow-[5px_5px_0_#991b1b]' : 'border-ink bg-surface shadow-[4px_4px_0_#27272a]'"
+    :class="[
+      timingClass,
+      selected ? 'border-primary bg-[#fff0b3] shadow-[5px_5px_0_#991b1b]' : timingState === 'past' ? 'border-ink bg-surface' : 'border-ink bg-surface shadow-[4px_4px_0_#27272a]',
+    ]"
   >
     <button
       type="button"
@@ -369,6 +394,7 @@ function formatRoom(room: string) {
         ><span>{{ formatRoom(result.room) }}</span></template
       >
     </div>
+    <ShowtimeTimingNotice :state="timingState" />
     <BookingLink
       :url="result.bookingUrl"
       :provider="result.provider"
@@ -385,5 +411,6 @@ function formatRoom(room: string) {
         kind === 'website' ? label : available ? 'Réserver' : 'Réservation indisponible'
       }}</template>
     </BookingLink>
+    <ShowtimePastStrike v-if="timingState === 'past'" class="text-muted" />
   </article>
 </template>
