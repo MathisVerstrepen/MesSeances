@@ -19,6 +19,7 @@ import (
 	"messeances/api/internal/shortlink"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncschedule"
+	"messeances/api/internal/tmdb"
 )
 
 type API struct {
@@ -54,8 +55,12 @@ type HandlerOptions struct {
 }
 
 type AdminOptions struct {
-	Password         string
-	SessionSecret    string
+	Password      string
+	SessionSecret string
+	// APIToken enables non-browser admin clients through an Authorization
+	// bearer header. It is optional and only effective when admin is configured.
+	APIToken         string
+	TMDBSearch       AdminTMDBSearcher
 	Reviews          *enrichment.ReviewService
 	TMDBReruns       TMDBRerunner
 	TMDBRefreshes    TMDBMetadataRefresher
@@ -73,6 +78,11 @@ type AdminOptions struct {
 	Now              func() time.Time
 	Logger           *slog.Logger
 	Metrics          *observability.Metrics
+}
+
+type AdminTMDBSearcher interface {
+	Search(context.Context, string) ([]tmdb.Candidate, error)
+	Details(context.Context, int64) (tmdb.Details, error)
 }
 
 type TMDBRerunner interface {
@@ -216,6 +226,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/theaters/{provider}/{providerTheaterID}/image/{revision}", api.admin.theaterImage)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
+			router.Get("/tmdb-search", api.admin.searchTMDB)
+			router.Get("/tmdb-search/{tmdbID}", api.admin.tmdbMovieDetails)
 			router.Get("/tmdb-matches/rerun", api.admin.tmdbRerunStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)

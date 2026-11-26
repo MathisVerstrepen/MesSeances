@@ -37,6 +37,7 @@ type Config struct {
 	Admin struct {
 		Password      string
 		SessionSecret string
+		APIToken      string
 	}
 	Internal struct{ SharedSecret string }
 	TMDB     struct{ Token string }
@@ -83,12 +84,16 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		if (strings.TrimSpace(password) == "") != (strings.TrimSpace(secret) == "") {
 			return Config{}, configurationError()
 		}
+		apiToken := getenv("ADMIN_API_TOKEN")
+		if apiToken != "" && (strings.TrimSpace(password) == "" || !lowerHex(apiToken, 64)) {
+			return Config{}, configurationError()
+		}
 		internalSharedSecret := getenv("INTERNAL_API_SHARED_SECRET")
 		if internalSharedSecret != "" && !lowerHex(internalSharedSecret, 64) {
 			return Config{}, configurationError()
 		}
 		result.Server.Port, result.Server.Origin, result.Server.TrustedProxyCIDRs = parsedPort, origin, trustedProxyCIDRs
-		result.Admin.Password, result.Admin.SessionSecret = password, secret
+		result.Admin.Password, result.Admin.SessionSecret, result.Admin.APIToken = password, secret, apiToken
 		result.Internal.SharedSecret = internalSharedSecret
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
