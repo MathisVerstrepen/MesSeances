@@ -9,6 +9,10 @@ import type {
   AdminCreateLocalMovieGroupRequest,
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
+  AdminMergeLocalMovieGroupsRequest,
+  AdminPendingMatch,
+  AdminPendingMatchesResponse,
+  Provider,
 } from '../app/types/api.ts'
 import * as catalog from '../app/utils/adminLocalMovieGroups.ts'
 import * as tmdb from '../app/utils/adminTmdbMatches.ts'
@@ -211,6 +215,137 @@ test('cancellation prevents publication, progress and next requests after refres
   )
 })
 
+function rejected(
+  provider: Provider,
+  id: string,
+  title: string,
+  runtime = 100,
+): AdminPendingMatch {
+  return {
+    source_provider: provider,
+    source_movie_id: id,
+    source_title: title,
+    source_runtime_minutes: runtime,
+    source_detail_url: '',
+    status: 'rejected',
+    candidates: [],
+    evaluated_at: '2026-01-01T00:00:00Z',
+  }
+}
+
+test('finds missed new groups and existing group joins, best first, one suggestion per film', () => {
+  const existing = group('existing', 'La Traviata (Royal Opera)')
+  const suggestions = catalog.findMissedLocalGroupings(
+    [
+      rejected('ugc', '1', 'Le Lac des cygnes - Bolchoï', 120),
+      rejected('pathe', '2', 'LE LAC DES CYGNES (BOLCHOI)', 150),
+      rejected('cgr', '3', 'La Traviata - Royal Opera', 180),
+      rejected('mk2', '4', 'Barbie'),
+      rejected('mk2', '4', 'Barbie'),
+      rejected('ugc', '5', ''),
+      rejected('pathe', '6', ''),
+    ],
+    [existing],
+    0.7,
+  )
+  assert.equal(suggestions.length, 2)
+  const [first, second] = suggestions
+  assert.ok(first!.score >= second!.score)
+  const join = suggestions.find((item) => item.group)!
+  assert.equal(join.group!.local_movie_id, 'existing')
+  assert.equal(join.groupTitle, 'La Traviata (Royal Opera)')
+  assert.deepEqual(
+    join.members.map(({ source }) => source.source_movie_id),
+    ['3'],
+  )
+  assert.equal(join.runtimeGap, null)
+  const created = suggestions.find((item) => !item.group)!
+  assert.deepEqual(
+    created.members.map(({ source }) => source.source_movie_id).sort(),
+    ['1', '2'],
+  )
+  assert.equal(created.runtimeGap, 30)
+  assert.ok(created.members.every(({ similarity }) => similarity >= 0.7))
+  assert.notEqual(join.key, created.key)
+})
+
+test('missed groupings respect the threshold and are independent of input order', () => {
+  const sources = [
+    rejected('ugc', '1', 'Alien'),
+    rejected('pathe', '2', 'Aliens'),
+    rejected('cgr', '3', 'Alien'),
+  ]
+  const strict = catalog.findMissedLocalGroupings(sources, [], 1)
+  assert.equal(strict.length, 1)
+  assert.deepEqual(
+    strict[0]!.members.map(({ source }) => source.source_movie_id),
+    ['3', '1'],
+  )
+  const loose = catalog.findMissedLocalGroupings(sources, [], 0.7)
+  assert.equal(loose[0]!.members.length, 3)
+  assert.deepEqual(
+    catalog.findMissedLocalGroupings([...sources].reverse(), [], 0.7),
+    loose,
+  )
+  assert.deepEqual(
+    catalog.findMissedLocalGroupings([rejected('ugc', '1', 'Alien')], []),
+    [],
+  )
+})
+
+test('loads every Non-TMDB page at limit 100 and deduplicates sources', async () => {
+  const calls: number[] = []
+  const items = Array.from({ length: 100 }, (_, index) =>
+    rejected('ugc', String(index), `Film ${index}`),
+  )
+  const loaded = await catalog.loadPendingMatchCatalog(
+    async (limit, offset) => {
+      calls.push(offset)
+      assert.equal(limit, 100)
+      return {
+        items: offset === 0 ? items : [items[0]!],
+        limit,
+        offset,
+      }
+    },
+    () => true,
+  )
+  assert.deepEqual(calls, [0, 100])
+  assert.equal(loaded!.length, 100)
+  assert.equal(
+    await catalog.loadPendingMatchCatalog(
+      async () => ({ items: [], limit: 100, offset: 0 }),
+      () => false,
+    ),
+    null,
+  )
+})
+
+test('finds missed merges between existing groups, keeping the oldest group as target', () => {
+  const groups = [
+    group('local-film-12', 'Le Lac des cygnes (Bolchoï)'),
+    group('local-film-3', 'LE LAC DES CYGNES - BOLCHOI', null),
+    group('local-film-7', 'Casse-Noisette'),
+    group('local-film-9', 'Le lac des cygnes Bolchoi'),
+  ]
+  const merges = catalog.findMissedLocalGroupMerges(groups, 0.8)
+  assert.equal(merges.length, 1)
+  assert.deepEqual(
+    merges[0]!.groups.map(({ group }) => group.local_movie_id),
+    ['local-film-3', 'local-film-9', 'local-film-12'],
+  )
+  assert.equal(merges[0]!.suggestedTarget.local_movie_id, 'local-film-3')
+  assert.ok(merges[0]!.score >= 0.8)
+  assert.deepEqual(
+    catalog.findMissedLocalGroupMerges([...groups].reverse(), 0.8),
+    merges,
+  )
+  assert.deepEqual(
+    catalog.findMissedLocalGroupMerges([group('local-film-1', null)], 0.7),
+    [],
+  )
+})
+
 const pageSource = readFile(
   new URL('../app/pages/admin/tmdb-matches.vue', import.meta.url),
   'utf8',
@@ -241,7 +376,13 @@ async function mountPage(
   const calls: Array<{ operation: string; input?: unknown }> = []
   const api = {
     adminLocalMovieGroups: fetchGroups,
-    adminPendingMatches: async () => ({ items: [], limit: 20, offset: 0 }),
+    adminPendingMatches: async (
+      ..._args: unknown[]
+    ): Promise<AdminPendingMatchesResponse> => ({
+      items: [],
+      limit: 20,
+      offset: 0,
+    }),
     adminTMDBMetadataRefreshStatus: async () => ({ job: null }),
     adminApproveMatch: async () => {},
     adminCreateLocalMovieGroup: async (
@@ -255,6 +396,12 @@ async function mountPage(
     ) => {
       calls.push({ operation: 'add', input })
     },
+    adminMergeLocalMovieGroups: async (
+      id: string,
+      input: AdminMergeLocalMovieGroupsRequest,
+    ) => {
+      calls.push({ operation: 'merge-groups', input: { id, input } })
+    },
     adminUnmergeLocalMovie: async () => {
       calls.push({ operation: 'unmerge' })
     },
@@ -266,6 +413,11 @@ async function mountPage(
     toggleMergeSelection, closeSelectionSidebar, reopenSelectionSidebar, handleSelectionEscape,
     clearMergeSelection, refreshGroupCatalog, refreshResources, mergeSelectedSources,
     addSelectedSourcesToGroup, unmerge, activeMutation, refreshAfterDecision, approveWithTmdbId,
+    activeTab, missedGroupingsOpen, showMissedGroupings, missedGroupings, rejectedCatalog,
+    rejectedCatalogLoaded, toggleMissedGroupings, selectMissedGrouping, addMissedGroupingToGroup,
+    loadRejectedMatches, selectedGroups, selectedGroupList, groupMergeTargetId, canMergeGroups,
+    groupMergeConfirmation, groupMergeError, missedGroupMerges, toggleGroupMergeSelection,
+    clearGroupMergeSelection, selectMissedGroupMerge, mergeSelectedGroups,
   }; })()`,
     {
       ...Vue,
@@ -489,4 +641,125 @@ test('template moves selection/add actions into named nonmodal sidebar while pre
   assert.match(management, /Pagination des regroupements locaux/)
   assert.doesNotMatch(management, /addSelectedSourcesToGroup/)
   assert.equal((page.match(/id="merge-selection-title"/g) ?? []).length, 1)
+})
+
+test('missed groupings load all Non-TMDB films only when shown and feed selection or direct add', async () => {
+  const target = group('target', 'Alien')
+  const rejectedFilms = [
+    rejected('ugc', '1', 'Alien'),
+    rejected('pathe', '2', 'Barbie'),
+    rejected('cgr', '3', 'Barbie'),
+  ]
+  const { state, api, calls, unmount } = await mountPage(async () =>
+    response([target]),
+  )
+  const statuses: Array<[string, number]> = []
+  api.adminPendingMatches = async (...args: unknown[]) => {
+    const [status, limit] = args
+    statuses.push([String(status), Number(limit)])
+    return {
+      items: status === 'rejected' && limit === 100 ? rejectedFilms : [],
+      limit: Number(limit),
+      offset: 0,
+    }
+  }
+  state.activeTab.value = 'rejected'
+  assert.equal(state.showMissedGroupings.value, false)
+  await state.loadRejectedMatches()
+  assert.equal(statuses.filter(([, limit]) => limit === 100).length, 0)
+  state.toggleMissedGroupings()
+  await settle()
+  assert.equal(state.showMissedGroupings.value, true)
+  assert.equal(state.rejectedCatalogLoaded.value, true)
+  const suggestions = state.missedGroupings.value
+  assert.equal(suggestions.length, 2)
+  const created = suggestions.find((item: { group: unknown }) => !item.group)
+  state.selectMissedGrouping(created)
+  assert.equal(state.selectedSourceList.value.length, 2)
+  assert.equal(state.primarySourceKey.value, '')
+  assert.equal(state.selectionSidebarOpen.value, true)
+  const join = suggestions.find((item: { group: unknown }) => item.group)
+  await state.addMissedGroupingToGroup(join)
+  assert.equal(calls[0]?.operation, 'add')
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0]?.input)), {
+    members: [{ source_provider: 'ugc', source_movie_id: '1' }],
+  })
+  assert.equal(state.selectedSourceList.value.length, 2)
+  state.toggleMissedGroupings()
+  await state.loadRejectedMatches()
+  assert.equal(state.rejectedCatalogLoaded.value, false)
+  unmount()
+})
+
+test('group merge selection keeps a target and merges the other groups into it', async () => {
+  const first = group('local-film-1', 'Alien')
+  const second = group('local-film-2', 'Alien')
+  const third = group('local-film-3', 'Barbie')
+  const { state, api, calls, unmount } = await mountPage(async () =>
+    response([first, second, third]),
+  )
+  assert.equal(state.missedGroupMerges.value.length, 1)
+  state.selectMissedGroupMerge(state.missedGroupMerges.value[0])
+  assert.equal(state.selectedGroupList.value.length, 2)
+  assert.equal(state.groupMergeTargetId.value, 'local-film-1')
+  assert.equal(state.canMergeGroups.value, true)
+  state.toggleGroupMergeSelection(third)
+  state.toggleGroupMergeSelection(first)
+  assert.equal(state.groupMergeTargetId.value, '')
+  assert.equal(state.canMergeGroups.value, false)
+  await state.mergeSelectedGroups()
+  assert.equal(calls.length, 0)
+  state.groupMergeTargetId.value = 'local-film-3'
+  await state.mergeSelectedGroups()
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), {
+    operation: 'merge-groups',
+    input: {
+      id: 'local-film-3',
+      input: { local_movie_ids: ['local-film-2'] },
+    },
+  })
+  assert.equal(state.selectedGroupList.value.length, 0)
+
+  state.toggleGroupMergeSelection(first)
+  state.toggleGroupMergeSelection(second)
+  api.adminMergeLocalMovieGroups = async () => {
+    throw { status: 404 }
+  }
+  api.adminLocalMovieGroups = async () => response([first])
+  await state.mergeSelectedGroups()
+  assert.match(state.groupMergeError.value, /n’existe plus/)
+  await settle()
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        state.selectedGroupList.value.map(
+          (item: AdminLocalMovieGroup) => item.local_movie_id,
+        ),
+      ),
+    ),
+    ['local-film-1'],
+  )
+  assert.equal(state.groupMergeConfirmation.value, false)
+  unmount()
+})
+
+test('local groups live in their own tab with merge panel and missed merge suggestions', async () => {
+  const page = await pageSource
+  assert.match(page, /value: 'groups',\s*label: 'Regroupements locaux'/)
+  const groupsTab = page.slice(
+    page.indexOf('aria-labelledby="local-groups-title"'),
+    page.indexOf('<aside'),
+  )
+  assert.match(
+    page,
+    /v-if="activeTab === 'groups'"\s*aria-labelledby="local-groups-title"/,
+  )
+  assert.match(groupsTab, /id="group-merge-panel"/)
+  assert.match(groupsTab, /@click="mergeSelectedGroups"/)
+  assert.match(groupsTab, /id="missed-group-merges"/)
+  assert.match(groupsTab, /@click="selectMissedGroupMerge\(suggestion\)"/)
+  assert.ok(
+    page.indexOf('id="tmdb-matches-panel"') <
+      page.indexOf('aria-labelledby="local-groups-title"'),
+  )
 })

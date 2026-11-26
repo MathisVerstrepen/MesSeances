@@ -231,6 +231,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/members", api.admin.addLocalMovieMembers)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
+			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/merge-groups", api.admin.mergeLocalMovieGroups)
 			router.Get("/syncs", api.admin.syncStatus)
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
 			router.Get("/sync-sources", api.admin.syncSources)

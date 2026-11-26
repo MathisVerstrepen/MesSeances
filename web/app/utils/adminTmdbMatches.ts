@@ -43,10 +43,13 @@ export function adminTMDBMatchedSearch(value: string | undefined): string {
   return value?.trim() ?? ''
 }
 
+export type AdminTMDBMatchesTab = AdminPendingMatchesFilter | 'groups'
+
 export function adminTMDBMatchesTab(
   value: string | undefined,
-): AdminPendingMatchesFilter {
-  if (value === 'rejected' || value === 'matched') return value
+): AdminTMDBMatchesTab {
+  if (value === 'rejected' || value === 'matched' || value === 'groups')
+    return value
   return 'unresolved'
 }
 

@@ -791,6 +791,15 @@ export interface AdminAddLocalMovieMembersResponse {
   local_movie_id: string
 }
 
+export interface AdminMergeLocalMovieGroupsRequest {
+  local_movie_ids: string[]
+}
+
+export interface AdminMergeLocalMovieGroupsResponse {
+  status: 'groups_merged'
+  local_movie_id: string
+}
+
 export interface AdminUnmergeLocalMovieResponse {
   status: 'unmerged'
   local_movie_id: string

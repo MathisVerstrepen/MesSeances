@@ -40,7 +40,11 @@ type LocalMovieStore interface {
 	MergeLocalMovies(context.Context, []LocalMovieSource, LocalMovieSource) (LocalMovieGroup, error)
 	AddLocalMovieMembers(context.Context, int64, []LocalMovieSource) error
 	UnmergeLocalMovie(context.Context, int64) error
+	MergeLocalMovieGroups(context.Context, int64, []int64) error
 }
+
+// MaxMergedLocalMovieGroups bounds one group-into-group merge request.
+const MaxMergedLocalMovieGroups = 50
 
 type LocalMovieService struct{ store LocalMovieStore }
 
@@ -103,6 +107,43 @@ func (s *LocalMovieService) Unmerge(ctx context.Context, localMovieID string) er
 		return err
 	}
 	return s.store.UnmergeLocalMovie(ctx, id)
+}
+
+// MergeGroups moves every member of the source groups into the target group,
+// which keeps its local movie ID and primary source, then deletes the sources.
+func (s *LocalMovieService) MergeGroups(ctx context.Context, targetLocalMovieID string, sourceLocalMovieIDs []string) error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("local movie service unavailable")
+	}
+	targetID, err := ParseLocalMovieID(targetLocalMovieID)
+	if err != nil {
+		return err
+	}
+	sourceIDs, err := parseMergedLocalMovieGroupIDs(targetID, sourceLocalMovieIDs)
+	if err != nil {
+		return err
+	}
+	return s.store.MergeLocalMovieGroups(ctx, targetID, sourceIDs)
+}
+
+func parseMergedLocalMovieGroupIDs(targetID int64, values []string) ([]int64, error) {
+	if len(values) == 0 || len(values) > MaxMergedLocalMovieGroups {
+		return nil, ErrLocalMovieInvalid
+	}
+	ids := make([]int64, 0, len(values))
+	seen := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		id, err := ParseLocalMovieID(value)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[id]; exists || id == targetID {
+			return nil, ErrLocalMovieInvalid
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func LocalMovieID(id int64) string {
