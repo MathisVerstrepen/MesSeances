@@ -1,6 +1,6 @@
 ---
 name: resolve-tmdb-matches
-description: Resolve MesSeances production TMDB correspondences (admin "Correspondances TMDB" page) through the token-authenticated admin API with scripts/admin-api. Use when the user asks to resolve, review, approve, reject or correct TMDB matches, or to act on other production admin pages via the API.
+description: Resolve MesSeances production TMDB correspondences (admin "Correspondances TMDB" page) through the token-authenticated admin API with scripts/admin-api, and act on other production admin pages using the admin OpenAPI spec. Use when the user asks to resolve, review, approve, reject or correct TMDB matches, or to act on production admin pages via the API.
 ---
 
 # Resolve TMDB Matches in Production
@@ -31,6 +31,8 @@ scripts/admin-api reject <provider> <source_id>
 scripts/admin-api correct <provider> <source_id> <tmdb_id> <updated_at>
 scripts/admin-api get <path> | post|put|patch|delete <path> [json]   # other /api/v1/admin routes
 ```
+
+Every admin route, its parameters, body, errors and `x-risk` are documented in `api/internal/httpapi/admin_openapi.yaml` (served as `scripts/admin-api spec` outside the repo). Read only the section you need (e.g. `grep -n -A40 '^  /tmdb-matches:'`). Honor `x-risk`: `read` freely, `review` for items the user asked about, `operational` only on an explicit request for that exact action.
 
 Pipe JSON through `jq` to keep context small, e.g. `scripts/admin-api matches unresolved 100 | jq -c '.items[] | {source_provider, source_movie_id, source_title, source_runtime_minutes, status, candidates: [.candidates[] | {id, title, original_title, runtime_minutes, score}]}'`.
 
@@ -63,5 +65,5 @@ End with a compact table: approved (source → TMDB id + title + year), rejected
 ## Safety
 
 - Never print or log the token, cookies, or raw provider error bodies.
-- Never call sync, schedule, source-toggle, or geocoding mutations unless the user explicitly asks for that specific action.
+- Never call `x-risk: operational` routes (syncs, schedules, source toggles, geocoding, TMDB reruns/refreshes) unless the user explicitly asks for that specific action.
 - Production SSH/SQL is not an alternative path for review decisions: it bypasses `ReviewService` validation.

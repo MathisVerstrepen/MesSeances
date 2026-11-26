@@ -28,6 +28,7 @@ TMDB matches
 
 Generic
   session                                  Check that the token is accepted
+  spec                                     OpenAPI spec of every admin route (YAML)
   get <path> [curl -G args...]             e.g. get /syncs
   post|put|patch|delete <path> [json]      e.g. post /syncs/ugc
 
@@ -101,6 +102,9 @@ load_token
 case "$command" in
 session)
 	request GET /session ""
+	;;
+spec)
+	request GET /openapi.yaml ""
 	;;
 matches)
 	status="${1:-unresolved}"
