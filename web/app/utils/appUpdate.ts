@@ -62,6 +62,7 @@ export function createAppUpdate(options: UpdateOptions) {
   let discovery: Promise<string | undefined> | undefined
   let explicit: Promise<void> | undefined
   let generation = 0
+  let settled: Worker | undefined
   const controllers = new Set<AbortController>()
   const timers = new Set<ReturnType<typeof setTimeout>>()
   const cleanups = new Set<() => void>()
@@ -97,7 +98,7 @@ export function createAppUpdate(options: UpdateOptions) {
         registration?.waiting === worker &&
         registration.active
       )
-        state.available = true
+        verify()
       if (worker.state === 'activated' || worker.state === 'redundant')
         cleanup()
     })
@@ -106,19 +107,42 @@ export function createAppUpdate(options: UpdateOptions) {
     if (disposed || !value || registration === value) return
     registration = value
     // First installation briefly occupies waiting before automatic activation.
-    if (value.waiting && value.active) state.available = true
+    if (value.waiting && value.active) verify()
     observeWorker(value.installing)
     listen(value, 'updatefound', () => observeWorker(value.installing))
   }
+  // A waiting worker only proves the worker script changed, not that this
+  // document is stale: after a deploy, the first load fetches fresh HTML while
+  // the previous worker keeps control and the new one waits (reloads included).
+  // Worker signals therefore ask the server which build is current.
+  function verify() {
+    if (!disposed) void discover()
+  }
+  function settle() {
+    // This document already runs the latest build, so the waiting worker's
+    // precache matches it: activate silently instead of prompting a reload.
+    const waiting = registration?.waiting
+    if (
+      disposed ||
+      explicit ||
+      state.available ||
+      !waiting ||
+      !registration?.active ||
+      settled === waiting
+    )
+      return
+    settled = waiting
+    Promise.resolve()
+      .then(options.activate)
+      .catch(() => {})
+  }
   function needRefresh() {
-    if (!disposed) state.available = true
+    verify()
   }
   function needReload() {
     // Another tab's activation is never consent. Explicit attempts observe their
-    // own worker; this callback only surfaces/rechecks availability.
-    if (disposed) return
-    state.available = true
-    void check()
+    // own worker; this callback only rechecks availability.
+    verify()
   }
   function updateWorker() {
     try {
@@ -164,6 +188,7 @@ export function createAppUpdate(options: UpdateOptions) {
           } catch {
             /* denied */
           }
+          settle()
         }
         return body.id
       } catch {
