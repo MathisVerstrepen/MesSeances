@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"crypto/sha256"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -13,6 +14,10 @@ type adminAPI struct {
 	password        string
 	key             [32]byte
 	hasKey          bool
+	tokenHash       [32]byte
+	hasToken        bool
+	tmdbSearch      AdminTMDBSearcher
+	logger          *slog.Logger
 	reviews         *enrichment.ReviewService
 	tmdbReruns      TMDBRerunner
 	tmdbRefreshes   TMDBMetadataRefresher
@@ -47,8 +52,18 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	if hasKey {
 		key = sha256.Sum256([]byte("messeances-admin-session-secret-v1\x00" + options.SessionSecret))
 	}
+	var tokenHash [32]byte
+	hasToken := options.APIToken != ""
+	if hasToken {
+		tokenHash = sha256.Sum256([]byte(options.APIToken))
+	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 	return &adminAPI{
 		origin: origin, password: password, key: key, hasKey: hasKey,
+		tokenHash: tokenHash, hasToken: hasToken, tmdbSearch: options.TMDBSearch, logger: logger,
 		tmdbUpcoming:   options.TMDBUpcoming,
 		upcomingReview: options.UpcomingReviews,
 		accounts:       options.Accounts,
