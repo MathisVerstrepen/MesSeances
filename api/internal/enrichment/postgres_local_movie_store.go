@@ -197,3 +197,43 @@ func (s *PostgresStore) UnmergeLocalMovie(ctx context.Context, id int64) error {
 		}, nil
 	})
 }
+
+func (s *PostgresStore) MergeLocalMovieGroups(ctx context.Context, targetID int64, sourceIDs []int64) error {
+	if targetID <= 0 || len(sourceIDs) == 0 || len(sourceIDs) > MaxMergedLocalMovieGroups {
+		return ErrLocalMovieInvalid
+	}
+	ids := make([]int64, 0, len(sourceIDs)+1)
+	seen := map[int64]struct{}{targetID: {}}
+	ids = append(ids, targetID)
+	for _, id := range sourceIDs {
+		if _, exists := seen[id]; exists || id <= 0 {
+			return ErrLocalMovieInvalid
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	sources := append([]int64(nil), sourceIDs...)
+	return s.withWriteTransaction(ctx, "begin local movie group merge failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		// Lock every involved group in ID order so concurrent merges cannot deadlock.
+		var locked int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM (SELECT id FROM local_movie_groups WHERE id = ANY($1) ORDER BY id FOR UPDATE) grouping`, ids).Scan(&locked); err != nil {
+			return nil, fmt.Errorf("lock local movie groups failed")
+		}
+		if locked != len(ids) {
+			return nil, ErrLocalMovieNotFound
+		}
+		if _, err := tx.Exec(ctx, `UPDATE local_movie_group_members SET local_movie_id=$1 WHERE local_movie_id = ANY($2)`, targetID, sources); err != nil {
+			return nil, localMovieWriteError("move local movie members failed", err)
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM local_movie_groups WHERE id = ANY($1)`, sources); err != nil {
+			return nil, localMovieWriteError("delete merged local movie groups failed", err)
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after local group merge",
+			advanceVersion: true,
+			mapCommitError: func(err error) error {
+				return localMovieWriteError("commit local movie group merge failed", err)
+			},
+		}, nil
+	})
+}

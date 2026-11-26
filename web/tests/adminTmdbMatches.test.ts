@@ -63,6 +63,7 @@ test('keeps only matched movies in the associated TMDB section', () => {
 test('normalizes match tabs and defaults invalid values to unresolved', () => {
   assert.equal(adminTMDBMatchesTab('rejected'), 'rejected')
   assert.equal(adminTMDBMatchesTab('matched'), 'matched')
+  assert.equal(adminTMDBMatchesTab('groups'), 'groups')
   assert.equal(adminTMDBMatchesTab('invalid'), 'unresolved')
   assert.equal(adminTMDBMatchesTab(undefined), 'unresolved')
 })

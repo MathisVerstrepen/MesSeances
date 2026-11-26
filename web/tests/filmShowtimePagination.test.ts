@@ -10,6 +10,7 @@ import type {
 } from '../app/types/api.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
 import * as filters from '../app/utils/showtimeFilters.ts'
+import * as showtimeTiming from '../app/utils/showtimeTiming.ts'
 import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import { isShowtimeFormat } from '../app/utils/formats.ts'
 import { resolveShowtimeEnd } from '../app/utils/showtimeEnd.ts'
@@ -181,6 +182,8 @@ function harness(
     isBroadTheaterSelection,
     isShowtimeFormat,
     resolveShowtimeEnd,
+    ...showtimeTiming,
+    useShowtimeClock: () => ref(null),
     useRoute: () => route,
     useRouter: () => ({
       replace: async ({ query }: { query: LocationQuery }) => {

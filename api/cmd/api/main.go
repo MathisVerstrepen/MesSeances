@@ -392,6 +392,7 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 	if err != nil {
 		return adminRuntime{}, fmt.Errorf("TMDB metadata refresh configuration is invalid")
 	}
+	options.APIToken = cfg.Admin.APIToken
 	geocodingManager, err := newTheaterGeocodingManager(ctx, pool, time.Now)
 	if err != nil {
 		rerunManager.Close()
@@ -741,6 +742,7 @@ func newAdminOptions(ctx context.Context, password, sessionSecret string, store 
 		Movies:        enrichment.NewAdminMovieService(store, provider),
 	}
 	if provider != nil {
+		options.TMDBSearch = provider
 		if gate == nil {
 			gate = enrichment.NewTMDBRunGate()
 		}

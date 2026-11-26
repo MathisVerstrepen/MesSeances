@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# Thin client for the MesSeances admin API using ADMIN_API_TOKEN bearer auth.
+#
+# The token is read from a 0600 file and handed to curl on stdin as a header,
+# so it never appears in process arguments, shell history, or output.
+#
+# Environment:
+#   MESSEANCES_ADMIN_URL         API origin (default https://messeances.fr)
+#   MESSEANCES_ADMIN_TOKEN_FILE  token file (default ~/.config/messeances/admin-token)
+set -euo pipefail
+
+base_url="${MESSEANCES_ADMIN_URL:-https://messeances.fr}"
+token_file="${MESSEANCES_ADMIN_TOKEN_FILE:-$HOME/.config/messeances/admin-token}"
+
+usage() {
+	cat >&2 <<'EOF'
+Usage: scripts/admin-api <command> [args]
+
+TMDB matches
+  matches [unresolved|rejected|matched] [limit] [offset]
+  matched-search <query> [limit] [offset]
+  search <title>                           TMDB title search (fr-FR)
+  tmdb <tmdb_id>                           TMDB details (runtime, release, overview...)
+  approve <provider> <source_id> <tmdb_id> Approve a candidate or a manual TMDB ID
+  reject <provider> <source_id>            Mark as non-TMDB
+  correct <provider> <source_id> <tmdb_id> <expected_updated_at>
+                                           Replace an existing match
+
+Generic
+  session                                  Check that the token is accepted
+  spec                                     OpenAPI spec of every admin route (YAML)
+  get <path> [curl -G args...]             e.g. get /syncs
+  post|put|patch|delete <path> [json]      e.g. post /syncs/ugc
+
+Paths are relative to /api/v1/admin. JSON goes to stdout; HTTP errors print
+the API error body to stderr and exit 1.
+EOF
+	exit 2
+}
+
+seg() {
+	python3 -I -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+}
+
+json_string() {
+	python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+positive_int() {
+	[[ "$1" =~ ^[1-9][0-9]*$ ]] || {
+		echo "admin-api: expected a positive integer, got '$1'" >&2
+		exit 2
+	}
+}
+
+load_token() {
+	if [[ ! -f "$token_file" ]]; then
+		echo "admin-api: token file not found: $token_file" >&2
+		exit 1
+	fi
+	local mode
+	mode="$(stat -c '%a' "$token_file")"
+	if [[ "$mode" != "600" && "$mode" != "400" ]]; then
+		echo "admin-api: $token_file must be mode 600 or 400 (is $mode)" >&2
+		exit 1
+	fi
+	IFS= read -r token <"$token_file" || true
+	if [[ ! "$token" =~ ^[0-9a-f]{64}$ ]]; then
+		echo "admin-api: $token_file must contain exactly one 64-char lowercase hex token" >&2
+		exit 1
+	fi
+}
+
+# request <method> <path> [body] [-- extra curl args]
+request() {
+	local method="$1" path="$2" body="${3:-}"
+	shift 3 || shift $#
+	local response status
+	response="$(mktemp)"
+	trap 'rm -f "$response"' RETURN
+	local args=(--silent --show-error --max-time 90 --request "$method" --header @- --output "$response" --write-out '%{http_code}')
+	if [[ -n "$body" ]]; then
+		args+=(--header 'Content-Type: application/json' --data-binary "$body")
+	fi
+	status="$(printf 'Authorization: Bearer %s\n' "$token" | curl "${args[@]}" "$@" "${base_url}/api/v1/admin${path}")"
+	if [[ "$status" -ge 400 || "$status" -lt 200 ]]; then
+		echo "admin-api: HTTP $status $method $path" >&2
+		cat "$response" >&2
+		echo >&2
+		return 1
+	fi
+	cat "$response"
+	echo
+}
+
+[[ $# -ge 1 ]] || usage
+command="$1"
+shift
+case "$command" in -h | --help | help) usage ;; esac
+load_token
+
+case "$command" in
+session)
+	request GET /session ""
+	;;
+spec)
+	request GET /openapi.yaml ""
+	;;
+matches)
+	status="${1:-unresolved}"
+	request GET /tmdb-matches "" -G --data-urlencode "status=$status" --data-urlencode "limit=${2:-50}" --data-urlencode "offset=${3:-0}"
+	;;
+matched-search)
+	[[ $# -ge 1 ]] || usage
+	request GET /tmdb-matches "" -G --data-urlencode "status=matched" --data-urlencode "search=$1" --data-urlencode "limit=${2:-50}" --data-urlencode "offset=${3:-0}"
+	;;
+search)
+	[[ $# -eq 1 ]] || usage
+	request GET /tmdb-search "" -G --data-urlencode "query=$1"
+	;;
+tmdb)
+	[[ $# -eq 1 ]] || usage
+	positive_int "$1"
+	request GET "/tmdb-search/$1" ""
+	;;
+approve)
+	[[ $# -eq 3 ]] || usage
+	positive_int "$3"
+	request POST "/tmdb-matches/$(seg "$1")/$(seg "$2")/approve" "{\"tmdb_id\":$3}"
+	;;
+reject)
+	[[ $# -eq 2 ]] || usage
+	request POST "/tmdb-matches/$(seg "$1")/$(seg "$2")/reject" ""
+	;;
+correct)
+	[[ $# -eq 4 ]] || usage
+	positive_int "$3"
+	request POST "/tmdb-matches/$(seg "$1")/$(seg "$2")/correct" "{\"tmdb_id\":$3,\"expected_updated_at\":$(json_string "$4")}"
+	;;
+get)
+	[[ $# -ge 1 ]] || usage
+	path="$1"
+	shift
+	request GET "$path" "" -G "$@"
+	;;
+post | put | patch | delete)
+	[[ $# -ge 1 && $# -le 2 ]] || usage
+	request "${command^^}" "$1" "${2:-}"
+	;;
+*)
+	usage
+	;;
+esac

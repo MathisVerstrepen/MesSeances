@@ -1006,6 +1006,72 @@ VALUES ($1,'kinepolis','redirect-admin-test','Redirect',1,'{}') RETURNING id,upd
 		}
 	})
 
+	t.Run("merge local movie groups", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes, poster_url) VALUES
+			(1,'330','ugc-film-330','Fusion cible',100,NULL),
+			(1,'331','ugc-film-331','Fusion cible bis',100,NULL),
+			(1,'332','ugc-film-332','Fusion source',100,NULL),
+			(1,'333','ugc-film-333','Fusion source bis',100,NULL),
+			(1,'334','ugc-film-334','Fusion autre',100,NULL),
+			(1,'335','ugc-film-335','Fusion autre bis',100,NULL)`); err != nil {
+			t.Fatal("insert group merge movies failed")
+		}
+		source := func(id string) LocalMovieSource {
+			return LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: id}
+		}
+		target, err := store.MergeLocalMovies(ctx, []LocalMovieSource{source("330"), source("331")}, source("330"))
+		if err != nil {
+			t.Fatalf("create target group failed: %v", err)
+		}
+		absorbed, err := store.MergeLocalMovies(ctx, []LocalMovieSource{source("332"), source("333")}, source("333"))
+		if err != nil {
+			t.Fatalf("create absorbed group failed: %v", err)
+		}
+		other, err := store.MergeLocalMovies(ctx, []LocalMovieSource{source("334"), source("335")}, source("334"))
+		if err != nil {
+			t.Fatalf("create other group failed: %v", err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil {
+			t.Fatal(err)
+		}
+		before := version
+		if err := store.MergeLocalMovieGroups(ctx, target.ID, []int64{absorbed.ID, 1 << 62}); !errors.Is(err, ErrLocalMovieNotFound) {
+			t.Fatalf("missing source group error=%v", err)
+		}
+		if err := store.MergeLocalMovieGroups(ctx, target.ID, []int64{target.ID}); !errors.Is(err, ErrLocalMovieInvalid) {
+			t.Fatalf("self merge error=%v", err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != before {
+			t.Fatalf("failed group merge version=%d before=%d error=%v", version, before, err)
+		}
+		if err := store.MergeLocalMovieGroups(ctx, target.ID, []int64{other.ID, absorbed.ID}); err != nil {
+			t.Fatalf("merge local groups failed: %v", err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != before+1 {
+			t.Fatalf("group merge version=%d before=%d error=%v", version, before, err)
+		}
+		var persistedPrimary LocalMovieSource
+		var members, remainingGroups, publicMovies int
+		if err := pool.QueryRow(ctx, `SELECT grouping.primary_source_provider, grouping.primary_source_movie_id, COUNT(member.source_movie_id)
+			FROM local_movie_groups grouping JOIN local_movie_group_members member ON member.local_movie_id=grouping.id
+			WHERE grouping.id=$1 GROUP BY grouping.id`, target.ID).Scan(&persistedPrimary.SourceProvider, &persistedPrimary.SourceMovieID, &members); err != nil || persistedPrimary != source("330") || members != 6 {
+			t.Fatalf("merged group primary=%+v members=%d error=%v", persistedPrimary, members, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM local_movie_groups WHERE id = ANY($1)`, []int64{absorbed.ID, other.ID}).Scan(&remainingGroups); err != nil || remainingGroups != 0 {
+			t.Fatalf("absorbed groups remaining=%d error=%v", remainingGroups, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT COUNT(DISTINCT public_movie_id) FROM public_movie_sources
+			WHERE source_provider='ugc' AND source_movie_id IN ('330','331','332','333','334','335')`).Scan(&publicMovies); err != nil || publicMovies != 1 {
+			t.Fatalf("merged public movies=%d error=%v", publicMovies, err)
+		}
+		if err := store.MergeLocalMovieGroups(ctx, target.ID, []int64{absorbed.ID}); !errors.Is(err, ErrLocalMovieNotFound) {
+			t.Fatalf("repeated group merge error=%v", err)
+		}
+		if err := store.UnmergeLocalMovie(ctx, target.ID); err != nil {
+			t.Fatal("unmerge merged group failed")
+		}
+	})
+
 	t.Run("reject unmatched Kinepolis review", func(t *testing.T) {
 		const movieID = "HO00016253"
 		const title = "Film Kinepolis sans correspondance"

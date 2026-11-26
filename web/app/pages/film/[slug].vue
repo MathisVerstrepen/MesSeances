@@ -57,13 +57,16 @@ import {
   showtimeFilterSummary,
   type FilmLanguageFilter,
 } from '~/utils/showtimeFilters'
+import {
+  showtimeTimingState,
+  showtimeTimingSuffix,
+  type ShowtimeTimingState,
+} from '~/utils/showtimeTiming'
 
 type LanguageFilter = FilmLanguageFilter
 type TechnologyFilter = 'ALL' | ShowtimeFormat
-type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
 type MobileControlPanel = 'date' | 'filters'
 
-const SHOWTIME_WARNING_DURATION_MS = 20 * 60 * 1000
 const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'sort'] as const
 
 const route = useRoute()
@@ -91,7 +94,7 @@ const movieTitle = ref<HTMLHeadingElement | null>(null)
 const synopsisText = ref<HTMLButtonElement | null>(null)
 const synopsisExpanded = ref(false)
 const synopsisOverflows = ref(false)
-const currentTime = ref<number | null>(null)
+const currentTime = useShowtimeClock()
 const isPersonalizedSchedule = ref(false)
 const appendPending = ref(false)
 const appendError = ref('')
@@ -118,7 +121,6 @@ const frenchReleaseLabel = computed(() =>
     : '',
 )
 let requestId = 0
-let currentTimeTimer: number | undefined
 let dayCheckTimer: number | undefined
 let synopsisResizeObserver: ResizeObserver | null = null
 let isReady = false
@@ -355,17 +357,6 @@ function resetFilters() {
   updateFilmQuery({ language: undefined, format: undefined })
 }
 
-function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
-  if (currentTime.value === null) return 'upcoming'
-
-  const startTime = Date.parse(showtime.start_time)
-  if (!Number.isFinite(startTime)) return 'upcoming'
-  if (currentTime.value > startTime + SHOWTIME_WARNING_DURATION_MS)
-    return 'past'
-  if (currentTime.value >= startTime) return 'warning'
-  return 'upcoming'
-}
-
 const visibleTheaters = computed<
   Array<
     MovieShowtimesTheater & {
@@ -393,7 +384,10 @@ const visibleTheaters = computed<
         .filter((showtime) => broadScope.value || matchesFilter(showtime))
         .map((showtime) => ({
           ...showtime,
-          timingState: showtimeTimingState(showtime),
+          timingState: showtimeTimingState(
+            showtime.start_time,
+            currentTime.value,
+          ),
           end: resolveShowtimeEnd(showtime),
         })),
     }))
@@ -505,13 +499,7 @@ function bookingLabel(
   theater: MovieShowtimesTheater,
   timingState: ShowtimeTimingState,
 ): string {
-  const timingLabel =
-    timingState === 'warning'
-      ? ', séance commencée'
-      : timingState === 'past'
-        ? ', séance passée'
-        : ''
-  return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}${timingLabel}, réserver`
+  return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}${showtimeTimingSuffix(timingState)}, réserver`
 }
 
 function formatRoom(room: string): string {
@@ -958,10 +946,6 @@ watch(slug, () => {
 })
 
 onMounted(() => {
-  currentTime.value = Date.now()
-  currentTimeTimer = window.setInterval(() => {
-    currentTime.value = Date.now()
-  }, 30_000)
   scheduleDayCheck()
   document.addEventListener('visibilitychange', handleVisibilityChange)
   nextTick(observeSynopsis)
@@ -971,7 +955,6 @@ onBeforeUnmount(() => {
   isUnmounted = true
   isReady = false
   requestId++
-  if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
   synopsisResizeObserver?.disconnect()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -1848,18 +1831,7 @@ if (
                         <span>{{ formatRoom(showtime.room) }}</span>
                       </template>
                     </div>
-                    <span
-                      v-if="showtime.timingState === 'warning'"
-                      class="mt-2 inline-flex items-center gap-1 text-xs font-black text-amber-800"
-                    >
-                      <AlertTriangle :size="14" aria-hidden="true" />
-                      Séance commencée
-                    </span>
-                    <span
-                      v-else-if="showtime.timingState === 'past'"
-                      class="sr-only"
-                      >Séance passée</span
-                    >
+                    <ShowtimeTimingNotice :state="showtime.timingState" />
                     <span v-if="!available" class="mt-2 text-xs font-black"
                       >Réservation indisponible</span
                     >
@@ -1870,24 +1842,10 @@ if (
                         label
                       }}</span
                     >
-                    <svg
+                    <ShowtimePastStrike
                       v-if="showtime.timingState === 'past'"
-                      viewBox="0 0 100 100"
-                      preserveAspectRatio="none"
-                      aria-hidden="true"
-                      focusable="false"
-                      class="pointer-events-none absolute inset-0 size-full text-muted"
-                    >
-                      <line
-                        x1="0"
-                        y1="100"
-                        x2="100"
-                        y2="0"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        vector-effect="non-scaling-stroke"
-                      />
-                    </svg>
+                      class="text-muted"
+                    />
                   </BookingLink>
                   <span
                     v-if="showtime.end?.estimated"

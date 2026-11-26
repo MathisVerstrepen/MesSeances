@@ -353,7 +353,7 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	if err != nil || manager != nil || reruns != nil {
 		t.Fatalf("without provider manager=%v err=%v", manager, err)
 	}
-	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.Movies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
+	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.Movies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil || options.TMDBSearch != nil {
 		t.Fatalf("options=%+v", options)
 	}
 	withProvider, manager, reruns, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{}, nil)
@@ -362,7 +362,7 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	}
 	defer manager.Close()
 	defer reruns.Close()
-	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil || withProvider.Movies == nil {
+	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil || withProvider.Movies == nil || withProvider.TMDBSearch == nil {
 		t.Fatalf("provider options=%+v", withProvider)
 	}
 }

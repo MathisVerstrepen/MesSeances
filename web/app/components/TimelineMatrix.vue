@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Clock3, Film, MapPin, X } from '@lucide/vue'
+import { AlertTriangle, Clock3, Film, MapPin, X } from '@lucide/vue'
 import type {
   Provider,
   QueryFormat,
@@ -12,6 +12,11 @@ import { formatLabel } from '~/utils/formats'
 import { languageLabel } from '~/utils/showtimeFilters'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { resolveShowtimeEnd } from '~/utils/showtimeEnd'
+import {
+  nextShowtimeTimingTransition,
+  showtimeTimingState,
+  showtimeTimingSuffix,
+} from '~/utils/showtimeTiming'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
@@ -224,8 +229,8 @@ function showtimeWidth(durationMinutes: number) {
   return Math.max(durationMinutes * pixelsPerMinute.value, 56)
 }
 
-function isShowtimeUnavailable(startTime: string) {
-  return new Date(startTime).getTime() + 20 * 60_000 <= now.value.getTime()
+function timingState(startTime: string) {
+  return showtimeTimingState(startTime, now.value.getTime())
 }
 
 function scheduleClock() {
@@ -234,13 +239,13 @@ function scheduleClock() {
 
   const timestamp = Date.now()
   now.value = new Date(timestamp)
-  let nextTransition = Number.POSITIVE_INFINITY
-  for (const theater of props.timeline.theaters) {
-    for (const showtime of theater.showtimes) {
-      const cutoff = new Date(showtime.start_time).getTime() + 20 * 60_000
-      if (cutoff > timestamp && cutoff < nextTransition) nextTransition = cutoff
-    }
-  }
+  const nextTransition =
+    nextShowtimeTimingTransition(
+      props.timeline.theaters.flatMap((theater) =>
+        theater.showtimes.map((showtime) => showtime.start_time),
+      ),
+      timestamp,
+    ) ?? Number.POSITIVE_INFINITY
 
   const nextMinuteDelay = 60_000 - (timestamp % 60_000)
   const nextTransitionDelay = nextTransition - timestamp
@@ -516,14 +521,15 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left shadow-[3px_3px_0_rgba(39,39,42,0.72)] hover:shadow-[3px_3px_0_var(--color-highlight)] focus:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+            class="absolute h-[72px] overflow-hidden border-2 px-2.5 py-2 text-left shadow-[3px_3px_0_rgba(39,39,42,0.72)] hover:shadow-[3px_3px_0_var(--color-highlight)] focus:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
             :class="[
               item.showtime.language === 'VOSTFR' ? 'bg-primary-soft text-primary' : 'bg-[#e8e6de] text-ink',
-              selected?.showtime.id === item.showtime.id ? 'border-ink shadow-[4px_4px_0_var(--color-highlight),inset_0_-3px_0_var(--color-highlight)]' : '',
-              isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
+              selected?.showtime.id === item.showtime.id ? 'shadow-[4px_4px_0_var(--color-highlight),inset_0_-3px_0_var(--color-highlight)]' : '',
+              timingState(item.showtime.start_time) === 'warning' ? 'border-[#f59e0b]' : 'border-ink',
+              timingState(item.showtime.start_time) === 'past' ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
             :style="[{ top: `calc(var(--timeline-row-heading-height) + ${16 + item.lane * 80}px)`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${languageLabel(item.showtime.language, item.showtime.movie.original_language)}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${languageLabel(item.showtime.language, item.showtime.movie.original_language)}` : ''}, ${formatLabel(item.showtime.format)}${showtimeTimingSuffix(timingState(item.showtime.start_time))}${timingState(item.showtime.start_time) === 'past' ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -550,6 +556,12 @@ onBeforeUnmount(() => {
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
               :class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'opacity-90' : 'opacity-70'"
             >
+              <AlertTriangle
+                v-if="timingState(item.showtime.start_time) === 'warning'"
+                :size="11"
+                class="-mt-0.5 inline text-[#f59e0b]"
+                aria-hidden="true"
+              />
               {{ formatParisTime(item.showtime.start_time) }}
               ·
               <template v-if="item.showtime.language"
@@ -564,6 +576,9 @@ onBeforeUnmount(() => {
                 decorative
               />
             </span>
+            <ShowtimePastStrike
+              v-if="timingState(item.showtime.start_time) === 'past'"
+            />
           </button>
         </div>
 
@@ -702,9 +717,23 @@ onBeforeUnmount(() => {
             </dd>
           </dl>
 
+          <p
+            v-if="timingState(selected.showtime.start_time) === 'warning'"
+            class="mt-4 inline-flex items-center gap-1.5 text-sm font-black text-amber-800"
+          >
+            <AlertTriangle :size="16" aria-hidden="true" />
+            Séance commencée
+          </p>
+          <p
+            v-else-if="timingState(selected.showtime.start_time) === 'past'"
+            class="mt-4 text-sm font-black text-muted"
+          >
+            Séance passée, réservation indisponible
+          </p>
+
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
             <BookingLink
-              :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url"
+              :url="timingState(selected.showtime.start_time) === 'past' ? null : selected.showtime.booking_url"
               :provider="selected.showtime.provider"
               :showtime-id="selected.showtime.id"
               :theater-id="selected.theater.id"

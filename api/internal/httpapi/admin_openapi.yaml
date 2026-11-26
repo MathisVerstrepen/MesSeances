@@ -1,0 +1,1660 @@
+openapi: 3.1.0
+info:
+  title: MesSeances Admin API
+  version: "1"
+  description: |
+    Admin API behind https://messeances.fr/admin. Every route is relative to
+    `/api/v1/admin`. Responses are JSON unless stated otherwise; errors are
+    always `{"error":{"code":"...","message":"..."}}` with a stable `code`.
+
+    Authentication:
+    - Browser: `POST /login` sets an HttpOnly cookie. Cookie mutations must
+      send `Origin` equal to the configured web origin.
+    - Scripts/agents: `Authorization: Bearer <ADMIN_API_TOKEN>` on every
+      route except `/login`. No `Origin` needed, no cookie issued. A present
+      but invalid `Authorization` header is always rejected.
+
+    Request bodies are strict: `Content-Type: application/json`, unknown
+    fields rejected, max 4 KiB unless stated. Endpoints documented with an
+    empty body reject any body.
+
+    `x-risk` on each operation tells agents how careful to be:
+    - `read`: no side effects.
+    - `auth`: session management.
+    - `review`: changes one curated item visible on the public site.
+    - `operational`: starts long jobs, calls providers, or changes what is
+      synchronized for many cinemas. Never call without an explicit request.
+
+    `scripts/admin-api` wraps the common calls; `scripts/admin-api get <path>`
+    and `post|put|patch|delete <path> [json]` reach everything else.
+servers:
+  - url: https://messeances.fr/api/v1/admin
+    description: Production
+  - url: http://localhost:8080/api/v1/admin
+    description: Local development
+security:
+  - bearerToken: []
+  - sessionCookie: []
+tags:
+  - name: auth
+  - name: tmdb-matches
+    description: Source movies (per cinema chain) to TMDB correspondences.
+  - name: tmdb-jobs
+  - name: upcoming
+    description: TMDB "Prochainement" catalogue curation.
+  - name: local-movies
+    description: Groups of source movies without TMDB match that are the same film across providers.
+  - name: movies
+    description: Published movie metadata and manual overrides.
+  - name: syncs
+  - name: theaters
+  - name: accounts
+  - name: meta
+
+paths:
+  /openapi.yaml:
+    get:
+      tags: [meta]
+      operationId: getOpenAPISpec
+      x-risk: read
+      summary: This specification.
+      responses:
+        "200":
+          description: OpenAPI document.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # ---------------------------------------------------------------- auth
+  /login:
+    post:
+      tags: [auth]
+      operationId: login
+      x-risk: auth
+      security: []
+      summary: Browser login with the admin password.
+      description: Requires `Origin` equal to the web origin. Sets a 12-hour HttpOnly session cookie scoped to `/api/v1/admin`. Agents use the bearer token instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [password]
+              properties:
+                password: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/Session" }
+        "401": { $ref: "#/components/responses/AuthenticationFailed" }
+        "403": { $ref: "#/components/responses/OriginForbidden" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /session:
+    get:
+      tags: [auth]
+      operationId: getSession
+      x-risk: read
+      security: []
+      summary: Whether the request carries a valid session cookie or bearer token.
+      description: Never returns 401; check `authenticated`.
+      responses:
+        "200": { $ref: "#/components/responses/Session" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      x-risk: auth
+      summary: Clear the session cookie. Empty body.
+      responses:
+        "200": { $ref: "#/components/responses/Session" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  # -------------------------------------------------------- tmdb-matches
+  /tmdb-matches:
+    get:
+      tags: [tmdb-matches]
+      operationId: listTMDBMatches
+      x-risk: read
+      summary: List source movies by review state.
+      description: |
+        `unresolved` (default) returns `review_required` and `unmatched` items to decide.
+        `rejected` returns items marked non-TMDB. `matched` returns current matches
+        (with `current_match` and `updated_at`, needed by `correct`) and supports `search`.
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [unresolved, rejected, matched], default: unresolved }
+        - name: search
+          in: query
+          description: Only with `status=matched`. Trimmed, 1-1024 characters.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit50"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page. A page shorter than `limit` is the last one.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/PendingMatch" } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /tmdb-matches/{sourceProvider}/{sourceMovieID}/approve:
+    post:
+      tags: [tmdb-matches]
+      operationId: approveTMDBMatch
+      x-risk: review
+      summary: Match a source movie to a TMDB movie.
+      description: |
+        Only for `review_required` and `unmatched` items, with either a listed candidate ID
+        or any manual TMDB ID (found with `GET /tmdb-search`). Fetches TMDB details, then
+        publishes the metadata. 409 if the item is rejected, matched, locally merged, or its
+        source title/runtime changed since evaluation.
+      parameters:
+        - $ref: "#/components/parameters/SourceProvider"
+        - $ref: "#/components/parameters/SourceMovieID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tmdb_id]
+              properties:
+                tmdb_id: { type: integer, minimum: 1 }
+      responses:
+        "200": { $ref: "#/components/responses/MatchedStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ReviewNotFound" }
+        "409": { $ref: "#/components/responses/ReviewConflict" }
+        "502": { $ref: "#/components/responses/ReviewFailed" }
+        "503": { $ref: "#/components/responses/ReviewUnavailable" }
+  /tmdb-matches/{sourceProvider}/{sourceMovieID}/reject:
+    post:
+      tags: [tmdb-matches]
+      operationId: rejectTMDBMatch
+      x-risk: review
+      summary: Mark a source movie as non-TMDB (event, broadcast, bundle...). Empty body.
+      parameters:
+        - $ref: "#/components/parameters/SourceProvider"
+        - $ref: "#/components/parameters/SourceMovieID"
+      responses:
+        "200":
+          description: Rejected.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: rejected }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ReviewNotFound" }
+        "409": { $ref: "#/components/responses/ReviewConflict" }
+        "502": { $ref: "#/components/responses/ReviewFailed" }
+  /tmdb-matches/{sourceProvider}/{sourceMovieID}/correct:
+    post:
+      tags: [tmdb-matches]
+      operationId: correctTMDBMatch
+      x-risk: review
+      summary: Replace the TMDB movie of an already matched source movie.
+      description: |
+        Optimistic concurrency: send the item's `updated_at` from `GET /tmdb-matches?status=matched`
+        verbatim. 409 means the item changed, is locally merged, or the replacement equals the
+        current match: re-read before deciding again.
+      parameters:
+        - $ref: "#/components/parameters/SourceProvider"
+        - $ref: "#/components/parameters/SourceMovieID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [tmdb_id, expected_updated_at]
+              properties:
+                tmdb_id: { type: integer, minimum: 1 }
+                expected_updated_at: { type: string, format: date-time, description: "RFC 3339 with nanoseconds, as returned." }
+      responses:
+        "200": { $ref: "#/components/responses/MatchedStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ReviewNotFound" }
+        "409": { $ref: "#/components/responses/ReviewConflict" }
+        "502": { $ref: "#/components/responses/ReviewFailed" }
+        "503": { $ref: "#/components/responses/ReviewUnavailable" }
+  /tmdb-search:
+    get:
+      tags: [tmdb-matches]
+      operationId: searchTMDB
+      x-risk: read
+      summary: Search TMDB movies by title (fr-FR, region FR, no adult) with the server token.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Exactly once. Trimmed, 1-200 characters.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Up to 20 results in TMDB relevance order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/TMDBSearchItem" } }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/TMDBFailed" }
+        "503": { $ref: "#/components/responses/TMDBUnavailable" }
+  /tmdb-search/{tmdbID}:
+    get:
+      tags: [tmdb-matches]
+      operationId: getTMDBMovie
+      x-risk: read
+      summary: TMDB movie details used to confirm a match (runtime, release, original title).
+      parameters:
+        - $ref: "#/components/parameters/TMDBID"
+      responses:
+        "200":
+          description: Details.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TMDBMovie" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/TMDBFailed" }
+        "503": { $ref: "#/components/responses/TMDBUnavailable" }
+
+  # ------------------------------------------------------------ tmdb-jobs
+  /tmdb-matches/rerun:
+    get:
+      tags: [tmdb-jobs]
+      operationId: getTMDBRerun
+      x-risk: read
+      summary: Last/current automatic matching rerun job.
+      responses:
+        "200": { $ref: "#/components/responses/RerunJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      tags: [tmdb-jobs]
+      operationId: startTMDBRerun
+      x-risk: operational
+      summary: Rerun automatic TMDB matching over unresolved items. Empty body; runs in background.
+      responses:
+        "202": { $ref: "#/components/responses/RerunJob" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/JobInProgress" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /tmdb-matches/refresh-metadata:
+    get:
+      tags: [tmdb-jobs]
+      operationId: getTMDBMetadataRefresh
+      x-risk: read
+      summary: Last/current TMDB metadata refresh job.
+      responses:
+        "200": { $ref: "#/components/responses/MetadataRefreshJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      tags: [tmdb-jobs]
+      operationId: startTMDBMetadataRefresh
+      x-risk: operational
+      summary: Refresh TMDB metadata of every matched movie. Empty body; runs in background.
+      responses:
+        "202": { $ref: "#/components/responses/MetadataRefreshJob" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/JobInProgress" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  # ------------------------------------------------------------- upcoming
+  /tmdb-upcoming-movies:
+    get:
+      tags: [upcoming]
+      operationId: listUpcomingMovies
+      x-risk: read
+      summary: TMDB upcoming French releases with assessment and admin decision.
+      parameters:
+        - name: filter
+          in: query
+          schema: { type: string, enum: [needs_review, pending_assessment, approved, excluded, all], default: needs_review }
+        - name: search
+          in: query
+          description: Non-blank, no surrounding spaces, max 1024 characters.
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit50"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/UpcomingMovie" } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /tmdb-upcoming-movies/{tmdbID}/decision:
+    patch:
+      tags: [upcoming]
+      operationId: setUpcomingDecision
+      x-risk: review
+      summary: Approve, exclude or reset an upcoming movie.
+      description: Exactly the two fields, no duplicates, no query string. `expected_revision` is the item's current `revision`; 409 means it changed.
+      parameters:
+        - $ref: "#/components/parameters/TMDBID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [decision, expected_revision]
+              properties:
+                decision: { type: string, enum: [unreviewed, approved, excluded] }
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Updated item.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpcomingMovie" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /tmdb-upcoming-movies/sync:
+    get:
+      tags: [upcoming]
+      operationId: getUpcomingSync
+      x-risk: read
+      summary: Last/current upcoming catalogue sync job.
+      responses:
+        "200": { $ref: "#/components/responses/UpcomingJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      tags: [upcoming]
+      operationId: startUpcomingSync
+      x-risk: operational
+      summary: Fetch upcoming releases from TMDB. Empty body; runs in background.
+      responses:
+        "202": { $ref: "#/components/responses/UpcomingJob" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/JobInProgress" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  # --------------------------------------------------------- local-movies
+  /local-movie-groups:
+    get:
+      tags: [local-movies]
+      operationId: listLocalMovieGroups
+      x-risk: read
+      summary: Existing local movie groups. Only `limit` and `offset` are accepted.
+      parameters:
+        - $ref: "#/components/parameters/Limit50"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/LocalMovieGroup" } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/LocalMovieFailed" }
+    post:
+      tags: [local-movies]
+      operationId: createLocalMovieGroup
+      x-risk: review
+      summary: Group 2+ source movies as one public film.
+      description: Members must be distinct and unmerged; `primary` must be one of them and drives the public metadata.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [members, primary]
+              properties:
+                members: { type: array, minItems: 2, items: { $ref: "#/components/schemas/LocalMovieSource" } }
+                primary: { $ref: "#/components/schemas/LocalMovieSource" }
+      responses:
+        "201":
+          description: Created group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalMovieGroup" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LocalMovieConflict" }
+        "502": { $ref: "#/components/responses/LocalMovieFailed" }
+  /local-movie-groups/{localMovieID}/members:
+    post:
+      tags: [local-movies]
+      operationId: addLocalMovieMembers
+      x-risk: review
+      summary: Add distinct, unmerged source movies to an existing group.
+      parameters:
+        - $ref: "#/components/parameters/LocalMovieID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [members]
+              properties:
+                members: { type: array, minItems: 1, items: { $ref: "#/components/schemas/LocalMovieSource" } }
+      responses:
+        "200": { $ref: "#/components/responses/LocalMovieStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LocalMovieConflict" }
+        "502": { $ref: "#/components/responses/LocalMovieFailed" }
+  /local-movie-groups/{localMovieID}/unmerge:
+    post:
+      tags: [local-movies]
+      operationId: unmergeLocalMovieGroup
+      x-risk: review
+      summary: Dissolve a group back into separate source movies. Empty body.
+      parameters:
+        - $ref: "#/components/parameters/LocalMovieID"
+      responses:
+        "200": { $ref: "#/components/responses/LocalMovieStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LocalMovieConflict" }
+        "502": { $ref: "#/components/responses/LocalMovieFailed" }
+  /local-movie-groups/{localMovieID}/merge-groups:
+    post:
+      tags: [local-movies]
+      operationId: mergeLocalMovieGroups
+      x-risk: review
+      summary: Move every member of other groups into this one (keeps this ID and primary) and delete them.
+      parameters:
+        - $ref: "#/components/parameters/LocalMovieID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [local_movie_ids]
+              properties:
+                local_movie_ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  description: Distinct, excluding the target.
+                  items: { type: string, pattern: "^local-film-[1-9][0-9]*$" }
+      responses:
+        "200": { $ref: "#/components/responses/LocalMovieStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/LocalMovieConflict" }
+        "502": { $ref: "#/components/responses/LocalMovieFailed" }
+
+  # --------------------------------------------------------------- movies
+  /movies:
+    get:
+      tags: [movies]
+      operationId: listMovies
+      x-risk: read
+      summary: Published movies with automatic values, effective values and overrides.
+      description: Every parameter at most once and non-blank.
+      parameters:
+        - $ref: "#/components/parameters/Limit50"
+        - $ref: "#/components/parameters/Offset"
+        - { name: search, in: query, schema: { type: string, maxLength: 1024 } }
+        - { name: genre, in: query, schema: { type: string, maxLength: 256 } }
+        - { name: runtime_min, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: runtime_max, in: query, schema: { type: integer, minimum: 0 } }
+        - { name: release_date_from, in: query, schema: { type: string, format: date } }
+        - { name: release_date_to, in: query, schema: { type: string, format: date } }
+        - { name: override_status, in: query, schema: { type: string, enum: [all, overridden, automatic], default: all } }
+        - { name: override_field, in: query, description: "Not with `override_status=automatic`.", schema: { $ref: "#/components/schemas/MovieField" } }
+        - { name: sort, in: query, schema: { type: string, enum: [title, runtime_minutes, release_date, updated_at, id, showtime_count], default: title } }
+        - { name: direction, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AdminMovie" } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /movies/{id}:
+    patch:
+      tags: [movies]
+      operationId: updateMovie
+      x-risk: review
+      summary: Override or restore metadata fields of a published movie.
+      description: |
+        `overrides` sets manual values (survive TMDB refreshes); `restore` drops overrides and
+        goes back to automatic values. `expected_updated_at` is the item's `updated_at`; 409
+        means it changed. Body up to 256 KiB.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_updated_at]
+              properties:
+                expected_updated_at: { type: string, format: date-time }
+                overrides:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    title: { type: string }
+                    runtime_minutes: { type: integer }
+                    release_date: { type: [string, "null"], format: date }
+                    genres: { type: array, items: { type: string } }
+                    overview: { type: [string, "null"] }
+                    poster_url: { type: [string, "null"], description: "Prefer a URL from `GET /movies/{id}/posters`." }
+                    backdrop_url: { type: [string, "null"] }
+                    trailer_vf_youtube_key: { type: [string, "null"] }
+                    trailer_vo_youtube_key: { type: [string, "null"] }
+                restore: { type: array, items: { $ref: "#/components/schemas/MovieField" } }
+      responses:
+        "200":
+          description: Updated movie.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminMovie" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "500": { $ref: "#/components/responses/InternalError" }
+        "503": { $ref: "#/components/responses/AdminUnavailable" }
+  /movies/{id}/posters:
+    get:
+      tags: [movies]
+      operationId: listMoviePosters
+      x-risk: read
+      summary: Alternative TMDB posters for a movie.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Posters.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [posters]
+                properties:
+                  posters:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url: { type: string }
+                        width: { type: integer }
+                        height: { type: integer }
+                        language: { type: [string, "null"] }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/TMDBFailed" }
+        "503": { $ref: "#/components/responses/TMDBUnavailable" }
+
+  # ---------------------------------------------------------------- syncs
+  /syncs:
+    get:
+      tags: [syncs]
+      operationId: getSyncs
+      x-risk: read
+      summary: Current provider sync job and recent runs.
+      responses:
+        "200": { $ref: "#/components/responses/SyncJobs" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /syncs/{target}:
+    post:
+      tags: [syncs]
+      operationId: startSync
+      x-risk: operational
+      summary: Start a provider schedule sync (scrapes cinema chains through proxies). Empty body.
+      parameters:
+        - $ref: "#/components/parameters/SyncTarget"
+      responses:
+        "202": { $ref: "#/components/responses/SyncJobs" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/JobInProgress" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-sources:
+    get:
+      tags: [syncs]
+      operationId: listSyncSources
+      x-risk: read
+      summary: Cinemas configured for generic platform connectors and whether they are synchronized.
+      responses:
+        "200":
+          description: All sources.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sources]
+                properties:
+                  sources: { type: array, items: { $ref: "#/components/schemas/SyncSource" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-sources/enabled:
+    post:
+      tags: [syncs]
+      operationId: setAllSyncSources
+      x-risk: operational
+      summary: Enable or disable every source of one provider, or of all providers when `provider` is empty.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                provider: { type: string, description: Source provider; empty or omitted means all. }
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Number of sources changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-sources/{provider}/{key}:
+    patch:
+      tags: [syncs]
+      operationId: setSyncSource
+      x-risk: operational
+      summary: Enable or disable one source cinema.
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema: { type: string }
+        - name: key
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{1,128}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated source.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncSource" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-schedules:
+    get:
+      tags: [syncs]
+      operationId: listSyncSchedules
+      x-risk: read
+      summary: Recurring sync schedules (Europe/Paris) and the targets that can be scheduled.
+      responses:
+        "200":
+          description: Schedules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [timezone, available_targets, schedules]
+                properties:
+                  timezone: { type: string, const: Europe/Paris }
+                  available_targets: { type: array, items: { type: string } }
+                  schedules: { type: array, items: { $ref: "#/components/schemas/SyncSchedule" } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-schedules/{target}:
+    post:
+      tags: [syncs]
+      operationId: createSyncSchedule
+      x-risk: operational
+      summary: Add a recurring schedule for a target.
+      parameters:
+        - $ref: "#/components/parameters/ScheduleTarget"
+      requestBody: { $ref: "#/components/requestBodies/SyncScheduleSave" }
+      responses:
+        "201":
+          description: Created schedule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncSchedule" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /sync-schedules/{target}/{id}:
+    put:
+      tags: [syncs]
+      operationId: updateSyncSchedule
+      x-risk: operational
+      summary: Replace a schedule's `enabled` flag and definition.
+      parameters:
+        - $ref: "#/components/parameters/ScheduleTarget"
+        - $ref: "#/components/parameters/ScheduleID"
+      requestBody: { $ref: "#/components/requestBodies/SyncScheduleSave" }
+      responses:
+        "200":
+          description: Updated schedule.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncSchedule" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    delete:
+      tags: [syncs]
+      operationId: deleteSyncSchedule
+      x-risk: operational
+      summary: Delete a schedule. Empty body.
+      parameters:
+        - $ref: "#/components/parameters/ScheduleTarget"
+        - $ref: "#/components/parameters/ScheduleID"
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  # ------------------------------------------------------------- theaters
+  /theaters:
+    get:
+      tags: [theaters]
+      operationId: listTheaters
+      x-risk: read
+      summary: Cinemas with their admin-managed photo.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - $ref: "#/components/parameters/Offset"
+        - { name: q, in: query, description: "Name/city search, max 1024 characters.", schema: { type: string } }
+        - { name: provider, in: query, description: "Source provider filter.", schema: { type: string } }
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, limit, offset, total, imports_enabled]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Theater" } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+                  total: { type: integer }
+                  imports_enabled: { type: boolean, description: "Whether `POST .../image/import` is available." }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theaters/{provider}/{providerTheaterID}/image:
+    post:
+      tags: [theaters]
+      operationId: uploadTheaterImage
+      x-risk: review
+      summary: Upload a cinema photo (re-encoded to WebP).
+      description: Multipart with exactly the parts `expected_revision` (current `image_revision`) and `image` (file with Content-Type). Max 5 MiB image.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [expected_revision, image]
+              properties:
+                expected_revision: { type: integer, minimum: 0 }
+                image: { type: string, format: binary }
+      responses:
+        "200": { $ref: "#/components/responses/TheaterImage" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/ImageRejected" }
+        "415": { $ref: "#/components/responses/ImageRejected" }
+        "422": { $ref: "#/components/responses/ImageRejected" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    delete:
+      tags: [theaters]
+      operationId: removeTheaterImage
+      x-risk: review
+      summary: Remove a cinema photo.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision]
+              properties:
+                expected_revision: { type: integer, minimum: 0 }
+      responses:
+        "200": { $ref: "#/components/responses/TheaterImage" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theaters/{provider}/{providerTheaterID}/image/import:
+    post:
+      tags: [theaters]
+      operationId: importTheaterImage
+      x-risk: review
+      summary: Download a cinema photo from a public HTTPS URL.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_revision, url]
+              properties:
+                expected_revision: { type: integer, minimum: 0 }
+                url: { type: string, format: uri }
+      responses:
+        "200": { $ref: "#/components/responses/TheaterImage" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/ImageRejected" }
+        "415": { $ref: "#/components/responses/ImageRejected" }
+        "422": { $ref: "#/components/responses/ImageRejected" }
+        "502": { $ref: "#/components/responses/ImageRejected" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theaters/{provider}/{providerTheaterID}/image/{revision}:
+    get:
+      tags: [theaters]
+      operationId: getTheaterImage
+      x-risk: read
+      summary: Raw WebP bytes of a photo revision.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+        - name: revision
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Image.
+          content:
+            image/webp:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /theater-locations:
+    get:
+      tags: [theaters]
+      operationId: listTheaterLocations
+      x-risk: read
+      summary: Cinemas whose geocoding needs review (ambiguous, not found) with the best suggestion.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/TheaterLocation" } }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theater-locations/{provider}/{providerTheaterID}/accept-suggestion:
+    post:
+      tags: [theaters]
+      operationId: acceptTheaterLocationSuggestion
+      x-risk: review
+      summary: Use the current suggestion as the cinema's manual location.
+      description: Only when `can_accept_suggestion` is true. `expected_updated_at` is the item's `updated_at`.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_updated_at]
+              properties:
+                expected_updated_at: { type: string, format: date-time }
+      responses:
+        "200": { $ref: "#/components/responses/ManualLocationStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theater-locations/{provider}/{providerTheaterID}/manual:
+    post:
+      tags: [theaters]
+      operationId: setTheaterLocation
+      x-risk: review
+      summary: Set the cinema's coordinates manually.
+      parameters:
+        - $ref: "#/components/parameters/TheaterProvider"
+        - $ref: "#/components/parameters/ProviderTheaterID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_updated_at, latitude, longitude]
+              properties:
+                expected_updated_at: { type: string, format: date-time }
+                latitude: { type: number, minimum: -90, maximum: 90 }
+                longitude: { type: number, minimum: -180, maximum: 180 }
+      responses:
+        "200": { $ref: "#/components/responses/ManualLocationStatus" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /theater-locations/geocoding-runs:
+    get:
+      tags: [theaters]
+      operationId: getGeocodingRun
+      x-risk: read
+      summary: Last/current cinema geocoding run.
+      responses:
+        "200": { $ref: "#/components/responses/GeocodingJob" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      tags: [theaters]
+      operationId: startGeocodingRun
+      x-risk: operational
+      summary: Geocode cinemas through the IGN service. Empty body; runs in background.
+      responses:
+        "202": { $ref: "#/components/responses/GeocodingJob" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/JobInProgress" }
+        "502": { $ref: "#/components/responses/JobFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  # ------------------------------------------------------------- accounts
+  /accounts:
+    get:
+      tags: [accounts]
+      operationId: listAccounts
+      x-risk: read
+      summary: User accounts (personal data, do not copy outside the conversation). Only `limit` and `offset`.
+      parameters:
+        - $ref: "#/components/parameters/Limit50"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        email: { type: string }
+                        username: { type: [string, "null"] }
+                        state: { type: string }
+                        created_at: { type: string, format: date-time }
+                        email_verified_at: { type: [string, "null"], format: date-time }
+                        has_password: { type: boolean }
+                        google_linked: { type: boolean }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "400": { $ref: "#/components/responses/InvalidQuery" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: ADMIN_API_TOKEN (64 lowercase hex characters).
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: messeances_admin_session
+
+  parameters:
+    Limit50:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    SourceProvider:
+      name: sourceProvider
+      in: path
+      required: true
+      description: Source chain key from the item's `source_provider` (ugc, kinepolis, pathe, cgr...).
+      schema: { type: string }
+    SourceMovieID:
+      name: sourceMovieID
+      in: path
+      required: true
+      description: The item's `source_movie_id`, URL-encoded.
+      schema: { type: string }
+    TMDBID:
+      name: tmdbID
+      in: path
+      required: true
+      description: Canonical decimal, no leading zeros.
+      schema: { type: integer, minimum: 1 }
+    LocalMovieID:
+      name: localMovieID
+      in: path
+      required: true
+      schema: { type: string, pattern: "^local-film-[1-9][0-9]*$" }
+    SyncTarget:
+      name: target
+      in: path
+      required: true
+      description: A source provider key, or `all`.
+      schema: { type: string }
+    ScheduleTarget:
+      name: target
+      in: path
+      required: true
+      description: One of `available_targets` from `GET /sync-schedules`.
+      schema: { type: string }
+    ScheduleID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    TheaterProvider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string }
+    ProviderTheaterID:
+      name: providerTheaterID
+      in: path
+      required: true
+      description: Provider-specific cinema ID, as listed.
+      schema: { type: string }
+
+  requestBodies:
+    SyncScheduleSave:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [enabled, schedule]
+            properties:
+              enabled: { type: boolean }
+              schedule: { $ref: "#/components/schemas/SyncScheduleDefinition" }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, description: Stable machine code. }
+            message: { type: string, description: French human message. }
+    Candidate:
+      type: object
+      properties:
+        id: { type: integer, description: TMDB movie ID. }
+        title: { type: string }
+        original_title: { type: string }
+        runtime_minutes: { type: integer }
+        score: { type: number, minimum: 0, maximum: 1, description: Automatic matcher confidence; not a decision. }
+        poster_url: { type: string }
+        detail_url: { type: string, description: TMDB page. }
+    PendingMatch:
+      type: object
+      properties:
+        source_provider: { type: string }
+        source_movie_id: { type: string }
+        source_title: { type: string }
+        source_runtime_minutes: { type: integer, description: 0 when the source has no runtime. }
+        source_poster_url: { type: string }
+        source_detail_url: { type: string, description: Cinema chain page of the film. }
+        status: { type: string, enum: [review_required, unmatched, rejected, matched] }
+        candidates: { type: array, maxItems: 5, items: { $ref: "#/components/schemas/Candidate" } }
+        evaluated_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, description: "Present for matched items; pass to `correct`." }
+        current_match: { $ref: "#/components/schemas/Candidate" }
+    TMDBSearchItem:
+      type: object
+      required: [id, title, detail_url]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        original_title: { type: string }
+        release_date: { type: string, format: date }
+        poster_url: { type: string }
+        detail_url: { type: string }
+    TMDBMovie:
+      type: object
+      required: [id, title, genres, detail_url]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        original_title: { type: string }
+        original_language: { type: string }
+        release_date: { type: string, format: date }
+        runtime_minutes: { type: integer }
+        overview: { type: string }
+        genres: { type: array, items: { type: string } }
+        imdb_id: { type: string }
+        adult: { type: boolean }
+        poster_url: { type: string }
+        detail_url: { type: string }
+    JobState:
+      type: string
+      enum: [running, succeeded, failed]
+    UpcomingMovie:
+      type: object
+      properties:
+        tmdb_id: { type: integer }
+        public_movie_id: { type: string }
+        slug: { type: string }
+        title: { type: string }
+        poster_url: { type: [string, "null"] }
+        french_release_date: { type: [string, "null"], format: date }
+        active: { type: boolean }
+        in_window: { type: boolean }
+        publicly_visible: { type: boolean }
+        assessment_status: { type: string }
+        assessed_at: { type: [string, "null"], format: date-time }
+        french_releases:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: integer, description: "TMDB release type (1 premiere, 2 limited, 3 theatrical, 4 digital, 5 physical, 6 TV)." }
+              date: { type: string }
+              note: { type: string }
+        reason_codes: { type: array, items: { type: string } }
+        decision: { type: string, enum: [unreviewed, approved, excluded] }
+        revision: { type: integer, description: "Pass as `expected_revision`." }
+    LocalMovieSource:
+      type: object
+      additionalProperties: false
+      required: [source_provider, source_movie_id]
+      properties:
+        source_provider: { type: string }
+        source_movie_id: { type: string }
+    LocalMovieGroup:
+      type: object
+      properties:
+        local_movie_id: { type: string }
+        primary: { $ref: "#/components/schemas/LocalMovieSource" }
+        metadata_source: { oneOf: [{ $ref: "#/components/schemas/LocalMovieSource" }, { type: "null" }] }
+        members:
+          type: array
+          items:
+            type: object
+            properties:
+              source_provider: { type: string }
+              source_movie_id: { type: string }
+              available: { type: boolean, description: Present in the current schedule snapshot. }
+              source_title: { type: [string, "null"] }
+              source_runtime_minutes: { type: [integer, "null"] }
+              source_poster_url: { type: [string, "null"] }
+    MovieField:
+      type: string
+      enum: [title, runtime_minutes, release_date, genres, overview, poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key]
+    MovieMetadata:
+      type: object
+      properties:
+        title: { type: string }
+        runtime_minutes: { type: integer }
+        release_date: { type: [string, "null"], format: date }
+        genres: { type: array, items: { type: string } }
+        overview: { type: [string, "null"] }
+        poster_url: { type: [string, "null"] }
+        backdrop_url: { type: [string, "null"] }
+        trailer_vf_youtube_key: { type: [string, "null"] }
+        trailer_vo_youtube_key: { type: [string, "null"] }
+    AdminMovie:
+      type: object
+      properties:
+        id: { type: string }
+        updated_at: { type: string, format: date-time, description: "Pass as `expected_updated_at`." }
+        showtime_count: { type: integer }
+        automatic: { $ref: "#/components/schemas/MovieMetadata" }
+        values: { $ref: "#/components/schemas/MovieMetadata" }
+        overridden_fields: { type: array, items: { $ref: "#/components/schemas/MovieField" } }
+    SyncStatus:
+      type: object
+      properties:
+        id: { type: string }
+        target: { type: string }
+        state: { $ref: "#/components/schemas/JobState" }
+        trigger: { type: string, enum: [manual, scheduled] }
+        occurrence:
+          type: object
+          properties:
+            schedule_id: { type: string }
+            schedule_revision: { type: integer }
+            scheduled_for: { type: string, format: date-time }
+            attempt: { type: integer }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        from: { type: string, format: date }
+        through: { type: string, format: date }
+        providers:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              state: { type: string, enum: [not_requested, pending, running, succeeded, failed, skipped] }
+              outcome: { type: object, description: Sync and enrichment counters. }
+              error_code: { type: string }
+              log: { type: array, items: { type: string } }
+    SyncSource:
+      type: object
+      properties:
+        provider: { type: string }
+        key: { type: string }
+        name: { type: string }
+        website: { type: string }
+        cnc_id: { type: string }
+        enabled: { type: boolean }
+        updated_at: { type: string, format: date-time }
+    SyncScheduleDefinition:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      description: |
+        `daily` needs `time`; `weekly` needs `time` and `weekdays`; `cron` needs `expression`
+        (5 fields, Europe/Paris). Fields of other kinds must be absent.
+      properties:
+        kind: { type: string, enum: [daily, weekly, cron] }
+        time: { type: string, pattern: "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" }
+        weekdays: { type: array, items: { type: string, enum: [mon, tue, wed, thu, fri, sat, sun] } }
+        expression: { type: string }
+    SyncSchedule:
+      type: object
+      properties:
+        id: { type: string }
+        target: { type: string }
+        revision: { type: integer }
+        enabled: { type: boolean }
+        schedule: { $ref: "#/components/schemas/SyncScheduleDefinition" }
+        next_runs: { type: array, items: { type: string, format: date-time } }
+        updated_at: { type: string, format: date-time }
+    Theater:
+      type: object
+      properties:
+        provider: { type: string }
+        provider_theater_id: { type: string }
+        theater_id: { type: string }
+        slug: { type: string }
+        name: { type: string }
+        address: { type: string }
+        postal_code: { type: string }
+        city: { type: string }
+        image_revision: { type: integer, description: "Pass as `expected_revision`; 0 when no photo was ever set." }
+        image:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                url: { type: string }
+                width: { type: integer }
+                height: { type: integer }
+                size_bytes: { type: integer }
+    TheaterLocation:
+      type: object
+      properties:
+        provider: { type: string }
+        provider_theater_id: { type: string }
+        theater_id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        postal_code: { type: string }
+        city: { type: string }
+        status: { type: string, enum: [matched, ambiguous, not_found, manual] }
+        updated_at: { type: string, format: date-time, description: "Pass as `expected_updated_at`." }
+        suggestion:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                label: { type: string }
+                score: { type: number }
+                latitude: { type: [number, "null"] }
+                longitude: { type: [number, "null"] }
+                postal_code: { type: [string, "null"] }
+                city: { type: [string, "null"] }
+                type: { type: [string, "null"] }
+        can_accept_suggestion: { type: boolean }
+
+  responses:
+    Session:
+      description: Authentication state.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [authenticated]
+            properties:
+              authenticated: { type: boolean }
+    MatchedStatus:
+      description: Matched; public metadata updated.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, const: matched }
+    LocalMovieStatus:
+      description: Done.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, enum: [members_added, unmerged, groups_merged] }
+              local_movie_id: { type: string }
+    ManualLocationStatus:
+      description: Location saved.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string, const: manual }
+    TheaterImage:
+      description: New photo state.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              image_revision: { type: integer }
+              image: { $ref: "#/components/schemas/Theater/properties/image" }
+    RerunJob:
+      description: Job snapshot; `job` is null when none ever ran.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              job:
+                type: [object, "null"]
+                properties:
+                  state: { $ref: "#/components/schemas/JobState" }
+                  started_at: { type: string, format: date-time }
+                  finished_at: { type: [string, "null"], format: date-time }
+                  summary:
+                    type: [object, "null"]
+                    properties:
+                      processed: { type: integer }
+                      reused: { type: integer }
+                      matched: { type: integer }
+                      review_required: { type: integer }
+                      unmatched: { type: integer }
+                      failed: { type: integer }
+                  error_code: { type: string, const: rerun_failed }
+    MetadataRefreshJob:
+      description: Job snapshot; `job` is null when none ever ran.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              job:
+                type: [object, "null"]
+                properties:
+                  state: { $ref: "#/components/schemas/JobState" }
+                  started_at: { type: string, format: date-time }
+                  finished_at: { type: [string, "null"], format: date-time }
+                  summary:
+                    type: [object, "null"]
+                    properties:
+                      processed: { type: integer }
+                      updated: { type: integer }
+                      unchanged: { type: integer }
+                      failed: { type: integer }
+                  error_code: { type: string, const: refresh_failed }
+    UpcomingJob:
+      description: Job snapshot; `job` is null when none ever ran.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              job:
+                type: [object, "null"]
+                properties:
+                  state: { $ref: "#/components/schemas/JobState" }
+                  started_at: { type: string, format: date-time }
+                  finished_at: { type: [string, "null"], format: date-time }
+                  error_code: { type: string }
+    GeocodingJob:
+      description: Run snapshot; `job` is null when none ever ran.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              job:
+                type: [object, "null"]
+                properties:
+                  id: { type: string }
+                  state: { $ref: "#/components/schemas/JobState" }
+                  started_at: { type: string, format: date-time }
+                  finished_at: { type: [string, "null"], format: date-time }
+                  summary:
+                    type: [object, "null"]
+                    properties:
+                      selected: { type: integer }
+                      skipped: { type: integer }
+                      matched: { type: integer }
+                      ambiguous: { type: integer }
+                      not_found: { type: integer }
+                      failed: { type: integer }
+                      written: { type: integer }
+                  error_code: { type: [string, "null"], enum: [run_failed, canceled, internal_failure, null] }
+    SyncJobs:
+      description: Current job (null when idle) and recent runs.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [job, runs]
+            properties:
+              job: { oneOf: [{ $ref: "#/components/schemas/SyncStatus" }, { type: "null" }] }
+              runs: { type: array, items: { $ref: "#/components/schemas/SyncStatus" } }
+
+    Unauthorized:
+      description: "`unauthorized`: missing, expired or invalid credential."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    AuthenticationFailed:
+      description: "`authentication_failed`: wrong password or malformed login body."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    OriginForbidden:
+      description: "`origin_forbidden`: cookie request without the web origin."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    AdminUnavailable:
+      description: "`admin_unavailable`: admin access not configured."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    InvalidRequest:
+      description: "`invalid_request` or an endpoint-specific `invalid_*` code: malformed path, body, or unexpected body."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    InvalidQuery:
+      description: "`invalid_query` or an endpoint-specific `invalid_*_query` code: unknown, repeated or out-of-range query parameter."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: Endpoint-specific `*not_found` code.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: Endpoint-specific `*_conflict` code. The item changed since it was read; re-read before deciding again.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    InternalError:
+      description: Endpoint-specific `*_failed` or `internal_error`.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ServiceUnavailable:
+      description: Endpoint-specific `*_unavailable` or `*_busy` code; the feature is not configured or temporarily busy.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ReviewNotFound:
+      description: "`not_found`: the source movie is not in the current schedule snapshot."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ReviewConflict:
+      description: "`review_conflict`: state changed, item locally merged, or candidate not allowed. Re-read the item."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ReviewFailed:
+      description: "`review_failed`: TMDB details could not be fetched or stored. Retry later, do not loop."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ReviewUnavailable:
+      description: "`review_unavailable`: TMDB is not configured on the server."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TMDBFailed:
+      description: "`tmdb_failed` (or `admin_movie_posters_failed`): TMDB request failed. Retry later."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TMDBUnavailable:
+      description: "`tmdb_unavailable` (or `admin_movie_posters_unavailable`): TMDB is not configured on the server."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    JobInProgress:
+      description: Endpoint-specific `*_in_progress` code; another job of this kind (or another TMDB job) is running.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    JobFailed:
+      description: Endpoint-specific `*_failed` code; the job or state could not be read or started.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    LocalMovieConflict:
+      description: "`local_movie_conflict`: a member is already grouped or the group changed."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    LocalMovieFailed:
+      description: "`local_movie_failed`: storage failure."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    ImageRejected:
+      description: "`cinema_image_too_large` (413), `cinema_image_unsupported` (415), `cinema_image_invalid` (422) or `cinema_image_download_failed` (502)."
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }

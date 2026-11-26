@@ -68,6 +68,45 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 	}
 }
 
+func TestLoadAPIBaseOptionalAdminAPIToken(t *testing.T) {
+	valid := strings.Repeat("0123456789abcdef", 4)
+	admin := map[string]string{"DATABASE_URL": "postgres://configured", "ADMIN_PASSWORD": "password", "ADMIN_SESSION_SECRET": "secret"}
+	for _, token := range []string{"", valid} {
+		values := map[string]string{"ADMIN_API_TOKEN": token}
+		for key, value := range admin {
+			values[key] = value
+		}
+		loaded, err := Load(APIBase, environment(values))
+		if err != nil || loaded.Admin.APIToken != token {
+			t.Fatalf("token configured=%t stored=%t err=%v", token != "", loaded.Admin.APIToken == token, err)
+		}
+	}
+	for _, test := range []struct {
+		name, token string
+		admin       bool
+	}{
+		{"without admin access", valid, false},
+		{"short", strings.Repeat("a", 63), true},
+		{"long", strings.Repeat("a", 65), true},
+		{"uppercase", strings.Repeat("A", 64), true},
+		{"nonhex", strings.Repeat("g", 64), true},
+		{"whitespace", " " + strings.Repeat("a", 63), true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := map[string]string{"DATABASE_URL": "postgres://configured", "ADMIN_API_TOKEN": test.token}
+			if test.admin {
+				for key, value := range admin {
+					values[key] = value
+				}
+			}
+			_, err := Load(APIBase, environment(values))
+			if err == nil || strings.Contains(err.Error(), test.token) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
 func TestLoadAPIBaseOptionalInternalSharedSecret(t *testing.T) {
 	valid := strings.Repeat("0123456789abcdef", 4)
 	for _, secret := range []string{"", valid} {

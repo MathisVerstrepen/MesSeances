@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  GitMerge,
   Layers3,
   LoaderCircle,
   RefreshCw,
@@ -25,8 +26,17 @@ import type {
   Provider,
 } from '~/types/api'
 import {
+  DEFAULT_MISSED_LOCAL_GROUPING_THRESHOLD,
+  findMissedLocalGroupMerges,
+  findMissedLocalGroupings,
   loadLocalMovieGroupCatalog,
+  localMovieGroupTitle,
+  loadPendingMatchCatalog,
+  MISSED_LOCAL_GROUPING_RUNTIME_GAP_MINUTES,
+  MISSED_LOCAL_GROUPING_THRESHOLDS,
   rankLocalMovieGroups,
+  type MissedLocalGroupMerge,
+  type MissedLocalGrouping,
 } from '~/utils/adminLocalMovieGroups'
 import {
   ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS,
@@ -37,6 +47,7 @@ import {
   adminTMDBRerunPresentation,
   shouldRefreshAdminTMDBRerunLists,
   adminTMDBMatchesTab,
+  type AdminTMDBMatchesTab,
   adminTMDBSearchURL,
   shouldRefreshAdminTMDBMatchLists,
 } from '~/utils/adminTmdbMatches'
@@ -68,8 +79,13 @@ const MATCH_TABS = [
   },
   { value: 'rejected', label: 'Non-TMDB', title: 'Films marqués Non-TMDB' },
   { value: 'matched', label: 'Associés TMDB', title: 'Films associés à TMDB' },
+  {
+    value: 'groups',
+    label: 'Regroupements locaux',
+    title: 'Regroupements locaux',
+  },
 ] as const satisfies ReadonlyArray<{
-  value: AdminPendingMatchesFilter
+  value: AdminTMDBMatchesTab
   label: string
   title: string
 }>
@@ -97,6 +113,24 @@ const groupCatalog = ref<AdminLocalMovieGroup[]>([])
 const groupCatalogPending = ref(true)
 const groupCatalogError = ref('')
 const groupCatalogLoadedCount = ref(0)
+const missedGroupingsOpen = ref(false)
+const missedGroupingThreshold = ref<number>(
+  DEFAULT_MISSED_LOCAL_GROUPING_THRESHOLD,
+)
+const rejectedCatalog = ref<AdminPendingMatch[]>([])
+const rejectedCatalogLoaded = ref(false)
+const rejectedCatalogPending = ref(false)
+const rejectedCatalogError = ref('')
+const rejectedCatalogLoadedCount = ref(0)
+const selectedGroups = ref<Record<string, AdminLocalMovieGroup>>({})
+const groupMergeTargetId = ref('')
+const groupMergeConfirmation = ref(false)
+const groupMergePending = ref(false)
+const groupMergeError = ref('')
+const missedGroupMergesOpen = ref(false)
+const missedGroupMergeThreshold = ref<number>(
+  DEFAULT_MISSED_LOCAL_GROUPING_THRESHOLD,
+)
 const selectionSidebarOpen = ref(false)
 const selectionSidebar = ref<HTMLElement | null>(null)
 const selectionSidebarClose = ref<HTMLButtonElement | null>(null)
@@ -138,6 +172,7 @@ let rejectedRequestId = 0
 let matchedRequestId = 0
 let groupsRequestId = 0
 let groupCatalogRequestId = 0
+let rejectedCatalogRequestId = 0
 let isMounted = false
 let scrollAfterLoad = false
 let scrollRejectedAfterLoad = false
@@ -184,6 +219,37 @@ const rankedGroups = computed(() =>
     selectedSourceList.value.map((source) => source.source_title),
   ),
 )
+const showMissedGroupings = computed(
+  () => activeTab.value === 'rejected' && missedGroupingsOpen.value,
+)
+const missedGroupings = computed(() =>
+  rejectedCatalogLoaded.value &&
+  !groupCatalogPending.value &&
+  !groupCatalogError.value
+    ? findMissedLocalGroupings(
+        adminPendingMatchesForFilter(rejectedCatalog.value, 'rejected'),
+        groupCatalog.value,
+        missedGroupingThreshold.value,
+      )
+    : [],
+)
+const selectedGroupList = computed(() => Object.values(selectedGroups.value))
+const canMergeGroups = computed(
+  () =>
+    selectedGroupList.value.length >= 2 &&
+    Boolean(
+      groupMergeTargetId.value &&
+        selectedGroups.value[groupMergeTargetId.value],
+    ),
+)
+const missedGroupMerges = computed(() =>
+  !groupCatalogPending.value && !groupCatalogError.value
+    ? findMissedLocalGroupMerges(
+        groupCatalog.value,
+        missedGroupMergeThreshold.value,
+      )
+    : [],
+)
 const canMerge = computed(
   () =>
     selectedSourceList.value.length >= 2 &&
@@ -206,6 +272,7 @@ const anyMutation = computed(() =>
   Boolean(
     activeMutation.value ||
       mergePending.value ||
+      groupMergePending.value ||
       addMembersPending.value ||
       unmergePending.value ||
       rerunPending.value ||
@@ -216,7 +283,7 @@ const anyMutation = computed(() =>
       metadataRefreshRunning.value,
   ),
 )
-const activeTab = ref<AdminPendingMatchesFilter>('unresolved')
+const activeTab = ref<AdminTMDBMatchesTab>('unresolved')
 const activeMatchSection = computed(() => {
   if (activeTab.value === 'rejected') {
     return {
@@ -335,6 +402,7 @@ async function loadRejectedMatches(background = false) {
   const currentRequest = ++rejectedRequestId
   if (!background) rejectedPending.value = true
   rejectedError.value = ''
+  invalidateRejectedCatalog()
   try {
     const response = await api.adminPendingMatches(
       'rejected',
@@ -434,11 +502,154 @@ async function refreshGroupCatalog() {
         groupCatalogLoadedCount.value = count
       },
     )
-    if (isCurrent() && groups) groupCatalog.value = groups
+    if (isCurrent() && groups) {
+      groupCatalog.value = groups
+      syncGroupMergeSelection(groups)
+    }
   } catch (error) {
     if (isCurrent()) groupCatalogError.value = getFrenchAdminApiError(error)
   } finally {
     if (isCurrent()) groupCatalogPending.value = false
+  }
+}
+
+async function loadRejectedCatalog() {
+  if (!isMounted) return
+  const currentRequest = ++rejectedCatalogRequestId
+  const isCurrent = () =>
+    isMounted && currentRequest === rejectedCatalogRequestId
+  rejectedCatalog.value = []
+  rejectedCatalogLoaded.value = false
+  rejectedCatalogPending.value = true
+  rejectedCatalogError.value = ''
+  rejectedCatalogLoadedCount.value = 0
+  try {
+    const matches = await loadPendingMatchCatalog(
+      (limit, offset) => api.adminPendingMatches('rejected', limit, offset),
+      isCurrent,
+      (count) => {
+        rejectedCatalogLoadedCount.value = count
+      },
+    )
+    if (isCurrent() && matches) {
+      matchesPosterVersion.value += 1
+      rejectedCatalog.value = matches
+      rejectedCatalogLoaded.value = true
+    }
+  } catch (error) {
+    if (isCurrent()) rejectedCatalogError.value = getFrenchAdminApiError(error)
+  } finally {
+    if (isCurrent()) rejectedCatalogPending.value = false
+  }
+}
+
+// The full Non-TMDB catalog is only fetched while suggestions are visible.
+function invalidateRejectedCatalog() {
+  if (missedGroupingsOpen.value) {
+    void loadRejectedCatalog()
+    return
+  }
+  rejectedCatalogRequestId += 1
+  rejectedCatalog.value = []
+  rejectedCatalogLoaded.value = false
+  rejectedCatalogPending.value = false
+  rejectedCatalogError.value = ''
+}
+
+function toggleMissedGroupings() {
+  missedGroupingsOpen.value = !missedGroupingsOpen.value
+  if (
+    missedGroupingsOpen.value &&
+    !rejectedCatalogLoaded.value &&
+    !rejectedCatalogPending.value
+  )
+    void loadRejectedCatalog()
+}
+
+function refreshMissedGroupings() {
+  void refreshGroupCatalog()
+  void loadRejectedCatalog()
+}
+
+// Drop groups that disappeared and use fresh members for those that remain.
+function syncGroupMergeSelection(groups: readonly AdminLocalMovieGroup[]) {
+  if (!selectedGroupList.value.length) return
+  const fresh = new Map(groups.map((group) => [group.local_movie_id, group]))
+  const next: Record<string, AdminLocalMovieGroup> = {}
+  for (const id of Object.keys(selectedGroups.value)) {
+    const group = fresh.get(id)
+    if (group) next[id] = group
+  }
+  selectedGroups.value = next
+  if (!next[groupMergeTargetId.value]) groupMergeTargetId.value = ''
+  if (Object.keys(next).length < 2) groupMergeConfirmation.value = false
+}
+
+function toggleGroupMergeSelection(group: AdminLocalMovieGroup) {
+  if (anyMutation.value) return
+  const id = group.local_movie_id
+  const next = { ...selectedGroups.value }
+  if (next[id]) {
+    delete next[id]
+    if (groupMergeTargetId.value === id) groupMergeTargetId.value = ''
+  } else {
+    next[id] = group
+    if (!groupMergeTargetId.value) groupMergeTargetId.value = id
+  }
+  selectedGroups.value = next
+  groupMergeConfirmation.value = false
+  groupMergeError.value = ''
+}
+
+function clearGroupMergeSelection() {
+  selectedGroups.value = {}
+  groupMergeTargetId.value = ''
+  groupMergeConfirmation.value = false
+  groupMergeError.value = ''
+}
+
+function selectMissedGroupMerge(suggestion: MissedLocalGroupMerge) {
+  if (anyMutation.value) return
+  selectedGroups.value = Object.fromEntries(
+    suggestion.groups.map(({ group }) => [group.local_movie_id, group]),
+  )
+  groupMergeTargetId.value = suggestion.suggestedTarget.local_movie_id
+  groupMergeConfirmation.value = false
+  groupMergeError.value = ''
+  nextTick(() =>
+    document
+      .getElementById('group-merge-panel')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+  )
+}
+
+async function mergeSelectedGroups() {
+  if (!canMergeGroups.value || anyMutation.value) return
+  const targetId = groupMergeTargetId.value
+  const sourceIds = selectedGroupList.value
+    .map((group) => group.local_movie_id)
+    .filter((id) => id !== targetId)
+  groupMergePending.value = true
+  errorMessage.value = ''
+  groupMergeError.value = ''
+  try {
+    await api.adminMergeLocalMovieGroups(targetId, {
+      local_movie_ids: sourceIds,
+    })
+    clearGroupMergeSelection()
+    await refreshResources()
+  } catch (error) {
+    if (getApiErrorStatus(error) === 404) {
+      errorMessage.value =
+        'Un des regroupements n’existe plus. Les listes ont été actualisées.'
+      await refreshResources()
+    } else {
+      await handleMutationError(error)
+    }
+    groupMergeError.value = errorMessage.value
+    groupMergeConfirmation.value = false
+  } finally {
+    groupMergePending.value = false
   }
 }
 
@@ -1040,8 +1251,17 @@ async function mergeSelectedSources() {
 }
 
 async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
+  const outcome = await addSourcesToGroup(selectedSourceList.value, group)
+  if (outcome === 'added') clearMergeSelection()
+  else if (outcome === 'failed') groupingError.value = errorMessage.value
+}
+
+async function addSourcesToGroup(
+  sources: readonly AdminPendingMatch[],
+  group: AdminLocalMovieGroup,
+): Promise<'added' | 'failed' | 'skipped'> {
   if (
-    !selectedSourceList.value.length ||
+    !sources.length ||
     anyMutation.value ||
     groupCatalogPending.value ||
     groupCatalogError.value ||
@@ -1049,21 +1269,20 @@ async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
       (item) => item.local_movie_id === group.local_movie_id,
     )
   )
-    return
+    return 'skipped'
   addMembersPending.value = group.local_movie_id
   errorMessage.value = ''
   groupingError.value = ''
   try {
     await api.adminAddLocalMovieMembers(group.local_movie_id, {
-      members: selectedSourceList.value.map(
-        ({ source_provider, source_movie_id }) => ({
-          source_provider,
-          source_movie_id,
-        }),
-      ),
+      members: sources.map(({ source_provider, source_movie_id }) => ({
+        source_provider,
+        source_movie_id,
+      })),
     })
-    clearMergeSelection()
+    for (const source of sources) removeMergeSelection(source)
     await refreshResources()
+    return 'added'
   } catch (error) {
     if (getApiErrorStatus(error) === 404) {
       errorMessage.value =
@@ -1072,10 +1291,36 @@ async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
     } else {
       await handleMutationError(error)
     }
-    groupingError.value = errorMessage.value
+    return 'failed'
   } finally {
     addMembersPending.value = ''
   }
+}
+
+function selectMissedGrouping(
+  suggestion: MissedLocalGrouping<AdminPendingMatch>,
+  event?: Event,
+) {
+  if (anyMutation.value) return
+  selectedSources.value = Object.fromEntries(
+    suggestion.members.map(({ source }) => [sourceKey(source), source]),
+  )
+  primarySourceKey.value = ''
+  groupingError.value = ''
+  if (event?.currentTarget instanceof HTMLElement)
+    selectionTrigger = event.currentTarget
+  selectionSidebarOpen.value = true
+  nextTick(() => selectionSidebarClose.value?.focus({ preventScroll: true }))
+}
+
+async function addMissedGroupingToGroup(
+  suggestion: MissedLocalGrouping<AdminPendingMatch>,
+) {
+  if (!suggestion.group) return
+  await addSourcesToGroup(
+    suggestion.members.map(({ source }) => source),
+    suggestion.group,
+  )
 }
 
 async function unmerge(group: AdminLocalMovieGroup) {
@@ -1187,7 +1432,7 @@ function changeGroupsPage(nextOffset: number) {
   })
 }
 
-function selectTab(tab: AdminPendingMatchesFilter) {
+function selectTab(tab: AdminTMDBMatchesTab) {
   if (tab === activeTab.value) return
   router.push({
     query: adminQuery(
@@ -1282,6 +1527,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isMounted = false
   groupCatalogRequestId += 1
+  rejectedCatalogRequestId += 1
   window.removeEventListener('keydown', handleSelectionEscape)
   clearMatchedSearchTimer()
   clearMetadataRefreshPolling()
@@ -1425,405 +1671,550 @@ useHead({ title: 'Identités des films - MesSeances' })
         tabindex="0"
         :aria-labelledby="`tmdb-matches-tab-${activeTab}`"
       >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 class="editorial-heading">
-            {{ activeMatchSection.title }}
-          </h2>
-          <div class="flex flex-wrap items-center gap-3">
-            <button
-              v-if="activeTab === 'unresolved'"
-              type="button"
-              class="editorial-button"
-              :disabled="pending || anyMutation"
-              @click="rerunTMDBMatches"
-            >
-              <LoaderCircle
-                v-if="rerunLoading"
-                :size="17"
-                class="animate-spin"
-                aria-hidden="true"
-              />
-              <RefreshCw v-else :size="17" aria-hidden="true" />
-              {{
-                rerunLoading ? 'Relance en cours…' : 'Relancer les films non résolus'
-              }}
-            </button>
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
-              :disabled="activeMatchSection.pending || anyMutation"
-              @click="activeMatchSection.load()"
-            >
-              <RefreshCw
-                :size="16"
-                :class="activeMatchSection.pending ? 'animate-spin' : ''"
-                aria-hidden="true"
-              />
-              Actualiser
-            </button>
-          </div>
-        </div>
-
-        <label
-          v-if="activeTab === 'matched'"
-          for="matched-search"
-          class="mt-4 block max-w-xl text-sm font-semibold text-ink"
-        >
-          Rechercher un film associé
-          <input
-            id="matched-search"
-            v-model="matchedSearchInput"
-            class="editorial-field mt-1.5"
-            type="search"
-            maxlength="1024"
-            autocomplete="off"
-            @input="updateMatchedSearch"
-          >
-        </label>
-
-        <template v-if="activeTab === 'unresolved'">
-          <p class="sr-only" role="status" aria-live="polite">
-            {{
-              rerunLoading ? 'Relance TMDB en cours pour tous les films non résolus.' : ''
-            }}
-          </p>
-          <div
-            v-if="rerunError"
-            class="editorial-alert mt-4 flex items-start gap-3 p-4"
-            role="alert"
-          >
-            <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-            <p class="flex-1">{{ rerunError }}</p>
-            <button
-              type="button"
-              class="font-semibold underline underline-offset-2"
-              :disabled="anyMutation"
-              @click="rerunError = ''"
-            >
-              Fermer
-            </button>
-          </div>
-          <div
-            v-if="rerunSummary"
-            class="mt-4 border-l-4 p-4 text-sm text-ink"
-            :class="rerunSummary.failed > 0 ? 'border-primary bg-primary-soft' : 'border-ink bg-highlight/30'"
-            role="status"
-            aria-live="polite"
-          >
-            <p class="font-semibold">
-              {{
-                rerunSummary.failed > 0 ? 'Relance terminée avec des erreurs.' : 'Relance terminée.'
-              }}
-            </p>
-            <p class="mt-1">
-              {{ rerunSummary.processed }} traité(s),
-              {{ rerunSummary.matched }} associé(s),
-              {{ rerunSummary.review_required }} à vérifier,
-              {{ rerunSummary.unmatched }} sans correspondance,
-              {{ rerunSummary.reused }} réutilisé(s),
-              {{ rerunSummary.failed }} en erreur.
-            </p>
-          </div>
-        </template>
-
-        <div
-          v-if="selectedSourceList.length && !selectionSidebarOpen"
-          class="sticky top-2 z-20 mt-4 flex items-center justify-between gap-3 border-2 border-ink bg-surface p-3 shadow-[3px_3px_0_#27272a]"
-        >
-          <span class="text-sm font-semibold"
-            >{{ selectedSourceList.length }}
-            film(s) sélectionné(s)</span
-          >
-          <button
-            ref="selectionReopen"
-            type="button"
-            class="editorial-button-outline"
-            aria-controls="local-group-selection-sidebar"
-            :aria-expanded="selectionSidebarOpen"
-            @click="reopenSelectionSidebar"
-          >
-            Voir les regroupements
-          </button>
-        </div>
-
-        <div
-          v-if="activeMatchSection.error"
-          class="editorial-alert mt-4 flex items-start gap-3 p-4"
-          role="alert"
-        >
-          <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-          <div>
-            <p>{{ activeMatchSection.error }}</p>
-            <button
-              type="button"
-              class="mt-2 font-semibold underline"
-              @click="activeMatchSection.load()"
-            >
-              Réessayer
-            </button>
-          </div>
-        </div>
-        <EditorialStatePanel
-          v-else-if="activeMatchSection.pending"
-          class="mt-4"
-          semantic="status"
-          live="polite"
-          size="compact"
-          shadow="small"
-        >
-          <LoaderCircle
-            :size="28"
-            class="animate-spin text-accent"
-            aria-hidden="true"
-          />
-          <p>Chargement des films…</p>
-        </EditorialStatePanel>
-        <template v-else-if="activeMatchSection.result">
-          <EditorialStatePanel
-            v-if="!activeMatchSection.items.length"
-            class="mt-4"
-            size="compact"
-            shadow="small"
-          >
-            <Check :size="30" class="text-accent" aria-hidden="true" />
-            <p>
-              {{
-                activeTab === 'matched' && matchedSearch ? 'Aucun film associé ne correspond à cette recherche.' : 'Aucun film à traiter.'
-              }}
-            </p>
-          </EditorialStatePanel>
-          <ul
-            v-else
-            class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2"
-            :aria-label="activeMatchSection.title"
-          >
-            <li
-              v-for="match in activeMatchSection.items"
-              :key="sourceKey(match)"
-              class="min-w-0 border-2 border-ink bg-surface p-4 shadow-[4px_4px_0_#27272a] sm:p-5"
-              :class="match.status === 'rejected' ? '' : 'lg:col-span-2'"
-            >
-              <div
-                class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink pb-3"
+        <template v-if="activeTab !== 'groups'">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 class="editorial-heading">
+              {{ activeMatchSection.title }}
+            </h2>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                v-if="activeTab === 'unresolved'"
+                type="button"
+                class="editorial-button"
+                :disabled="pending || anyMutation"
+                @click="rerunTMDBMatches"
               >
-                <label
-                  v-if="match.status !== 'matched'"
-                  class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-ink"
-                  :for="`merge-${domKey(match)}`"
+                <LoaderCircle
+                  v-if="rerunLoading"
+                  :size="17"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+                <RefreshCw v-else :size="17" aria-hidden="true" />
+                {{
+                  rerunLoading ? 'Relance en cours…' : 'Relancer les films non résolus'
+                }}
+              </button>
+              <button
+                v-if="activeTab === 'rejected'"
+                type="button"
+                :class="missedGroupingsOpen ? 'editorial-button' : 'editorial-button-outline'"
+                :aria-pressed="missedGroupingsOpen"
+                aria-controls="missed-groupings"
+                @click="toggleMissedGroupings"
+              >
+                <GitMerge :size="17" aria-hidden="true" />
+                Regroupements locaux manqués
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
+                :disabled="activeMatchSection.pending || anyMutation"
+                @click="activeMatchSection.load()"
+              >
+                <RefreshCw
+                  :size="16"
+                  :class="activeMatchSection.pending ? 'animate-spin' : ''"
+                  aria-hidden="true"
+                />
+                Actualiser
+              </button>
+            </div>
+          </div>
+
+          <label
+            v-if="activeTab === 'matched'"
+            for="matched-search"
+            class="mt-4 block max-w-xl text-sm font-semibold text-ink"
+          >
+            Rechercher un film associé
+            <input
+              id="matched-search"
+              v-model="matchedSearchInput"
+              class="editorial-field mt-1.5"
+              type="search"
+              maxlength="1024"
+              autocomplete="off"
+              @input="updateMatchedSearch"
+            >
+          </label>
+
+          <template v-if="activeTab === 'unresolved'">
+            <p class="sr-only" role="status" aria-live="polite">
+              {{
+                rerunLoading ? 'Relance TMDB en cours pour tous les films non résolus.' : ''
+              }}
+            </p>
+            <div
+              v-if="rerunError"
+              class="editorial-alert mt-4 flex items-start gap-3 p-4"
+              role="alert"
+            >
+              <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+              <p class="flex-1">{{ rerunError }}</p>
+              <button
+                type="button"
+                class="font-semibold underline underline-offset-2"
+                :disabled="anyMutation"
+                @click="rerunError = ''"
+              >
+                Fermer
+              </button>
+            </div>
+            <div
+              v-if="rerunSummary"
+              class="mt-4 border-l-4 p-4 text-sm text-ink"
+              :class="rerunSummary.failed > 0 ? 'border-primary bg-primary-soft' : 'border-ink bg-highlight/30'"
+              role="status"
+              aria-live="polite"
+            >
+              <p class="font-semibold">
+                {{
+                  rerunSummary.failed > 0 ? 'Relance terminée avec des erreurs.' : 'Relance terminée.'
+                }}
+              </p>
+              <p class="mt-1">
+                {{ rerunSummary.processed }} traité(s),
+                {{ rerunSummary.matched }} associé(s),
+                {{ rerunSummary.review_required }} à vérifier,
+                {{ rerunSummary.unmatched }} sans correspondance,
+                {{ rerunSummary.reused }} réutilisé(s),
+                {{ rerunSummary.failed }} en erreur.
+              </p>
+            </div>
+          </template>
+
+          <div
+            v-if="selectedSourceList.length && !selectionSidebarOpen"
+            class="sticky top-2 z-20 mt-4 flex items-center justify-between gap-3 border-2 border-ink bg-surface p-3 shadow-[3px_3px_0_#27272a]"
+          >
+            <span class="text-sm font-semibold"
+              >{{ selectedSourceList.length }}
+              film(s) sélectionné(s)</span
+            >
+            <button
+              ref="selectionReopen"
+              type="button"
+              class="editorial-button-outline"
+              aria-controls="local-group-selection-sidebar"
+              :aria-expanded="selectionSidebarOpen"
+              @click="reopenSelectionSidebar"
+            >
+              Voir les regroupements
+            </button>
+          </div>
+
+          <section
+            v-if="showMissedGroupings"
+            id="missed-groupings"
+            class="mt-4"
+            aria-labelledby="missed-groupings-title"
+            :aria-busy="rejectedCatalogPending || groupCatalogPending"
+          >
+            <div
+              class="flex flex-wrap items-end justify-between gap-4 border-2 border-ink bg-highlight/30 p-4"
+            >
+              <div class="min-w-0 max-w-3xl">
+                <h3
+                  id="missed-groupings-title"
+                  class="font-mono text-xs font-bold text-ink"
                 >
-                  <input
-                    :id="`merge-${domKey(match)}`"
-                    type="checkbox"
-                    class="size-4 accent-ink"
-                    :checked="Boolean(selectedSources[sourceKey(match)])"
-                    :disabled="anyMutation"
-                    @change="toggleMergeSelection(match, $event)"
+                  Regroupements locaux possibles manqués
+                </h3>
+                <p class="mt-1 text-sm text-ink">
+                  Films Non-TMDB non regroupés dont les titres se ressemblent,
+                  ou ressemblent à un regroupement existant. Vérifiez chaque
+                  suggestion avant de l’appliquer.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-end gap-3">
+                <label
+                  for="missed-grouping-threshold"
+                  class="text-sm font-semibold text-ink"
+                >
+                  Similarité minimale
+                  <select
+                    id="missed-grouping-threshold"
+                    v-model.number="missedGroupingThreshold"
+                    class="editorial-field mt-1.5 w-28"
                   >
-                  Sélectionner pour un regroupement local
+                    <option
+                      v-for="threshold in MISSED_LOCAL_GROUPING_THRESHOLDS"
+                      :key="threshold"
+                      :value="threshold"
+                    >
+                      {{ Math.round(threshold * 100) }} %
+                    </option>
+                  </select>
                 </label>
                 <button
-                  v-if="selectedSources[sourceKey(match)] && !selectionSidebarOpen"
                   type="button"
-                  class="min-h-11 text-sm font-semibold text-accent underline underline-offset-2"
-                  aria-controls="local-group-selection-sidebar"
-                  :aria-expanded="selectionSidebarOpen"
-                  @click="reopenSelectionSidebar"
+                  class="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
+                  :disabled="rejectedCatalogPending || groupCatalogPending || anyMutation"
+                  @click="refreshMissedGroupings"
                 >
-                  Voir les regroupements
+                  <RefreshCw
+                    :size="16"
+                    :class="rejectedCatalogPending || groupCatalogPending ? 'animate-spin' : ''"
+                    aria-hidden="true"
+                  />
+                  Actualiser
                 </button>
-                <span
-                  class="border-2 border-ink px-2 py-0.5 font-mono text-xs font-bold text-ink"
-                  :class="match.status === 'review_required' || match.status === 'matched' ? 'bg-highlight' : 'bg-canvas'"
-                  >{{
-                    statusLabel(match)
-                  }}</span
-                >
               </div>
+            </div>
 
-              <div
-                class="grid min-w-0 gap-5"
-                :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'"
+            <div
+              v-if="rejectedCatalogError || groupCatalogError"
+              class="editorial-alert mt-4 flex items-start gap-3 p-4"
+              role="alert"
+            >
+              <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+              <div>
+                <p class="font-semibold">
+                  Analyse des regroupements incomplète.
+                </p>
+                <p class="mt-1">
+                  {{ rejectedCatalogError || groupCatalogError }}
+                </p>
+                <button
+                  type="button"
+                  class="mt-2 font-semibold underline"
+                  :disabled="anyMutation"
+                  @click="refreshMissedGroupings"
+                >
+                  Réessayer
+                </button>
+              </div>
+            </div>
+            <EditorialStatePanel
+              v-else-if="rejectedCatalogPending || groupCatalogPending || !rejectedCatalogLoaded"
+              class="mt-4"
+              semantic="status"
+              live="polite"
+              size="compact"
+              shadow="small"
+            >
+              <LoaderCircle
+                :size="28"
+                class="animate-spin text-accent"
+                aria-hidden="true"
+              />
+              <p>
+                Analyse des films Non-TMDB…
+                {{ rejectedCatalogLoadedCount }} film(s) et
+                {{ groupCatalogLoadedCount }} regroupement(s) chargé(s).
+              </p>
+            </EditorialStatePanel>
+            <EditorialStatePanel
+              v-else-if="!missedGroupings.length"
+              class="mt-4"
+              size="compact"
+              shadow="small"
+            >
+              <Check :size="30" class="text-accent" aria-hidden="true" />
+              <p>
+                Aucun regroupement manqué parmi
+                {{ rejectedCatalog.length }} film(s) Non-TMDB à
+                {{ Math.round(missedGroupingThreshold * 100) }} % de similarité.
+              </p>
+            </EditorialStatePanel>
+            <template v-else>
+              <p class="mt-4 text-sm text-muted" role="status">
+                {{ missedGroupings.length }} suggestion(s) parmi
+                {{ rejectedCatalog.length }} film(s) Non-TMDB, de la plus à la
+                moins probable.
+              </p>
+              <ul
+                class="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2"
+                aria-label="Regroupements locaux possibles manqués"
               >
-                <section
-                  class="min-w-0"
-                  :aria-labelledby="`source-title-${domKey(match)}`"
+                <li
+                  v-for="suggestion in missedGroupings"
+                  :key="suggestion.key"
+                  class="flex min-w-0 flex-col border-2 border-ink bg-surface p-4 shadow-[4px_4px_0_#27272a] sm:p-5"
                 >
-                  <p class="mb-2 font-mono text-xs font-bold text-ink">
-                    <BrandedText
-                      :text="`Source ${providerLabel(match.source_provider)}`"
-                    />
-                  </p>
-                  <div class="flex min-w-0 gap-3">
-                    <div
-                      class="aspect-[2/3] w-20 shrink-0 overflow-hidden border-2 border-ink bg-canvas sm:w-24 lg:w-20"
-                    >
-                      <PosterImage
-                        :src="match.source_poster_url"
-                        :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`"
-                        sizes="(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px"
-                        :reset-key="matchesPosterVersion"
-                        class="h-full w-full"
-                        image-class="h-full w-full object-cover"
-                        fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted"
-                        :fallback-icon-size="24"
-                      />
-                    </div>
-                    <div class="min-w-0 flex-1">
-                      <h3
-                        :id="`source-title-${domKey(match)}`"
-                        class="line-clamp-3 text-sm font-semibold leading-snug text-ink"
-                      >
-                        {{ match.source_title }}
-                      </h3>
-                      <dl class="mt-2 space-y-1 text-xs text-muted">
-                        <div>
-                          <dt class="sr-only">Durée source</dt>
-                          <dd>{{ match.source_runtime_minutes }} min</dd>
-                        </div>
-                        <div class="break-all">
-                          <dt class="inline">
-                            <BrandedText
-                              :text="`ID ${providerLabel(match.source_provider)} :`"
-                            />
-                          </dt>
-                          <dd class="inline">{{ match.source_movie_id }}</dd>
-                        </div>
-                      </dl>
-                      <div class="mt-3 flex flex-col items-start gap-2">
-                        <a
-                          v-if="match.source_detail_url"
-                          :href="match.source_detail_url"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-                          :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"
-                          ><BrandedText
-                            :text="`Voir sur ${providerLabel(match.source_provider)}`"
-                            decorative
-                          /><ExternalLink :size="13" aria-hidden="true" /></a
-                        >
-                        <a
-                          v-if="adminTMDBSearchURL(match.source_title)"
-                          :href="adminTMDBSearchURL(match.source_title)"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-                          aria-label="TMDB, ouverture dans un nouvel onglet"
-                          >TMDB
-                          <ExternalLink
-                            :size="13"
-                            class="shrink-0"
-                            aria-hidden="true"
-                          /></a
-                        >
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section
-                  v-if="match.status === 'matched' && match.current_match"
-                  class="min-w-0"
-                  :aria-labelledby="`current-tmdb-title-${domKey(match)}`"
-                >
-                  <p class="mb-2 font-mono text-xs font-bold text-ink">
-                    TMDB actuel
-                  </p>
-                  <div class="flex min-w-0 gap-3">
-                    <div
-                      class="aspect-[2/3] w-20 shrink-0 overflow-hidden border-2 border-ink bg-canvas sm:w-24"
-                    >
-                      <PosterImage
-                        :src="match.current_match.poster_url"
-                        :alt="`Affiche TMDB de ${match.current_match.title}`"
-                        sizes="(min-width: 640px) 96px, 80px"
-                        :reset-key="matchesPosterVersion"
-                        class="h-full w-full"
-                        image-class="h-full w-full object-cover"
-                        fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted"
-                        :fallback-icon-size="24"
-                      />
-                    </div>
-                    <div class="min-w-0 flex-1">
-                      <h3
-                        :id="`current-tmdb-title-${domKey(match)}`"
-                        class="line-clamp-2 text-sm font-semibold leading-snug text-ink"
-                      >
-                        {{ match.current_match.title }}
-                      </h3>
-                      <p
-                        class="mt-1 line-clamp-2 text-xs leading-snug text-muted"
-                      >
-                        Titre original :
+                  <div
+                    class="flex items-start justify-between gap-3 border-b-2 border-ink pb-3"
+                  >
+                    <div class="min-w-0">
+                      <p class="font-mono text-xs font-bold text-ink">
                         {{
-                          match.current_match.original_title || 'non renseigné'
+                          suggestion.group ? 'Regroupement existant' : 'Nouveau regroupement'
                         }}
                       </p>
-                      <dl class="mt-2 space-y-1 text-xs text-muted">
-                        <div>
-                          <dt class="inline">ID TMDB :</dt>
-                          <dd class="inline">{{ match.current_match.id }}</dd>
-                        </div>
-                        <div>
-                          <dt class="sr-only">Durée TMDB</dt>
-                          <dd>{{ candidateRuntime(match.current_match) }}</dd>
-                        </div>
-                        <div>
-                          <dt class="inline">Score :</dt>
-                          <dd class="inline">
-                            {{ candidateScore(match.current_match) }}
-                          </dd>
-                        </div>
-                      </dl>
-                      <a
-                        v-if="match.current_match.detail_url"
-                        :href="match.current_match.detail_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-                        >Voir sur TMDB
-                        <ExternalLink :size="13" aria-hidden="true" /></a
+                      <h4
+                        class="mt-1 text-sm font-semibold leading-snug text-ink wrap-anywhere"
                       >
+                        {{
+                          suggestion.groupTitle ?? suggestion.members[0]?.source.source_title
+                        }}
+                      </h4>
+                      <p
+                        v-if="suggestion.group"
+                        class="mt-0.5 break-all text-xs text-muted"
+                      >
+                        {{ suggestion.group.local_movie_id }} ·
+                        {{ suggestion.group.members.length }} membre(s)
+                      </p>
                     </div>
-                  </div>
-                </section>
-
-                <fieldset
-                  v-else-if="match.status !== 'rejected'"
-                  class="min-w-0"
-                  :disabled="anyMutation"
-                >
-                  <legend class="mb-2 font-mono text-xs font-bold text-ink">
-                    Candidats TMDB
-                  </legend>
-                  <div
-                    v-if="match.candidates.length"
-                    class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"
-                  >
-                    <div
-                      v-for="candidate in match.candidates"
-                      :key="candidate.id"
-                      class="min-w-0 border-2 border-ink p-3 transition-colors focus-within:ring-2 focus-within:ring-ink focus-within:ring-offset-2"
-                      :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'bg-highlight/40' : 'bg-surface hover:bg-canvas'"
+                    <span
+                      class="shrink-0 border-2 border-ink bg-highlight px-2 py-0.5 font-mono text-xs font-bold text-ink"
+                      >{{ Math.round(suggestion.score * 100) }}
+                      %</span
                     >
-                      <label
-                        :for="`candidate-${domKey(match)}-${candidate.id}`"
-                        class="flex min-w-0 cursor-pointer items-start gap-2.5"
+                  </div>
+
+                  <p class="mt-3 font-mono text-xs font-bold text-ink">
+                    {{
+                      suggestion.group ? 'Films Non-TMDB à ajouter' : 'Films Non-TMDB à regrouper'
+                    }}
+                  </p>
+                  <ul
+                    class="mt-1 divide-y divide-ink/30"
+                    :aria-label="`Films de la suggestion ${suggestion.groupTitle ?? suggestion.members[0]?.source.source_title}`"
+                  >
+                    <li
+                      v-for="{ source, similarity } in suggestion.members"
+                      :key="sourceKey(source)"
+                      class="flex min-w-0 items-center gap-3 py-2"
+                    >
+                      <div
+                        class="aspect-[2/3] w-10 shrink-0 overflow-hidden border border-ink bg-canvas"
                       >
-                        <input
-                          :id="`candidate-${domKey(match)}-${candidate.id}`"
-                          v-model="selectedCandidates[sourceKey(match)]"
-                          type="radio"
-                          :name="`candidate-${domKey(match)}`"
-                          :value="candidate.id"
-                          class="mt-1 shrink-0 accent-ink"
+                        <PosterImage
+                          :src="source.source_poster_url"
+                          :alt="`Affiche ${providerLabel(source.source_provider)} de ${source.source_title}`"
+                          sizes="40px"
+                          :reset-key="matchesPosterVersion"
+                          class="h-full w-full"
+                          image-class="h-full w-full object-cover"
+                          fallback-variant="icon-only"
+                          fallback-class="text-muted"
+                          :fallback-icon-size="15"
+                          :fallback-text="null"
+                        />
+                      </div>
+                      <div class="min-w-0 flex-1 text-xs leading-tight">
+                        <p class="font-semibold text-ink wrap-anywhere">
+                          {{ source.source_title }}
+                        </p>
+                        <p class="mt-0.5 text-muted wrap-anywhere">
+                          <BrandedText
+                            :text="providerLabel(source.source_provider)"
+                          />
+                          · {{ source.source_movie_id }} ·
+                          {{ source.source_runtime_minutes }} min
+                        </p>
+                        <a
+                          v-if="source.source_detail_url"
+                          :href="source.source_detail_url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="mt-1 inline-flex items-center gap-1 font-semibold text-accent hover:underline"
+                          :aria-label="`Voir ${source.source_title} sur ${providerLabel(source.source_provider)}, ouverture dans un nouvel onglet`"
+                          ><BrandedText
+                            :text="`Voir sur ${providerLabel(source.source_provider)}`"
+                            decorative
+                          /><ExternalLink :size="12" aria-hidden="true" /></a
                         >
-                        <span
+                      </div>
+                      <span class="shrink-0 text-xs text-muted"
+                        >{{ Math.round(similarity * 100) }}
+                        %</span
+                      >
+                    </li>
+                  </ul>
+
+                  <div
+                    v-if="suggestion.group"
+                    class="mt-2 border-t border-ink/30 pt-2"
+                  >
+                    <p class="font-mono text-xs font-bold text-ink">
+                      Déjà dans le regroupement
+                    </p>
+                    <ul class="mt-1 space-y-0.5 text-xs text-muted">
+                      <li
+                        v-for="member in suggestion.group.members"
+                        :key="sourceKey(member)"
+                        class="wrap-anywhere"
+                      >
+                        <span class="font-semibold text-ink">{{
+                          providerLabel(member.source_provider)
+                        }}</span>
+                        : {{ member.source_title ?? member.source_movie_id
+                        }}<span v-if="member.source_runtime_minutes">
+                          · {{ member.source_runtime_minutes }} min</span
+                        ><span v-if="!member.available"> (indisponible)</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <p
+                    v-if="suggestion.runtimeGap !== null && suggestion.runtimeGap > MISSED_LOCAL_GROUPING_RUNTIME_GAP_MINUTES"
+                    class="mt-3 flex items-start gap-2 text-xs font-semibold text-primary"
+                  >
+                    <AlertTriangle
+                      :size="15"
+                      class="shrink-0"
+                      aria-hidden="true"
+                    />
+                    Écart de durée de {{ suggestion.runtimeGap }} min entre les
+                    films à regrouper.
+                  </p>
+
+                  <div
+                    class="mt-auto flex flex-wrap items-center gap-2 border-t border-ink/30 pt-4"
+                  >
+                    <button
+                      v-if="suggestion.group"
+                      type="button"
+                      class="editorial-button"
+                      :disabled="anyMutation || groupCatalogPending"
+                      :aria-label="`Ajouter ${suggestion.members.length} film(s) à ${suggestion.groupTitle} (${suggestion.group.local_movie_id})`"
+                      @click="addMissedGroupingToGroup(suggestion)"
+                    >
+                      <LoaderCircle
+                        v-if="addMembersPending === suggestion.group.local_movie_id"
+                        :size="17"
+                        class="animate-spin"
+                        aria-hidden="true"
+                      />
+                      <Layers3 v-else :size="17" aria-hidden="true" />
+                      Ajouter au regroupement
+                    </button>
+                    <button
+                      type="button"
+                      :class="suggestion.group ? 'editorial-button-outline' : 'editorial-button'"
+                      :disabled="anyMutation"
+                      aria-controls="local-group-selection-sidebar"
+                      @click="selectMissedGrouping(suggestion, $event)"
+                    >
+                      <GitMerge :size="17" aria-hidden="true" />
+                      {{
+                        suggestion.group ? 'Ajuster la sélection' : 'Sélectionner pour regrouper'
+                      }}
+                    </button>
+                  </div>
+                </li>
+              </ul>
+            </template>
+          </section>
+
+          <template v-else>
+            <div
+              v-if="activeMatchSection.error"
+              class="editorial-alert mt-4 flex items-start gap-3 p-4"
+              role="alert"
+            >
+              <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+              <div>
+                <p>{{ activeMatchSection.error }}</p>
+                <button
+                  type="button"
+                  class="mt-2 font-semibold underline"
+                  @click="activeMatchSection.load()"
+                >
+                  Réessayer
+                </button>
+              </div>
+            </div>
+            <EditorialStatePanel
+              v-else-if="activeMatchSection.pending"
+              class="mt-4"
+              semantic="status"
+              live="polite"
+              size="compact"
+              shadow="small"
+            >
+              <LoaderCircle
+                :size="28"
+                class="animate-spin text-accent"
+                aria-hidden="true"
+              />
+              <p>Chargement des films…</p>
+            </EditorialStatePanel>
+            <template v-else-if="activeMatchSection.result">
+              <EditorialStatePanel
+                v-if="!activeMatchSection.items.length"
+                class="mt-4"
+                size="compact"
+                shadow="small"
+              >
+                <Check :size="30" class="text-accent" aria-hidden="true" />
+                <p>
+                  {{
+                    activeTab === 'matched' && matchedSearch ? 'Aucun film associé ne correspond à cette recherche.' : 'Aucun film à traiter.'
+                  }}
+                </p>
+              </EditorialStatePanel>
+              <ul
+                v-else
+                class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2"
+                :aria-label="activeMatchSection.title"
+              >
+                <li
+                  v-for="match in activeMatchSection.items"
+                  :key="sourceKey(match)"
+                  class="min-w-0 border-2 border-ink bg-surface p-4 shadow-[4px_4px_0_#27272a] sm:p-5"
+                  :class="match.status === 'rejected' ? '' : 'lg:col-span-2'"
+                >
+                  <div
+                    class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink pb-3"
+                  >
+                    <label
+                      v-if="match.status !== 'matched'"
+                      class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-ink"
+                      :for="`merge-${domKey(match)}`"
+                    >
+                      <input
+                        :id="`merge-${domKey(match)}`"
+                        type="checkbox"
+                        class="size-4 accent-ink"
+                        :checked="Boolean(selectedSources[sourceKey(match)])"
+                        :disabled="anyMutation"
+                        @change="toggleMergeSelection(match, $event)"
+                      >
+                      Sélectionner pour un regroupement local
+                    </label>
+                    <button
+                      v-if="selectedSources[sourceKey(match)] && !selectionSidebarOpen"
+                      type="button"
+                      class="min-h-11 text-sm font-semibold text-accent underline underline-offset-2"
+                      aria-controls="local-group-selection-sidebar"
+                      :aria-expanded="selectionSidebarOpen"
+                      @click="reopenSelectionSidebar"
+                    >
+                      Voir les regroupements
+                    </button>
+                    <span
+                      class="border-2 border-ink px-2 py-0.5 font-mono text-xs font-bold text-ink"
+                      :class="match.status === 'review_required' || match.status === 'matched' ? 'bg-highlight' : 'bg-canvas'"
+                      >{{
+                        statusLabel(match)
+                      }}</span
+                    >
+                  </div>
+
+                  <div
+                    class="grid min-w-0 gap-5"
+                    :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'"
+                  >
+                    <section
+                      class="min-w-0"
+                      :aria-labelledby="`source-title-${domKey(match)}`"
+                    >
+                      <p class="mb-2 font-mono text-xs font-bold text-ink">
+                        <BrandedText
+                          :text="`Source ${providerLabel(match.source_provider)}`"
+                        />
+                      </p>
+                      <div class="flex min-w-0 gap-3">
+                        <div
                           class="aspect-[2/3] w-20 shrink-0 overflow-hidden border-2 border-ink bg-canvas sm:w-24 lg:w-20"
                         >
                           <PosterImage
-                            :src="candidate.poster_url"
-                            :alt="`Affiche TMDB de ${candidate.title}`"
+                            :src="match.source_poster_url"
+                            :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`"
                             sizes="(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px"
                             :reset-key="matchesPosterVersion"
                             class="h-full w-full"
@@ -1831,460 +2222,1035 @@ useHead({ title: 'Identités des films - MesSeances' })
                             fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted"
                             :fallback-icon-size="24"
                           />
-                        </span>
-                        <span class="min-w-0 flex-1"
-                          ><span
-                            class="line-clamp-2 text-sm font-semibold leading-snug text-ink"
-                            >{{
-                              candidate.title
-                            }}</span
-                          ><span
-                            class="mt-1 line-clamp-2 text-xs leading-snug text-muted"
-                            >Titre original :
-                            {{
-                              candidate.original_title || 'non renseigné'
-                            }}</span
-                          ><span class="mt-2 block space-y-1 text-xs text-muted"
-                            ><span class="block"
-                              >ID TMDB : {{ candidate.id }}</span
-                            ><span class="block">{{
-                              candidateRuntime(candidate)
-                            }}</span><span class="block"
-                              >Score : {{ candidateScore(candidate) }}</span
-                            ></span
-                          ></span
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <h3
+                            :id="`source-title-${domKey(match)}`"
+                            class="line-clamp-3 text-sm font-semibold leading-snug text-ink"
+                          >
+                            {{ match.source_title }}
+                          </h3>
+                          <dl class="mt-2 space-y-1 text-xs text-muted">
+                            <div>
+                              <dt class="sr-only">Durée source</dt>
+                              <dd>{{ match.source_runtime_minutes }} min</dd>
+                            </div>
+                            <div class="break-all">
+                              <dt class="inline">
+                                <BrandedText
+                                  :text="`ID ${providerLabel(match.source_provider)} :`"
+                                />
+                              </dt>
+                              <dd class="inline">
+                                {{ match.source_movie_id }}
+                              </dd>
+                            </div>
+                          </dl>
+                          <div class="mt-3 flex flex-col items-start gap-2">
+                            <a
+                              v-if="match.source_detail_url"
+                              :href="match.source_detail_url"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                              :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"
+                              ><BrandedText
+                                :text="`Voir sur ${providerLabel(match.source_provider)}`"
+                                decorative
+                              /><ExternalLink
+                                :size="13"
+                                aria-hidden="true"
+                              /></a
+                            >
+                            <a
+                              v-if="adminTMDBSearchURL(match.source_title)"
+                              :href="adminTMDBSearchURL(match.source_title)"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                              aria-label="TMDB, ouverture dans un nouvel onglet"
+                              >TMDB
+                              <ExternalLink
+                                :size="13"
+                                class="shrink-0"
+                                aria-hidden="true"
+                              /></a
+                            >
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section
+                      v-if="match.status === 'matched' && match.current_match"
+                      class="min-w-0"
+                      :aria-labelledby="`current-tmdb-title-${domKey(match)}`"
+                    >
+                      <p class="mb-2 font-mono text-xs font-bold text-ink">
+                        TMDB actuel
+                      </p>
+                      <div class="flex min-w-0 gap-3">
+                        <div
+                          class="aspect-[2/3] w-20 shrink-0 overflow-hidden border-2 border-ink bg-canvas sm:w-24"
                         >
-                      </label>
-                      <a
-                        v-if="candidate.detail_url"
-                        :href="candidate.detail_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
-                        >Voir sur TMDB
-                        <ExternalLink :size="13" aria-hidden="true" /></a
+                          <PosterImage
+                            :src="match.current_match.poster_url"
+                            :alt="`Affiche TMDB de ${match.current_match.title}`"
+                            sizes="(min-width: 640px) 96px, 80px"
+                            :reset-key="matchesPosterVersion"
+                            class="h-full w-full"
+                            image-class="h-full w-full object-cover"
+                            fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted"
+                            :fallback-icon-size="24"
+                          />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <h3
+                            :id="`current-tmdb-title-${domKey(match)}`"
+                            class="line-clamp-2 text-sm font-semibold leading-snug text-ink"
+                          >
+                            {{ match.current_match.title }}
+                          </h3>
+                          <p
+                            class="mt-1 line-clamp-2 text-xs leading-snug text-muted"
+                          >
+                            Titre original :
+                            {{
+                              match.current_match.original_title || 'non renseigné'
+                            }}
+                          </p>
+                          <dl class="mt-2 space-y-1 text-xs text-muted">
+                            <div>
+                              <dt class="inline">ID TMDB :</dt>
+                              <dd class="inline">
+                                {{ match.current_match.id }}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt class="sr-only">Durée TMDB</dt>
+                              <dd>
+                                {{ candidateRuntime(match.current_match) }}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt class="inline">Score :</dt>
+                              <dd class="inline">
+                                {{ candidateScore(match.current_match) }}
+                              </dd>
+                            </div>
+                          </dl>
+                          <a
+                            v-if="match.current_match.detail_url"
+                            :href="match.current_match.detail_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                            >Voir sur TMDB
+                            <ExternalLink :size="13" aria-hidden="true" /></a
+                          >
+                        </div>
+                      </div>
+                    </section>
+
+                    <fieldset
+                      v-else-if="match.status !== 'rejected'"
+                      class="min-w-0"
+                      :disabled="anyMutation"
+                    >
+                      <legend class="mb-2 font-mono text-xs font-bold text-ink">
+                        Candidats TMDB
+                      </legend>
+                      <div
+                        v-if="match.candidates.length"
+                        class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5"
                       >
+                        <div
+                          v-for="candidate in match.candidates"
+                          :key="candidate.id"
+                          class="min-w-0 border-2 border-ink p-3 transition-colors focus-within:ring-2 focus-within:ring-ink focus-within:ring-offset-2"
+                          :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'bg-highlight/40' : 'bg-surface hover:bg-canvas'"
+                        >
+                          <label
+                            :for="`candidate-${domKey(match)}-${candidate.id}`"
+                            class="flex min-w-0 cursor-pointer items-start gap-2.5"
+                          >
+                            <input
+                              :id="`candidate-${domKey(match)}-${candidate.id}`"
+                              v-model="selectedCandidates[sourceKey(match)]"
+                              type="radio"
+                              :name="`candidate-${domKey(match)}`"
+                              :value="candidate.id"
+                              class="mt-1 shrink-0 accent-ink"
+                            >
+                            <span
+                              class="aspect-[2/3] w-20 shrink-0 overflow-hidden border-2 border-ink bg-canvas sm:w-24 lg:w-20"
+                            >
+                              <PosterImage
+                                :src="candidate.poster_url"
+                                :alt="`Affiche TMDB de ${candidate.title}`"
+                                sizes="(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px"
+                                :reset-key="matchesPosterVersion"
+                                class="h-full w-full"
+                                image-class="h-full w-full object-cover"
+                                fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted"
+                                :fallback-icon-size="24"
+                              />
+                            </span>
+                            <span class="min-w-0 flex-1"
+                              ><span
+                                class="line-clamp-2 text-sm font-semibold leading-snug text-ink"
+                                >{{
+                                  candidate.title
+                                }}</span
+                              ><span
+                                class="mt-1 line-clamp-2 text-xs leading-snug text-muted"
+                                >Titre original :
+                                {{
+                                  candidate.original_title || 'non renseigné'
+                                }}</span
+                              ><span
+                                class="mt-2 block space-y-1 text-xs text-muted"
+                                ><span class="block"
+                                  >ID TMDB : {{ candidate.id }}</span
+                                ><span class="block">{{
+                                  candidateRuntime(candidate)
+                                }}</span><span class="block"
+                                  >Score : {{ candidateScore(candidate) }}</span
+                                ></span
+                              ></span
+                            >
+                          </label>
+                          <a
+                            v-if="candidate.detail_url"
+                            :href="candidate.detail_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline"
+                            >Voir sur TMDB
+                            <ExternalLink :size="13" aria-hidden="true" /></a
+                          >
+                        </div>
+                      </div>
+                      <p
+                        v-else
+                        class="border-l-4 border-ink bg-canvas p-4 text-sm text-ink"
+                      >
+                        Aucun candidat enregistré.
+                      </p>
+                    </fieldset>
+                  </div>
+
+                  <div
+                    v-if="match.status !== 'rejected' && match.status !== 'matched'"
+                    class="mt-4 grid gap-4 border-t border-ink/30 pt-4 xl:grid-cols-[auto_minmax(18rem,1fr)_auto] xl:items-end"
+                  >
+                    <button
+                      type="button"
+                      class="editorial-button"
+                      :disabled="!selectedCandidates[sourceKey(match)] || anyMutation"
+                      @click="approve(match)"
+                    >
+                      <LoaderCircle
+                        v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'"
+                        :size="17"
+                        class="animate-spin"
+                        aria-hidden="true"
+                      /><Check v-else :size="17" aria-hidden="true" />Valider le
+                      candidat
+                    </button>
+                    <form
+                      class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end"
+                      @submit.prevent="assignManual(match)"
+                    >
+                      <div class="min-w-0 flex-1">
+                        <label
+                          :for="`manual-tmdb-${domKey(match)}`"
+                          class="mb-1.5 block text-sm font-semibold text-ink"
+                          >Identifiant TMDB</label
+                        ><input
+                          :id="`manual-tmdb-${domKey(match)}`"
+                          v-model="manualTmdbIds[sourceKey(match)]"
+                          class="editorial-field"
+                          type="number"
+                          min="1"
+                          max="9007199254740991"
+                          step="1"
+                          inputmode="numeric"
+                          :disabled="anyMutation"
+                        >
+                      </div>
+                      <button
+                        type="submit"
+                        class="editorial-button shrink-0"
+                        :disabled="manualTmdbId(match) === null || anyMutation"
+                      >
+                        <LoaderCircle
+                          v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'"
+                          :size="17"
+                          class="animate-spin"
+                          aria-hidden="true"
+                        /><Check v-else :size="17" aria-hidden="true" />Associer
+                        cet identifiant TMDB
+                      </button>
+                    </form>
+                    <div
+                      v-if="rejectConfirmation === sourceKey(match)"
+                      class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"
+                    >
+                      <span class="text-sm font-semibold text-primary"
+                        >Marquer ce film comme Non-TMDB ?</span
+                      ><button
+                        type="button"
+                        class="editorial-button-danger"
+                        :disabled="anyMutation"
+                        @click="reject(match)"
+                      >
+                        Confirmer
+                      </button><button
+                        type="button"
+                        class="editorial-button-outline"
+                        :disabled="anyMutation"
+                        @click="rejectConfirmation = ''"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                    <button
+                      v-else
+                      type="button"
+                      class="editorial-button-danger xl:justify-self-end"
+                      :disabled="anyMutation"
+                      @click="rejectConfirmation = sourceKey(match)"
+                    >
+                      <X :size="16" aria-hidden="true" />
+                      Aucun résultat TMDB
+                    </button>
+                  </div>
+
+                  <div
+                    v-else-if="match.status === 'matched' && match.current_match"
+                    class="mt-4 border-t border-ink/30 pt-4"
+                  >
+                    <form
+                      v-if="correctionConfirmation !== sourceKey(match)"
+                      class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end"
+                      @submit.prevent="requestCorrection(match)"
+                    >
+                      <div class="min-w-0 flex-1">
+                        <label
+                          :for="`replacement-tmdb-${domKey(match)}`"
+                          class="mb-1.5 block text-sm font-semibold text-ink"
+                          >Nouvel identifiant TMDB</label
+                        ><input
+                          :id="`replacement-tmdb-${domKey(match)}`"
+                          v-model="replacementTmdbIds[sourceKey(match)]"
+                          class="editorial-field"
+                          type="number"
+                          min="1"
+                          max="9007199254740991"
+                          step="1"
+                          inputmode="numeric"
+                          :disabled="anyMutation"
+                        >
+                      </div>
+                      <button
+                        type="submit"
+                        class="editorial-button shrink-0"
+                        :disabled="replacementTmdbId(match) === null || !match.updated_at || anyMutation"
+                      >
+                        Remplacer l’identifiant TMDB
+                      </button>
+                    </form>
+                    <div
+                      v-else
+                      class="flex flex-col gap-3 border-2 border-ink bg-highlight/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      role="group"
+                      :aria-label="`Confirmer le remplacement TMDB pour ${match.source_title}`"
+                    >
+                      <p class="text-sm font-semibold text-ink">
+                        Remplacer l’ID TMDB {{ match.current_match.id }} par
+                        {{ replacementTmdbId(match) }} ?
+                      </p>
+                      <div class="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          class="editorial-button"
+                          :disabled="anyMutation"
+                          @click="correctMatch(match)"
+                        >
+                          <LoaderCircle
+                            v-if="activeMutation === sourceKey(match) && activeMutationKind === 'correction'"
+                            :size="17"
+                            class="animate-spin"
+                            aria-hidden="true"
+                          /><Check
+                            v-else
+                            :size="17"
+                            aria-hidden="true"
+                          />Confirmer
+                        </button>
+                        <button
+                          type="button"
+                          class="editorial-button-outline"
+                          :disabled="anyMutation"
+                          @click="clearCorrection(match)"
+                        >
+                          Annuler
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <p
-                    v-else
-                    class="border-l-4 border-ink bg-canvas p-4 text-sm text-ink"
-                  >
-                    Aucun candidat enregistré.
-                  </p>
-                </fieldset>
-              </div>
+                </li>
+              </ul>
+            </template>
 
-              <div
-                v-if="match.status !== 'rejected' && match.status !== 'matched'"
-                class="mt-4 grid gap-4 border-t border-ink/30 pt-4 xl:grid-cols-[auto_minmax(18rem,1fr)_auto] xl:items-end"
+            <nav
+              v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)"
+              class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t-2 border-ink pt-6 sm:flex"
+              :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`"
+            >
+              <button
+                type="button"
+                class="editorial-button-outline"
+                :disabled="activeMatchSection.offset === 0 || anyMutation"
+                @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)"
               >
+                Précédent
+              </button>
+              <span
+                class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none"
+                aria-live="polite"
+                >Page {{ activeMatchSection.page }}</span
+              >
+              <button
+                type="button"
+                class="editorial-button-outline"
+                :disabled="!activeMatchSection.canGoNext || anyMutation"
+                @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)"
+              >
+                Suivant
+              </button>
+            </nav>
+          </template>
+        </template>
+        <section
+          v-if="activeTab === 'groups'"
+          aria-labelledby="local-groups-title"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="local-groups-title" class="editorial-heading">
+              Regroupements locaux
+            </h2>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                :class="missedGroupMergesOpen ? 'editorial-button' : 'editorial-button-outline'"
+                :aria-pressed="missedGroupMergesOpen"
+                aria-controls="missed-group-merges"
+                @click="missedGroupMergesOpen = !missedGroupMergesOpen"
+              >
+                <GitMerge :size="17" aria-hidden="true" />
+                Fusions de regroupements manquées
+              </button>
+              <button
+                type="button"
+                class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
+                :disabled="groupsPending || anyMutation"
+                @click="refreshLocalGroups"
+              >
+                <RefreshCw
+                  :size="16"
+                  :class="groupsPending ? 'animate-spin' : ''"
+                  aria-hidden="true"
+                />
+                Actualiser
+              </button>
+            </div>
+          </div>
+
+          <section
+            v-if="selectedGroupList.length"
+            id="group-merge-panel"
+            class="sticky top-20 z-20 mt-4 scroll-mt-24 border-2 border-ink bg-surface p-4 shadow-[3px_3px_0_#27272a]"
+            aria-labelledby="group-merge-title"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 id="group-merge-title" class="font-semibold text-ink">
+                Fusion de regroupements ({{ selectedGroupList.length }})
+              </h3>
+              <button
+                type="button"
+                class="min-h-11 text-sm font-semibold text-muted underline underline-offset-2"
+                :disabled="anyMutation"
+                @click="clearGroupMergeSelection"
+              >
+                Effacer
+              </button>
+            </div>
+            <fieldset class="mt-2" :disabled="anyMutation">
+              <legend class="text-sm text-muted">
+                Regroupement conservé : son identifiant et sa source principale
+                sont gardés, les autres regroupements sont supprimés après
+                transfert de leurs films.
+              </legend>
+              <ul class="mt-2 flex flex-wrap gap-2">
+                <li
+                  v-for="group in selectedGroupList"
+                  :key="group.local_movie_id"
+                  class="flex min-w-0 items-center border-2 border-ink"
+                  :class="groupMergeTargetId === group.local_movie_id ? 'bg-highlight/40' : 'bg-canvas'"
+                >
+                  <label
+                    class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 py-1 pr-1 pl-3 text-sm"
+                  >
+                    <input
+                      v-model="groupMergeTargetId"
+                      type="radio"
+                      name="group-merge-target"
+                      :value="group.local_movie_id"
+                      class="shrink-0 accent-ink"
+                      @change="groupMergeConfirmation = false"
+                    >
+                    <span class="min-w-0 wrap-anywhere"
+                      ><span class="font-semibold">{{
+                        localMovieGroupTitle(group)
+                      }}</span>
+                      <span class="text-xs text-muted">
+                        · {{ group.local_movie_id }} ·
+                        {{ group.members.length }}
+                        film(s)</span
+                      ></span
+                    >
+                  </label>
+                  <button
+                    type="button"
+                    class="flex size-11 shrink-0 items-center justify-center text-ink hover:text-primary"
+                    :aria-label="`Retirer ${group.local_movie_id} de la fusion`"
+                    @click="toggleGroupMergeSelection(group)"
+                  >
+                    <X :size="18" aria-hidden="true" />
+                  </button>
+                </li>
+              </ul>
+            </fieldset>
+            <div
+              v-if="groupMergeError"
+              class="editorial-alert mt-3 flex items-start gap-3 p-3"
+              role="alert"
+            >
+              <AlertTriangle :size="18" class="shrink-0" aria-hidden="true" />
+              <p>{{ groupMergeError }}</p>
+            </div>
+            <div
+              v-if="groupMergeConfirmation && canMergeGroups"
+              class="mt-3 flex flex-col gap-3 border-2 border-primary bg-primary-soft p-3 sm:flex-row sm:items-center sm:justify-between"
+              role="group"
+              aria-label="Confirmer la fusion des regroupements"
+            >
+              <p class="text-sm font-semibold text-primary">
+                Fusionner {{ selectedGroupList.length - 1 }} regroupement(s)
+                dans
+                {{ groupMergeTargetId }} ? Les regroupements absorbés seront
+                supprimés.
+              </p>
+              <div class="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  class="editorial-button"
-                  :disabled="!selectedCandidates[sourceKey(match)] || anyMutation"
-                  @click="approve(match)"
+                  class="editorial-button-danger"
+                  :disabled="anyMutation"
+                  @click="mergeSelectedGroups"
                 >
                   <LoaderCircle
-                    v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'"
+                    v-if="groupMergePending"
                     :size="17"
                     class="animate-spin"
                     aria-hidden="true"
-                  /><Check v-else :size="17" aria-hidden="true" />Valider le
-                  candidat
+                  /><Check v-else :size="17" aria-hidden="true" />Confirmer
                 </button>
-                <form
-                  class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end"
-                  @submit.prevent="assignManual(match)"
-                >
-                  <div class="min-w-0 flex-1">
-                    <label
-                      :for="`manual-tmdb-${domKey(match)}`"
-                      class="mb-1.5 block text-sm font-semibold text-ink"
-                      >Identifiant TMDB</label
-                    ><input
-                      :id="`manual-tmdb-${domKey(match)}`"
-                      v-model="manualTmdbIds[sourceKey(match)]"
-                      class="editorial-field"
-                      type="number"
-                      min="1"
-                      max="9007199254740991"
-                      step="1"
-                      inputmode="numeric"
-                      :disabled="anyMutation"
-                    >
-                  </div>
-                  <button
-                    type="submit"
-                    class="editorial-button shrink-0"
-                    :disabled="manualTmdbId(match) === null || anyMutation"
-                  >
-                    <LoaderCircle
-                      v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'"
-                      :size="17"
-                      class="animate-spin"
-                      aria-hidden="true"
-                    /><Check v-else :size="17" aria-hidden="true" />Associer cet
-                    identifiant TMDB
-                  </button>
-                </form>
-                <div
-                  v-if="rejectConfirmation === sourceKey(match)"
-                  class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"
-                >
-                  <span class="text-sm font-semibold text-primary"
-                    >Marquer ce film comme Non-TMDB ?</span
-                  ><button
-                    type="button"
-                    class="editorial-button-danger"
-                    :disabled="anyMutation"
-                    @click="reject(match)"
-                  >
-                    Confirmer
-                  </button><button
-                    type="button"
-                    class="editorial-button-outline"
-                    :disabled="anyMutation"
-                    @click="rejectConfirmation = ''"
-                  >
-                    Annuler
-                  </button>
-                </div>
                 <button
-                  v-else
                   type="button"
-                  class="editorial-button-danger xl:justify-self-end"
+                  class="editorial-button-outline"
                   :disabled="anyMutation"
-                  @click="rejectConfirmation = sourceKey(match)"
+                  @click="groupMergeConfirmation = false"
                 >
-                  <X :size="16" aria-hidden="true" />
-                  Aucun résultat TMDB
+                  Annuler
                 </button>
               </div>
-
-              <div
-                v-else-if="match.status === 'matched' && match.current_match"
-                class="mt-4 border-t border-ink/30 pt-4"
+            </div>
+            <div v-else class="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                class="editorial-button"
+                :disabled="!canMergeGroups || anyMutation"
+                @click="groupMergeConfirmation = true"
               >
-                <form
-                  v-if="correctionConfirmation !== sourceKey(match)"
-                  class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end"
-                  @submit.prevent="requestCorrection(match)"
+                <Layers3 :size="17" aria-hidden="true" />
+                Fusionner les regroupements
+              </button>
+              <p v-if="selectedGroupList.length < 2" class="text-sm text-muted">
+                Sélectionnez au moins deux regroupements.
+              </p>
+              <p v-else-if="!groupMergeTargetId" class="text-sm text-muted">
+                Choisissez le regroupement conservé.
+              </p>
+            </div>
+          </section>
+
+          <section
+            v-if="missedGroupMergesOpen"
+            id="missed-group-merges"
+            class="mt-4"
+            aria-labelledby="missed-group-merges-title"
+            :aria-busy="groupCatalogPending"
+          >
+            <div
+              class="flex flex-wrap items-end justify-between gap-4 border-2 border-ink bg-highlight/30 p-4"
+            >
+              <div class="min-w-0 max-w-3xl">
+                <h3
+                  id="missed-group-merges-title"
+                  class="font-mono text-xs font-bold text-ink"
                 >
-                  <div class="min-w-0 flex-1">
-                    <label
-                      :for="`replacement-tmdb-${domKey(match)}`"
-                      class="mb-1.5 block text-sm font-semibold text-ink"
-                      >Nouvel identifiant TMDB</label
-                    ><input
-                      :id="`replacement-tmdb-${domKey(match)}`"
-                      v-model="replacementTmdbIds[sourceKey(match)]"
-                      class="editorial-field"
-                      type="number"
-                      min="1"
-                      max="9007199254740991"
-                      step="1"
-                      inputmode="numeric"
-                      :disabled="anyMutation"
+                  Fusions de regroupements possibles manquées
+                </h3>
+                <p class="mt-1 text-sm text-ink">
+                  Regroupements locaux distincts dont les films ont des titres
+                  proches, probablement le même film. Vérifiez chaque suggestion
+                  avant de fusionner.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-end gap-3">
+                <label
+                  for="missed-group-merge-threshold"
+                  class="text-sm font-semibold text-ink"
+                >
+                  Similarité minimale
+                  <select
+                    id="missed-group-merge-threshold"
+                    v-model.number="missedGroupMergeThreshold"
+                    class="editorial-field mt-1.5 w-28"
+                  >
+                    <option
+                      v-for="threshold in MISSED_LOCAL_GROUPING_THRESHOLDS"
+                      :key="threshold"
+                      :value="threshold"
+                    >
+                      {{ Math.round(threshold * 100) }} %
+                    </option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
+                  :disabled="groupCatalogPending || anyMutation"
+                  @click="refreshGroupCatalog"
+                >
+                  <RefreshCw
+                    :size="16"
+                    :class="groupCatalogPending ? 'animate-spin' : ''"
+                    aria-hidden="true"
+                  />
+                  Actualiser
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="groupCatalogError"
+              class="editorial-alert mt-4 flex items-start gap-3 p-4"
+              role="alert"
+            >
+              <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+              <div>
+                <p class="font-semibold">
+                  Analyse des regroupements incomplète.
+                </p>
+                <p class="mt-1">{{ groupCatalogError }}</p>
+                <button
+                  type="button"
+                  class="mt-2 font-semibold underline"
+                  :disabled="anyMutation"
+                  @click="refreshGroupCatalog"
+                >
+                  Réessayer
+                </button>
+              </div>
+            </div>
+            <EditorialStatePanel
+              v-else-if="groupCatalogPending"
+              class="mt-4"
+              semantic="status"
+              live="polite"
+              size="compact"
+              shadow="small"
+            >
+              <LoaderCircle
+                :size="28"
+                class="animate-spin text-accent"
+                aria-hidden="true"
+              />
+              <p>
+                Analyse des regroupements…
+                {{ groupCatalogLoadedCount }} chargé(s).
+              </p>
+            </EditorialStatePanel>
+            <EditorialStatePanel
+              v-else-if="!missedGroupMerges.length"
+              class="mt-4"
+              size="compact"
+              shadow="small"
+            >
+              <Check :size="30" class="text-accent" aria-hidden="true" />
+              <p>
+                Aucune fusion manquée parmi
+                {{ groupCatalog.length }} regroupement(s) à
+                {{ Math.round(missedGroupMergeThreshold * 100) }} % de
+                similarité.
+              </p>
+            </EditorialStatePanel>
+            <template v-else>
+              <p class="mt-4 text-sm text-muted" role="status">
+                {{ missedGroupMerges.length }} suggestion(s) parmi
+                {{ groupCatalog.length }} regroupement(s), de la plus à la moins
+                probable.
+              </p>
+              <ul
+                class="mt-3 grid grid-cols-1 gap-4 lg:grid-cols-2"
+                aria-label="Fusions de regroupements possibles manquées"
+              >
+                <li
+                  v-for="suggestion in missedGroupMerges"
+                  :key="suggestion.key"
+                  class="flex min-w-0 flex-col border-2 border-ink bg-surface p-4 shadow-[4px_4px_0_#27272a] sm:p-5"
+                >
+                  <div
+                    class="flex items-start justify-between gap-3 border-b-2 border-ink pb-3"
+                  >
+                    <div class="min-w-0">
+                      <p class="font-mono text-xs font-bold text-ink">
+                        {{ suggestion.groups.length }} regroupements similaires
+                      </p>
+                      <h4
+                        class="mt-1 text-sm font-semibold leading-snug text-ink wrap-anywhere"
+                      >
+                        {{ suggestion.groups[0]?.title }}
+                      </h4>
+                    </div>
+                    <span
+                      class="shrink-0 border-2 border-ink bg-highlight px-2 py-0.5 font-mono text-xs font-bold text-ink"
+                      >{{ Math.round(suggestion.score * 100) }}
+                      %</span
                     >
                   </div>
-                  <button
-                    type="submit"
-                    class="editorial-button shrink-0"
-                    :disabled="replacementTmdbId(match) === null || !match.updated_at || anyMutation"
+                  <ul
+                    class="divide-y divide-ink/30"
+                    :aria-label="`Regroupements de la suggestion ${suggestion.groups[0]?.title}`"
                   >
-                    Remplacer l’identifiant TMDB
-                  </button>
-                </form>
-                <div
-                  v-else
-                  class="flex flex-col gap-3 border-2 border-ink bg-highlight/30 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  role="group"
-                  :aria-label="`Confirmer le remplacement TMDB pour ${match.source_title}`"
-                >
-                  <p class="text-sm font-semibold text-ink">
-                    Remplacer l’ID TMDB {{ match.current_match.id }} par
-                    {{ replacementTmdbId(match) }} ?
+                    <li
+                      v-for="{ group, title, similarity } in suggestion.groups"
+                      :key="group.local_movie_id"
+                      class="py-3"
+                    >
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p
+                            class="text-sm font-semibold text-ink wrap-anywhere"
+                          >
+                            {{ title }}
+                          </p>
+                          <p class="mt-0.5 break-all text-xs text-muted">
+                            {{ group.local_movie_id }}
+                            <span
+                              v-if="group.local_movie_id === suggestion.suggestedTarget.local_movie_id"
+                              class="ml-1 font-semibold text-accent"
+                              >· conservé par défaut</span
+                            >
+                          </p>
+                        </div>
+                        <span class="shrink-0 text-xs text-muted"
+                          >{{ Math.round(similarity * 100) }}
+                          %</span
+                        >
+                      </div>
+                      <ul class="mt-1 space-y-0.5 text-xs text-muted">
+                        <li
+                          v-for="member in group.members"
+                          :key="sourceKey(member)"
+                          class="wrap-anywhere"
+                        >
+                          <span class="font-semibold text-ink">{{
+                            providerLabel(member.source_provider)
+                          }}</span>
+                          : {{ member.source_title ?? member.source_movie_id
+                          }}<span v-if="member.source_runtime_minutes">
+                            · {{ member.source_runtime_minutes }} min</span
+                          ><span v-if="!member.available"> (indisponible)</span>
+                        </li>
+                      </ul>
+                    </li>
+                  </ul>
+                  <p
+                    v-if="suggestion.runtimeGap !== null && suggestion.runtimeGap > MISSED_LOCAL_GROUPING_RUNTIME_GAP_MINUTES"
+                    class="mt-1 flex items-start gap-2 text-xs font-semibold text-primary"
+                  >
+                    <AlertTriangle
+                      :size="15"
+                      class="shrink-0"
+                      aria-hidden="true"
+                    />
+                    Écart de durée de {{ suggestion.runtimeGap }} min entre les
+                    films disponibles.
                   </p>
-                  <div class="flex flex-wrap gap-2">
+                  <div class="mt-auto border-t border-ink/30 pt-4">
                     <button
                       type="button"
                       class="editorial-button"
                       :disabled="anyMutation"
-                      @click="correctMatch(match)"
+                      aria-controls="group-merge-panel"
+                      @click="selectMissedGroupMerge(suggestion)"
                     >
-                      <LoaderCircle
-                        v-if="activeMutation === sourceKey(match) && activeMutationKind === 'correction'"
-                        :size="17"
-                        class="animate-spin"
-                        aria-hidden="true"
-                      /><Check v-else :size="17" aria-hidden="true" />Confirmer
+                      <GitMerge :size="17" aria-hidden="true" />
+                      Sélectionner pour fusionner
                     </button>
-                    <button
-                      type="button"
-                      class="editorial-button-outline"
-                      :disabled="anyMutation"
-                      @click="clearCorrection(match)"
+                  </div>
+                </li>
+              </ul>
+            </template>
+          </section>
+
+          <template v-else>
+            <div
+              v-if="groupsError"
+              class="editorial-alert mt-4 flex items-start gap-3 p-4"
+              role="alert"
+            >
+              <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+              <div>
+                <p>{{ groupsError }}</p>
+                <button
+                  type="button"
+                  class="mt-2 font-semibold underline"
+                  @click="refreshLocalGroups"
+                >
+                  Réessayer
+                </button>
+              </div>
+            </div>
+            <EditorialStatePanel
+              v-else-if="groupsPending"
+              class="mt-4"
+              semantic="status"
+              live="polite"
+              size="compact"
+              shadow="small"
+            >
+              <LoaderCircle
+                :size="28"
+                class="animate-spin text-accent"
+                aria-hidden="true"
+              />
+              <p>Chargement des regroupements…</p>
+            </EditorialStatePanel>
+            <EditorialStatePanel
+              v-else-if="!groupsResult?.items.length"
+              class="mt-4"
+              size="compact"
+              shadow="small"
+            >
+              <Layers3 :size="30" class="text-muted" aria-hidden="true" />
+              <p>Aucun regroupement local.</p>
+            </EditorialStatePanel>
+            <ul
+              v-else
+              class="mt-3 grid gap-3 xl:grid-cols-2 2xl:grid-cols-3"
+              aria-label="Regroupements locaux actifs"
+            >
+              <li
+                v-for="group in groupsResult.items"
+                :key="group.local_movie_id"
+                class="overflow-hidden border-2 border-ink shadow-[3px_3px_0_#27272a]"
+                :class="selectedGroups[group.local_movie_id] ? 'bg-highlight/30' : 'bg-surface'"
+              >
+                <div
+                  class="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5"
+                >
+                  <div class="min-w-0 text-xs">
+                    <div class="-ml-3 flex min-w-0 items-center">
+                      <label
+                        class="flex size-11 shrink-0 cursor-pointer items-center justify-center"
+                        :for="`group-merge-${group.local_movie_id}`"
+                      >
+                        <input
+                          :id="`group-merge-${group.local_movie_id}`"
+                          type="checkbox"
+                          class="size-4 accent-ink"
+                          :checked="Boolean(selectedGroups[group.local_movie_id])"
+                          :disabled="anyMutation"
+                          @change="toggleGroupMergeSelection(group)"
+                        ><span class="sr-only"
+                          >Sélectionner {{ group.local_movie_id }} pour une
+                          fusion</span
+                        >
+                      </label>
+                      <h3 class="text-sm font-semibold text-ink wrap-anywhere">
+                        {{ localMovieGroupTitle(group) }}
+                      </h3>
+                    </div>
+                    <p class="break-all text-muted">
+                      {{ group.local_movie_id }}
+                    </p>
+                    <p class="mt-0.5 text-muted">
+                      Primaire :
+                      {{ providerLabel(group.primary.source_provider) }} ·
+                      {{ group.primary.source_movie_id }}
+                    </p>
+                    <p v-if="group.metadata_source" class="mt-0.5 text-muted">
+                      Métadonnées :
+                      {{
+                        providerLabel(group.metadata_source.source_provider)
+                      }} ·
+                      {{ group.metadata_source.source_movie_id }}
+                      <span
+                        v-if="!sameSource(group.metadata_source, group.primary)"
+                        class="font-semibold text-ink"
+                        >(repli)</span
+                      >
+                    </p>
+                    <p v-else class="mt-0.5 font-semibold text-primary">
+                      Aucune source disponible
+                    </p>
+                  </div>
+                  <div class="flex flex-wrap items-center justify-end gap-1.5">
+                    <template
+                      v-if="unmergeConfirmation === group.local_movie_id"
                     >
-                      Annuler
+                      <span class="text-xs font-semibold text-primary"
+                        >Dissocier ?</span
+                      >
+                      <button
+                        type="button"
+                        class="editorial-button-danger min-h-8 px-2.5 py-1 max-sm:min-h-11"
+                        :disabled="anyMutation"
+                        @click="unmerge(group)"
+                      >
+                        <LoaderCircle
+                          v-if="unmergePending === group.local_movie_id"
+                          :size="14"
+                          class="inline animate-spin"
+                          aria-hidden="true"
+                        />
+                        Confirmer
+                      </button>
+                      <button
+                        type="button"
+                        class="editorial-button-outline min-h-8 px-2.5 py-1 max-sm:min-h-11"
+                        :disabled="anyMutation"
+                        @click="unmergeConfirmation = ''"
+                      >
+                        Annuler
+                      </button>
+                    </template>
+                    <button
+                      v-else
+                      type="button"
+                      class="editorial-button-danger min-h-8 px-2 py-1 max-sm:min-h-11"
+                      :disabled="anyMutation"
+                      @click="unmergeConfirmation = group.local_movie_id"
+                    >
+                      <Trash2 :size="14" aria-hidden="true" />
+                      Dissocier
                     </button>
                   </div>
                 </div>
-              </div>
-            </li>
-          </ul>
-        </template>
+                <ul
+                  class="divide-y divide-ink/30 border-t-2 border-ink"
+                  :aria-label="`Membres de ${group.local_movie_id}`"
+                >
+                  <li
+                    v-for="member in group.members"
+                    :key="sourceKey(member)"
+                    class="flex min-w-0 items-center gap-2 px-3 py-2"
+                    :class="member.available ? '' : 'bg-canvas text-muted'"
+                  >
+                    <div
+                      class="aspect-[2/3] w-8 shrink-0 overflow-hidden border border-ink bg-canvas"
+                    >
+                      <PosterImage
+                        :src="member.source_poster_url"
+                        :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`"
+                        sizes="32px"
+                        :reset-key="groupsPosterVersion"
+                        class="h-full w-full"
+                        image-class="h-full w-full object-cover"
+                        fallback-variant="icon-only"
+                        fallback-class="text-muted"
+                        :fallback-icon-size="15"
+                        :fallback-text="null"
+                      />
+                    </div>
+                    <div class="min-w-0 flex-1 text-xs leading-tight">
+                      <p class="truncate font-semibold text-ink">
+                        {{ member.source_title ?? 'Source indisponible' }}
+                      </p>
+                      <p class="mt-0.5 truncate text-muted">
+                        {{ providerLabel(member.source_provider) }} ·
+                        {{ member.source_movie_id
+                        }}<span v-if="member.source_runtime_minutes">
+                          · {{ member.source_runtime_minutes }} min</span
+                        >
+                      </p>
+                    </div>
+                    <div
+                      class="shrink-0 text-right text-[11px] font-semibold leading-tight"
+                    >
+                      <p
+                        v-if="sameSource(member, group.primary)"
+                        class="text-accent"
+                      >
+                        Primaire
+                      </p>
+                      <p
+                        :class="member.available ? 'text-accent' : 'text-primary'"
+                      >
+                        {{ member.available ? 'Disponible' : 'Indisponible' }}
+                      </p>
+                    </div>
+                  </li>
+                </ul>
+              </li>
+            </ul>
 
-        <nav
-          v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)"
-          class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t-2 border-ink pt-6 sm:flex"
-          :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`"
-        >
-          <button
-            type="button"
-            class="editorial-button-outline"
-            :disabled="activeMatchSection.offset === 0 || anyMutation"
-            @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)"
-          >
-            Précédent
-          </button>
-          <span
-            class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none"
-            aria-live="polite"
-            >Page {{ activeMatchSection.page }}</span
-          >
-          <button
-            type="button"
-            class="editorial-button-outline"
-            :disabled="!activeMatchSection.canGoNext || anyMutation"
-            @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)"
-          >
-            Suivant
-          </button>
-        </nav>
+            <nav
+              v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)"
+              class="mt-5 grid grid-cols-2 items-center justify-center gap-4 sm:flex"
+              aria-label="Pagination des regroupements locaux"
+            >
+              <button
+                type="button"
+                class="editorial-button-outline"
+                :disabled="groupsOffset === 0 || anyMutation"
+                @click="changeGroupsPage(groupsOffset - PAGE_SIZE)"
+              >
+                Précédent
+              </button>
+              <span
+                class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none"
+                aria-live="polite"
+                >Page {{ groupsPage }}</span
+              >
+              <button
+                type="button"
+                class="editorial-button-outline"
+                :disabled="!canGroupsGoNext || anyMutation"
+                @click="changeGroupsPage(groupsOffset + PAGE_SIZE)"
+              >
+                Suivant
+              </button>
+            </nav>
+          </template>
+        </section>
       </section>
     </div>
-
-    <section
-      class="mt-8 border-t-2 border-ink pt-7"
-      aria-labelledby="local-groups-title"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="local-groups-title" class="editorial-heading">
-          Regroupements locaux
-        </h2>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
-          :disabled="groupsPending || anyMutation"
-          @click="refreshLocalGroups"
-        >
-          <RefreshCw
-            :size="16"
-            :class="groupsPending ? 'animate-spin' : ''"
-            aria-hidden="true"
-          />
-          Actualiser
-        </button>
-      </div>
-
-      <div
-        v-if="groupsError"
-        class="editorial-alert mt-4 flex items-start gap-3 p-4"
-        role="alert"
-      >
-        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-        <div>
-          <p>{{ groupsError }}</p>
-          <button
-            type="button"
-            class="mt-2 font-semibold underline"
-            @click="refreshLocalGroups"
-          >
-            Réessayer
-          </button>
-        </div>
-      </div>
-      <EditorialStatePanel
-        v-else-if="groupsPending"
-        class="mt-4"
-        semantic="status"
-        live="polite"
-        size="compact"
-        shadow="small"
-      >
-        <LoaderCircle
-          :size="28"
-          class="animate-spin text-accent"
-          aria-hidden="true"
-        />
-        <p>Chargement des regroupements…</p>
-      </EditorialStatePanel>
-      <EditorialStatePanel
-        v-else-if="!groupsResult?.items.length"
-        class="mt-4"
-        size="compact"
-        shadow="small"
-      >
-        <Layers3 :size="30" class="text-muted" aria-hidden="true" />
-        <p>Aucun regroupement local.</p>
-      </EditorialStatePanel>
-      <ul
-        v-else
-        class="mt-3 grid gap-3 xl:grid-cols-2 2xl:grid-cols-3"
-        aria-label="Regroupements locaux actifs"
-      >
-        <li
-          v-for="group in groupsResult.items"
-          :key="group.local_movie_id"
-          class="overflow-hidden border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]"
-        >
-          <div
-            class="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5"
-          >
-            <div class="min-w-0 text-xs">
-              <h3 class="break-all text-sm font-semibold text-ink">
-                {{ group.local_movie_id }}
-              </h3>
-              <p class="mt-0.5 text-muted">
-                Primaire : {{ providerLabel(group.primary.source_provider) }} ·
-                {{ group.primary.source_movie_id }}
-              </p>
-              <p v-if="group.metadata_source" class="mt-0.5 text-muted">
-                Métadonnées :
-                {{ providerLabel(group.metadata_source.source_provider) }} ·
-                {{ group.metadata_source.source_movie_id }}
-                <span
-                  v-if="!sameSource(group.metadata_source, group.primary)"
-                  class="font-semibold text-ink"
-                  >(repli)</span
-                >
-              </p>
-              <p v-else class="mt-0.5 font-semibold text-primary">
-                Aucune source disponible
-              </p>
-            </div>
-            <div class="flex flex-wrap items-center justify-end gap-1.5">
-              <template v-if="unmergeConfirmation === group.local_movie_id">
-                <span class="text-xs font-semibold text-primary"
-                  >Dissocier ?</span
-                >
-                <button
-                  type="button"
-                  class="editorial-button-danger min-h-8 px-2.5 py-1 max-sm:min-h-11"
-                  :disabled="anyMutation"
-                  @click="unmerge(group)"
-                >
-                  <LoaderCircle
-                    v-if="unmergePending === group.local_movie_id"
-                    :size="14"
-                    class="inline animate-spin"
-                    aria-hidden="true"
-                  />
-                  Confirmer
-                </button>
-                <button
-                  type="button"
-                  class="editorial-button-outline min-h-8 px-2.5 py-1 max-sm:min-h-11"
-                  :disabled="anyMutation"
-                  @click="unmergeConfirmation = ''"
-                >
-                  Annuler
-                </button>
-              </template>
-              <button
-                v-else
-                type="button"
-                class="editorial-button-danger min-h-8 px-2 py-1 max-sm:min-h-11"
-                :disabled="anyMutation"
-                @click="unmergeConfirmation = group.local_movie_id"
-              >
-                <Trash2 :size="14" aria-hidden="true" />
-                Dissocier
-              </button>
-            </div>
-          </div>
-          <ul
-            class="divide-y divide-ink/30 border-t-2 border-ink"
-            :aria-label="`Membres de ${group.local_movie_id}`"
-          >
-            <li
-              v-for="member in group.members"
-              :key="sourceKey(member)"
-              class="flex min-w-0 items-center gap-2 px-3 py-2"
-              :class="member.available ? '' : 'bg-canvas text-muted'"
-            >
-              <div
-                class="aspect-[2/3] w-8 shrink-0 overflow-hidden border border-ink bg-canvas"
-              >
-                <PosterImage
-                  :src="member.source_poster_url"
-                  :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`"
-                  sizes="32px"
-                  :reset-key="groupsPosterVersion"
-                  class="h-full w-full"
-                  image-class="h-full w-full object-cover"
-                  fallback-variant="icon-only"
-                  fallback-class="text-muted"
-                  :fallback-icon-size="15"
-                  :fallback-text="null"
-                />
-              </div>
-              <div class="min-w-0 flex-1 text-xs leading-tight">
-                <p class="truncate font-semibold text-ink">
-                  {{ member.source_title ?? 'Source indisponible' }}
-                </p>
-                <p class="mt-0.5 truncate text-muted">
-                  {{ providerLabel(member.source_provider) }} ·
-                  {{ member.source_movie_id
-                  }}<span v-if="member.source_runtime_minutes">
-                    · {{ member.source_runtime_minutes }} min</span
-                  >
-                </p>
-              </div>
-              <div
-                class="shrink-0 text-right text-[11px] font-semibold leading-tight"
-              >
-                <p v-if="sameSource(member, group.primary)" class="text-accent">
-                  Primaire
-                </p>
-                <p :class="member.available ? 'text-accent' : 'text-primary'">
-                  {{ member.available ? 'Disponible' : 'Indisponible' }}
-                </p>
-              </div>
-            </li>
-          </ul>
-        </li>
-      </ul>
-
-      <nav
-        v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)"
-        class="mt-5 grid grid-cols-2 items-center justify-center gap-4 sm:flex"
-        aria-label="Pagination des regroupements locaux"
-      >
-        <button
-          type="button"
-          class="editorial-button-outline"
-          :disabled="groupsOffset === 0 || anyMutation"
-          @click="changeGroupsPage(groupsOffset - PAGE_SIZE)"
-        >
-          Précédent
-        </button>
-        <span
-          class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none"
-          aria-live="polite"
-          >Page {{ groupsPage }}</span
-        >
-        <button
-          type="button"
-          class="editorial-button-outline"
-          :disabled="!canGroupsGoNext || anyMutation"
-          @click="changeGroupsPage(groupsOffset + PAGE_SIZE)"
-        >
-          Suivant
-        </button>
-      </nav>
-    </section>
 
     <aside
       v-if="selectionSidebarOpen && selectedSourceList.length"
