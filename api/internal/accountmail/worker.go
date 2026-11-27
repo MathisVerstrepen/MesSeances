@@ -73,7 +73,7 @@ func (w *Worker) ready(ctx context.Context, d delivery, address []byte) (bool, e
 	 AND a.auth_revision=o.auth_revision AND (a.pending_kind IS NULL OR a.created_at>$3::timestamptz-interval '168 hours')
 	 AND NOT EXISTS(SELECT 1 FROM account_mail_suppressions WHERE address_digest=$4 AND expires_at>$3)
 	 AND (o.purpose<>'notification_digest' OR EXISTS(SELECT 1 FROM account_notification_digests d WHERE d.account_id=a.id AND d.frequency<>'off'))
-	 AND (o.purpose IN ('security_notification','notification_digest') AND o.token_digest IS NULL OR EXISTS(SELECT 1 FROM account_tokens t
+	 AND (o.purpose IN ('security_notification','notification_digest','notification_test') AND o.token_digest IS NULL OR EXISTS(SELECT 1 FROM account_tokens t
 	 LEFT JOIN account_sessions s ON s.token_digest=t.session_digest
 	 WHERE t.token_digest=o.token_digest AND t.account_id=a.id AND t.auth_revision=a.auth_revision AND t.purpose=o.purpose AND t.expires_at>$3 AND t.consumed_at IS NULL
 	 AND (t.session_digest IS NULL OR s.auth_revision=a.auth_revision AND s.expires_at>$3 AND s.last_seen_at>$3::timestamptz-interval '168 hours'))))`, d.id, d.lease, w.now(), address).Scan(&ready)

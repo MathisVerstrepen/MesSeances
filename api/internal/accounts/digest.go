@@ -325,11 +325,22 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 	if total == 0 {
 		return nil, 0, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT n.id,n.kind,n.rule_id,n.event_count,cardinality(n.movie_ids),cardinality(n.theater_ids),n.movie_ids[1:4],n.theater_ids[1:1]
+	items, err := queryNotificationViews(ctx, tx, `SELECT n.id,n.kind,n.rule_id,n.event_count,cardinality(n.movie_ids),cardinality(n.theater_ids),n.movie_ids[1:4],n.theater_ids[1:1]
  FROM account_notifications n JOIN account_notification_rules r ON r.account_id=n.account_id AND r.id=n.rule_id AND r.email
  WHERE n.account_id=$1 AND n.id>$2 AND n.read_at IS NULL AND n.created_at>$3 ORDER BY n.id DESC LIMIT $4`, accountID, after, since, digestMaxItems)
 	if err != nil {
-		return nil, 0, ErrUnavailable
+		return nil, 0, err
+	}
+	return items, total, nil
+}
+
+// queryNotificationViews runs a projection of (id, kind, rule_id, event count,
+// film count, cinema count, film IDs, cinema IDs) and resolves current film
+// metadata and cinema names.
+func queryNotificationViews(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]NotificationView, error) {
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, ErrUnavailable
 	}
 	type row struct {
 		id       int64
@@ -344,7 +355,7 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 		return v, err
 	})
 	if err != nil {
-		return nil, 0, ErrUnavailable
+		return nil, ErrUnavailable
 	}
 	movieSet, theaterSet := map[int64]bool{}, map[string]bool{}
 	for _, v := range collected {
@@ -357,11 +368,11 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 	}
 	movies, err := readNotificationMovies(ctx, tx, movieSet)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	cinemas, err := readNotificationTheaters(ctx, tx, theaterSet)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	items := make([]NotificationView, 0, len(collected))
 	for _, v := range collected {
@@ -377,5 +388,5 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 		}
 		items = append(items, v.item)
 	}
-	return items, total, nil
+	return items, nil
 }

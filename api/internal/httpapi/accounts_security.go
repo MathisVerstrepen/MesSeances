@@ -89,6 +89,10 @@ func accountError(w http.ResponseWriter, err error) {
 		status, code, message = 409, "notification_rule_limit_reached", "Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre."
 	case errors.Is(err, accounts.ErrPushUnavailable):
 		status, code, message = 503, "push_unavailable", "Les notifications push sont indisponibles."
+	case errors.Is(err, accounts.ErrPushNoDevice):
+		status, code, message = 409, "push_no_device", "Activez d’abord les notifications sur un appareil."
+	case errors.Is(err, accounts.ErrMailNotReady):
+		status, code, message = 409, "email_not_verified", "Vérifiez votre adresse e-mail avant de recevoir des e-mails."
 	case errors.Is(err, accounts.ErrPushDeviceLimit):
 		status, code, message = 409, "push_device_limit_reached", "Vous avez atteint le nombre maximal d’appareils. Retirez un appareil avant d’en ajouter un autre."
 	case errors.Is(err, accounts.ErrPushDeviceNotFound):

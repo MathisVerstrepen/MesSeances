@@ -507,3 +507,30 @@ func TestNotificationDigestDispatchIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestNotificationTestDispatchIntegration(t *testing.T) {
+	f := newMailFixture(t)
+	f.enqueue(t)
+	f.exec(t, `UPDATE accounts SET pending_kind=NULL,email_verified_at=$2,verification_source='email' WHERE id=$1`, f.id, f.now)
+	f.exec(t, `DELETE FROM account_mail_outbox`)
+	ctx := context.Background()
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := make([]byte, 32)
+	_, _ = rand.Read(event)
+	address, _ := testAddress("person@example.com")
+	job := Job{EventDigest: event, AddressDigest: address, AccountID: f.id, Revision: 1, Purpose: "notification_test", CreatedAt: f.now, ExpiresAt: f.now.Add(time.Hour),
+		Message: Message{Recipient: "person@example.com", Subject: "test", Text: "x", HTML: "<p>x</p>"}}
+	if err = (&Outbox{Cipher: f.worker.Cipher}).Enqueue(ctx, tx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Token-less and independent of any digest setting.
+	if result, err := f.worker.step(ctx); err != nil || result != "accepted" || f.sender.calls != 1 {
+		t.Fatalf("test mail %s %v calls=%d", result, err, f.sender.calls)
+	}
+}

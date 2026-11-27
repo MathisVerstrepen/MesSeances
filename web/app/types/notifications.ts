@@ -94,3 +94,12 @@ export interface PushDevices {
   max_devices: number
   current_id: string | null
 }
+
+export type NotificationTestChannel = 'push' | 'email'
+
+export interface NotificationTestResult {
+  channel: NotificationTestChannel
+  delivered: number
+  expired: number
+  failed: number
+}
