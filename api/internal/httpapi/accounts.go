@@ -99,6 +99,7 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Get("/api/v1/account/notifications/status", unavailable)
 	router.Post("/api/v1/account/notifications/read", unavailable)
 	router.Post("/api/v1/account/notifications/read-all", unavailable)
+	router.Post("/api/v1/account/notifications/test", unavailable)
 	router.Get("/api/v1/account/notification-rules", unavailable)
 	router.Post("/api/v1/account/notification-rules", unavailable)
 	router.Post("/api/v1/account/notification-rules/update", unavailable)

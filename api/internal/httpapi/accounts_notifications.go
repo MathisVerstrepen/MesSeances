@@ -273,3 +273,30 @@ func (h *accountHTTP) deleteNotificationRule(w http.ResponseWriter, r *http.Requ
 	}
 	writeJSON(w, http.StatusOK, view)
 }
+
+type accountNotificationTest struct {
+	ExpectedUsername *string `json:"expected_username"`
+	Channel          *string `json:"channel"`
+}
+
+func (h *accountHTTP) sendTestNotification(w http.ResponseWriter, r *http.Request) {
+	var input accountNotificationTest
+	if !accountJSON(w, r, &input) {
+		return
+	}
+	if input.ExpectedUsername == nil || input.Channel == nil {
+		accountError(w, accounts.ErrInvalidInput)
+		return
+	}
+	raw, err := h.cookie(r)
+	if err != nil {
+		accountError(w, err)
+		return
+	}
+	result, err := h.service.SendTestNotification(r.Context(), raw, *input.ExpectedUsername, *input.Channel)
+	if err != nil {
+		accountError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}

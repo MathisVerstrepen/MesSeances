@@ -79,6 +79,7 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	get("/account/notifications/status", h.notificationStatus)
 	post("/account/notifications/read", h.markNotificationsRead, h.theaters)
 	post("/account/notifications/read-all", h.markAllNotificationsRead, h.theaters)
+	post("/account/notifications/test", h.sendTestNotification, h.pushTests)
 	get("/account/notification-rules", h.notificationRules)
 	post("/account/notification-rules", h.createNotificationRule, h.theaters)
 	post("/account/notification-rules/update", h.updateNotificationRule, h.theaters)

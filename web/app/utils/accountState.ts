@@ -71,6 +71,10 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Cette alerte n’existe plus. Vérifiez la liste actualisée avant de recommencer.'
   if (cause.code === 'notification_rule_limit_reached')
     return 'Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre.'
+  if (cause.code === 'push_no_device')
+    return 'Activez d’abord les notifications sur un appareil.'
+  if (cause.code === 'email_not_verified')
+    return 'Vérifiez votre adresse e-mail avant de recevoir des e-mails.'
   if (cause.code === 'push_unavailable')
     return 'Les notifications push ne sont pas disponibles pour le moment.'
   if (cause.code === 'push_device_limit_reached')

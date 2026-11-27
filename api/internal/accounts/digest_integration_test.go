@@ -11,6 +11,21 @@ import (
 	"messeances/api/internal/accountmail"
 )
 
+func testMail(t *testing.T, f *lifecycleFixture) accountmail.Message {
+	t.Helper()
+	var event []byte
+	var env accountmail.Envelope
+	if err := f.pool.QueryRow(t.Context(), `SELECT event_digest,payload_key_id,payload_nonce,payload_ciphertext FROM account_mail_outbox WHERE purpose='notification_test' ORDER BY id DESC LIMIT 1`).Scan(&event, &env.KeyID, &env.Nonce, &env.Ciphertext); err != nil {
+		t.Fatal(err)
+	}
+	plain, err := f.cipher.Open(accountmail.OutboxBinding(event, "notification_test"), env)
+	var message accountmail.Message
+	if err != nil || json.Unmarshal(plain, &message) != nil {
+		t.Fatal("undecryptable test mail", err)
+	}
+	return message
+}
+
 func digestMail(t *testing.T, f *lifecycleFixture, email string) (accountmail.Message, int) {
 	t.Helper()
 	rows, err := f.pool.Query(t.Context(), `SELECT o.event_digest,o.payload_key_id,o.payload_nonce,o.payload_ciphertext FROM account_mail_outbox o JOIN accounts a ON a.id=o.account_id

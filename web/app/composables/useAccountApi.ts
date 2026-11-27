@@ -18,6 +18,8 @@ import type {
   PushDevices,
   DigestFrequency,
   NotificationDigest,
+  NotificationTestChannel,
+  NotificationTestResult,
 } from '~/types/notifications'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
@@ -122,6 +124,8 @@ export function useAccountApi() {
         'push_device_not_found',
         'push_device_expired',
         'push_delivery_failed',
+        'push_no_device',
+        'email_not_verified',
         'avatar_too_large',
         'avatar_unsupported',
         'avatar_invalid',
@@ -346,6 +350,16 @@ export function useAccountApi() {
     ) =>
       request<NotificationRules>(
         '/account/notification-rules/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    sendTestNotification: (
+      input: { expected_username: string; channel: NotificationTestChannel },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationTestResult>(
+        '/account/notifications/test',
         { ...input },
         'POST',
         signal,

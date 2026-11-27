@@ -463,6 +463,7 @@ watch(center.owner, (owner) => {
       </template>
       <NotificationPushDevices :state="push" />
       <NotificationDigestSettings :state="digest" />
+      <NotificationTestSend :push="push" :digest="digest" />
     </section>
   </AccountShell>
 </template>

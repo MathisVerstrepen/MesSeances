@@ -48,6 +48,10 @@ func TestNotificationRuleStrictInput(t *testing.T) {
 		{"read all", "/api/v1/account/notifications/read-all", `{"expected_username":"owner","through_id":"9"}`, 503},
 		{"read all zero", "/api/v1/account/notifications/read-all", `{"expected_username":"owner","through_id":"0"}`, 400},
 		{"read all missing", "/api/v1/account/notifications/read-all", `{"expected_username":"owner"}`, 400},
+		{"test push", "/api/v1/account/notifications/test", `{"expected_username":"owner","channel":"push"}`, 503},
+		{"test email", "/api/v1/account/notifications/test", `{"expected_username":"owner","channel":"email"}`, 503},
+		{"test unknown channel", "/api/v1/account/notifications/test", `{"expected_username":"owner","channel":"sms"}`, 400},
+		{"test missing channel", "/api/v1/account/notifications/test", `{"expected_username":"owner"}`, 400},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
@@ -109,7 +113,7 @@ func TestNotificationRoutesWhenAccountsDisabled(t *testing.T) {
 		h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: AccountOptions{Enabled: enabled, Origin: "https://messeances.fr"}})
 		for _, tc := range []struct{ method, path string }{
 			{"GET", "/api/v1/account/notifications"}, {"GET", "/api/v1/account/notifications/status"},
-			{"POST", "/api/v1/account/notifications/read"}, {"POST", "/api/v1/account/notifications/read-all"},
+			{"POST", "/api/v1/account/notifications/read"}, {"POST", "/api/v1/account/notifications/read-all"}, {"POST", "/api/v1/account/notifications/test"},
 			{"GET", notificationRulePath}, {"POST", notificationRulePath},
 			{"POST", notificationRulePath + "/update"}, {"POST", notificationRulePath + "/delete"},
 		} {
