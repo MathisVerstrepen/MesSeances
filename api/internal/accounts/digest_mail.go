@@ -27,6 +27,7 @@ type digestItem struct {
 }
 
 type digestContent struct {
+	Test                                                                                   bool
 	Title, Intro, Preheader, More, IconURL, InboxURL, SettingsURL, UnsubscribeURL, Cadence string
 	Items                                                                                  []digestItem
 }
@@ -159,12 +160,29 @@ func digestSubject(items []digestItem, total int) string {
 	return subject + " · MesSeances"
 }
 
+// testDigestMailMessage previews the digest with the account's latest inbox
+// entries (read or not). It is user-requested, so it carries no unsubscribe
+// headers and its footer says why it was sent.
+func testDigestMailMessage(origin, recipient string, items []NotificationView) (accountmail.Message, error) {
+	message, err := renderDigestMail(origin, recipient, "", items, len(items), "", "", true)
+	if err != nil {
+		return message, err
+	}
+	message.Subject = "E-mail de test · MesSeances"
+	return message, nil
+}
+
 func digestMailMessage(origin, recipient, frequency string, items []NotificationView, total int, oneClickURL, unsubscribePageURL string) (accountmail.Message, error) {
+	return renderDigestMail(origin, recipient, frequency, items, total, oneClickURL, unsubscribePageURL, false)
+}
+
+func renderDigestMail(origin, recipient, frequency string, items []NotificationView, total int, oneClickURL, unsubscribePageURL string, test bool) (accountmail.Message, error) {
 	cadence := "quotidien"
 	if frequency == DigestWeekly {
 		cadence = "hebdomadaire"
 	}
 	content := digestContent{
+		Test:           test,
 		Title:          "Vos alertes",
 		Intro:          strconv.Itoa(total) + " " + plural(total, "notification non lue", "notifications non lues") + " depuis votre dernier résumé.",
 		IconURL:        origin + "/pwa-64x64.png",
@@ -173,7 +191,17 @@ func digestMailMessage(origin, recipient, frequency string, items []Notification
 		UnsubscribeURL: unsubscribePageURL,
 		Cadence:        cadence,
 	}
+	if test {
+		content.Title = "Les e-mails arrivent bien"
+		content.Intro = "Vos prochaines notifications apparaîtront ici dès qu’une alerte se déclenchera."
+		if len(items) > 0 {
+			content.Intro = "Voici un aperçu de votre résumé avec vos dernières notifications."
+		}
+	}
 	var text strings.Builder
+	if test {
+		text.WriteString(content.Title + "\n\n")
+	}
 	text.WriteString(content.Intro + "\n\n")
 	for _, item := range items {
 		layout := digestLayout(origin, item)
@@ -191,12 +219,17 @@ func digestMailMessage(origin, recipient, frequency string, items []Notification
 		content.More = "Et " + strconv.Itoa(total-len(items)) + " de plus dans votre boîte de notifications."
 		text.WriteString("\n" + content.More + "\n")
 	}
-	if len(content.Items) > 0 {
+	content.Preheader = content.Intro
+	if len(content.Items) > 0 && !test {
 		content.Preheader = content.Items[0].Title + " — " + content.Items[0].Detail
 	}
 	text.WriteString("\nToutes vos notifications : " + content.InboxURL + "\n")
 	text.WriteString("Gérer vos alertes : " + content.SettingsURL + "\n")
-	text.WriteString("\nVous recevez ce résumé " + cadence + " car vous l’avez activé. Se désabonner : " + unsubscribePageURL + "\n")
+	if test {
+		text.WriteString("\nVous recevez cet e-mail car vous avez demandé un test depuis votre compte.\n")
+	} else {
+		text.WriteString("\nVous recevez ce résumé " + cadence + " car vous l’avez activé. Se désabonner : " + unsubscribePageURL + "\n")
+	}
 	var body bytes.Buffer
 	if err := digestMailTemplate.Execute(&body, content); err != nil {
 		return accountmail.Message{}, err
@@ -240,7 +273,7 @@ var digestMailTemplate = template.Must(template.New("digest-mail").Funcs(templat
           </tr>
           <tr>
             <td bgcolor="#ffffff" style="padding:32px 24px 8px;color:#27272a;font-family:Arial,Helvetica,sans-serif;">
-              <p style="margin:0 0 20px;font-family:'Courier New',Courier,monospace;font-size:12px;line-height:20px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;"><span style="background-color:#a8bfa3;color:#27272a;padding:4px 8px;">Résumé {{.Cadence}}</span></p>
+              <p style="margin:0 0 20px;font-family:'Courier New',Courier,monospace;font-size:12px;line-height:20px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;"><span style="background-color:#a8bfa3;color:#27272a;padding:4px 8px;">{{if .Test}}E-mail de test{{else}}Résumé {{.Cadence}}{{end}}</span></p>
               <h1 style="margin:0 0 12px;font-size:32px;line-height:38px;font-weight:900;letter-spacing:-1px;">{{.Title}}</h1>
               <p style="margin:0;font-size:16px;line-height:26px;">{{.Intro}}</p>
             </td>
@@ -302,9 +335,10 @@ var digestMailTemplate = template.Must(template.New("digest-mail").Funcs(templat
           </tr>
           <tr>
             <td bgcolor="#fcfaf8" style="padding:20px 24px;border-top:2px solid #27272a;color:#27272a;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;">
-              Vous recevez ce résumé {{.Cadence}} car vous l’avez activé.
+              {{if .Test}}Vous recevez cet e-mail car vous avez demandé un test depuis votre compte.
+              <a href="{{.SettingsURL}}" style="color:#27272a;">Gérer mes alertes</a>{{else}}Vous recevez ce résumé {{.Cadence}} car vous l’avez activé.
               <a href="{{.SettingsURL}}" style="color:#27272a;">Gérer mes alertes</a> ·
-              <a href="{{.UnsubscribeURL}}" style="color:#27272a;">Se désabonner</a>
+              <a href="{{.UnsubscribeURL}}" style="color:#27272a;">Se désabonner</a>{{end}}
             </td>
           </tr>
         </table>
