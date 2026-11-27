@@ -39,7 +39,8 @@ func (w *Worker) now() time.Time {
 	return time.Now().UTC()
 }
 
-// claim counts the attempt BEFORE external I/O. A crash consumes an attempt and
+// claim counts the attempt BEFORE external I/O. Optional digests are claimed
+// only when no security or credential message is due. A crash consumes an attempt and
 // preserves the same payload/token. The lease digest fences late completions.
 func (w *Worker) claim(ctx context.Context) (delivery, error) {
 	var d delivery
@@ -54,7 +55,7 @@ func (w *Worker) claim(ctx context.Context) (delivery, error) {
 	}
 	err = w.Pool.QueryRow(ctx, `UPDATE account_mail_outbox SET attempts=attempts+1,lease_until=$1::timestamptz+interval '60 seconds',lease_digest=$2,
 	 next_attempt_at=$1::timestamptz+CASE attempts WHEN 0 THEN interval '1 minute' WHEN 1 THEN interval '5 minutes' WHEN 2 THEN interval '15 minutes' WHEN 3 THEN interval '1 hour' WHEN 4 THEN interval '4 hours' ELSE interval '60 seconds' END
-	 WHERE id=(SELECT id FROM account_mail_outbox WHERE state='pending' AND attempts<6 AND expires_at>$1 AND next_attempt_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) ORDER BY next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED)
+	 WHERE id=(SELECT id FROM account_mail_outbox WHERE state='pending' AND attempts<6 AND expires_at>$1 AND next_attempt_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) ORDER BY purpose='notification_digest',next_attempt_at,id LIMIT 1 FOR UPDATE SKIP LOCKED)
 	 RETURNING id,event_digest,purpose,payload_key_id,payload_nonce,payload_ciphertext,attempts`, now, d.lease).Scan(&d.id, &d.event, &d.purpose, &d.envelope.KeyID, &d.envelope.Nonce, &d.envelope.Ciphertext, &d.attempt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return delivery{}, nil
@@ -71,7 +72,8 @@ func (w *Worker) ready(ctx context.Context, d delivery, address []byte) (bool, e
 	 WHERE o.id=$1 AND o.lease_digest=$2 AND o.state='pending' AND o.lease_until>$3 AND o.expires_at>$3
 	 AND a.auth_revision=o.auth_revision AND (a.pending_kind IS NULL OR a.created_at>$3::timestamptz-interval '168 hours')
 	 AND NOT EXISTS(SELECT 1 FROM account_mail_suppressions WHERE address_digest=$4 AND expires_at>$3)
-	 AND (o.purpose='security_notification' AND o.token_digest IS NULL OR EXISTS(SELECT 1 FROM account_tokens t
+	 AND (o.purpose<>'notification_digest' OR EXISTS(SELECT 1 FROM account_notification_digests d WHERE d.account_id=a.id AND d.frequency<>'off'))
+	 AND (o.purpose IN ('security_notification','notification_digest') AND o.token_digest IS NULL OR EXISTS(SELECT 1 FROM account_tokens t
 	 LEFT JOIN account_sessions s ON s.token_digest=t.session_digest
 	 WHERE t.token_digest=o.token_digest AND t.account_id=a.id AND t.auth_revision=a.auth_revision AND t.purpose=o.purpose AND t.expires_at>$3 AND t.consumed_at IS NULL
 	 AND (t.session_digest IS NULL OR s.auth_revision=a.auth_revision AND s.expires_at>$3 AND s.last_seen_at>$3::timestamptz-interval '168 hours'))))`, d.id, d.lease, w.now(), address).Scan(&ready)

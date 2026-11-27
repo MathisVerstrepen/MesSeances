@@ -16,6 +16,8 @@ import type {
   NotificationRules,
   NotificationStatus,
   PushDevices,
+  DigestFrequency,
+  NotificationDigest,
 } from '~/types/notifications'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
@@ -327,6 +329,7 @@ export function useAccountApi() {
             : 'false',
         enabled: input.rule.enabled ? 'true' : 'false',
         push: input.rule.push ? 'true' : 'false',
+        email: input.rule.email ? 'true' : 'false',
       }
       return request<NotificationRules>(
         input.id
@@ -343,6 +346,23 @@ export function useAccountApi() {
     ) =>
       request<NotificationRules>(
         '/account/notification-rules/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    notificationDigest: (signal?: AbortSignal) =>
+      request<NotificationDigest>(
+        '/account/notification-digest',
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveNotificationDigest: (
+      input: { expected_username: string; frequency: DigestFrequency },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationDigest>(
+        '/account/notification-digest',
         { ...input },
         'POST',
         signal,

@@ -31,7 +31,7 @@ type accountHTTP struct {
 	origin, cookieName                                   string
 	secure                                               bool
 	login, send, step                                    *tokenBucketLimiter
-	theaters, pushTests                                  *tokenBucketLimiter
+	theaters, pushTests, unsubscribes                    *tokenBucketLimiter
 	activityReads                                        *tokenBucketLimiter
 	watchlistWrites, watchlistSearches, watchlistImports *tokenBucketLimiter
 }
@@ -58,7 +58,8 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 		send:              newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
 		step:              newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
 		theaters:          newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now),
-		pushTests:         newTokenBucketLimiter(5, 5.0/900, 15*time.Minute, maxRateLimitClients, time.Now)}, nil
+		pushTests:         newTokenBucketLimiter(5, 5.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		unsubscribes:      newTokenBucketLimiter(30, 30.0/900, 15*time.Minute, maxRateLimitClients, time.Now)}, nil
 }
 
 func accountError(w http.ResponseWriter, err error) {

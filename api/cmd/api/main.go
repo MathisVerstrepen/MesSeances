@@ -316,6 +316,8 @@ func run(ctx context.Context) error {
 		}
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountNotifications(workerCtx, accountService, logger) }()
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountDigests(workerCtx, accountService, logger) }()
 		if cfg.Accounts.PushPublicKey != "" {
 			polling.Add(1)
 			go func() { defer polling.Done(); runAccountPush(workerCtx, accountService, logger) }()

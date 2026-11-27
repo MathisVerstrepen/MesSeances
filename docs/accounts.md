@@ -47,7 +47,7 @@ The homepage sends the active cinema selection to `POST /api/v1/theaters/activit
 
 ### Notifications
 
-Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell, and alerts marked `push` are also delivered as browser notifications (see [Browser push](#browser-push)). No alert exists by default and no email is sent yet. Each alert has a kind and its own cinema scope:
+Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell, alerts marked `push` are also delivered as browser notifications (see [Browser push](#browser-push)) and alerts marked `email` feed an optional email digest (see [Email digest](#email-digest)). No alert exists by default. Each alert has a kind and its own cinema scope:
 
 - `cinema_activity`: new programming (`added_to_program`) in the scoped cinemas, optionally including returns to program (`include_returns`).
 - `watchlist_screening`: the first arrival of a canonical watchlist film in one of the scoped cinemas. Each alert notifies a given film once; returns never notify.
@@ -62,7 +62,7 @@ The API worker (`account_notifications_*` logs, every 15 seconds) reads the cine
 | `POST /api/v1/account/notifications/read` | `{expected_username, ids}`; `ids` a comma-separated list of 1-100 positive IDs | Status; unknown, foreign or already read IDs are ignored |
 | `POST /api/v1/account/notifications/read-all` | `{expected_username, through_id}` | Status; entries newer than `through_id` stay unread |
 | `GET /api/v1/account/notification-rules` | No query parameters | `{username, rules, max_rules, max_custom_theaters}` |
-| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}` plus optional `push` (absent means `"false"`); `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
+| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}` plus optional `push` and `email` (absent means `"false"`); `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
 | `POST /api/v1/account/notification-rules/update` | Same fields plus `id`; kind is immutable | Rules snapshot |
 | `POST /api/v1/account/notification-rules/delete` | `{expected_username, id}` | Rules snapshot |
 
@@ -84,6 +84,20 @@ Endpoints must be HTTPS URLs on a known push service (`fcm.googleapis.com`, `pus
 | `POST /api/v1/account/push/test` | `{expected_username, id}` | `204`; synchronous test message, limited to 5 per 15 minutes per client |
 
 Errors: `503 push_unavailable` when push is not configured, `409 push_device_limit_reached`, `404 push_device_not_found`, `410 push_device_expired` (the device was removed because its push service rejected it permanently) and `502 push_delivery_failed`.
+
+### Email digest
+
+The digest is an account-level setting on the Alertes tab: `off` (default), `daily` (around 08:00 Europe/Paris) or `weekly` (Wednesdays, the French release day, around 08:00). It groups unread inbox entries of alerts marked `email` that were delivered since the previous digest, at most 20 listed (the subject and intro give the total) and at most 8 days old. No mail is sent when there is nothing new. Enabling the digest never mails existing entries. Entries read in the app before the digest time are skipped. The layout is film-first: an entry about one film shows its poster in a card (watchlist arrivals and single new films), and grouped activity shows a row of up to four titled posters with the remaining count. The subject names the first films and a hidden preheader repeats the first entry. Posters are the catalog's HTTPS poster URLs, loaded by the mail client directly from TMDB (resized to `w185`) or from the provider CDN; films without a poster get a dark box with their initials, and every image has dimensions and alt text so blocked images stay readable.
+
+Digests go through the existing encrypted SES outbox with purpose `notification_digest`, a 12-hour lifetime, the usual suppression list and authority-revision checks. They never compete with credential or security mail: the dispatcher claims them only when no other message is due, the sweeper defers them while 2,000 or more messages are pending, and delivery drops them if the digest was disabled meanwhile. The worker (`account_digests_*` logs, counters only) runs every minute.
+
+Every digest carries RFC 8058 headers `List-Unsubscribe: <https://…/api/v1/notifications/unsubscribe?token=…>` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. That public `POST` route needs no cookie, Origin or CSRF header, rejects `GET`, has its own IP limit (30 per 15 minutes) and private response headers; its HMAC token, bound to the account ID and current address, can only turn the digest off. The footer link opens `/notifications/desabonnement`, which requires an explicit click (link scanners cannot unsubscribe), sets `no-referrer` and removes the token from the address bar after success.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/notification-digest` | No query parameters | `{username, frequency, next_due_at, last_sent_at, available}` |
+| `POST /api/v1/account/notification-digest` | `{expected_username, frequency}`; `frequency` exactly `off`, `daily` or `weekly` | Same view |
+| `POST /api/v1/notifications/unsubscribe?token=…` | Single `token` query parameter; body ignored (mail clients send `List-Unsubscribe=One-Click`) | `{unsubscribed: true}`; invalid or stale tokens return `400 invalid_link` |
 
 ### Watchlist
 

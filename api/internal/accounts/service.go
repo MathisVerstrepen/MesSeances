@@ -79,6 +79,7 @@ type Service struct {
 	pushCipher                  accountmail.PayloadCipher
 	pushPublicKey               string
 	pushMu                      sync.Mutex // process-local push delivery admission
+	digestMu                    sync.Mutex // process-local digest sweep admission
 }
 
 func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) {

@@ -19,7 +19,7 @@ type AccountOptions struct {
 }
 
 func accountPath(path string) bool {
-	return path == "/api/v1/auth" || strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/account" || strings.HasPrefix(path, "/api/v1/account/")
+	return path == "/api/v1/auth" || strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/account" || strings.HasPrefix(path, "/api/v1/account/") || path == digestUnsubscribePath
 }
 
 // Wrap the whole router so cache/error and CORS policy also cover unknown paths,
@@ -107,6 +107,9 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Post("/api/v1/account/push/subscriptions", unavailable)
 	router.Post("/api/v1/account/push/subscriptions/delete", unavailable)
 	router.Post("/api/v1/account/push/test", unavailable)
+	router.Get("/api/v1/account/notification-digest", unavailable)
+	router.Post("/api/v1/account/notification-digest", unavailable)
+	router.Post(digestUnsubscribePath, unavailable)
 	router.Get("/api/v1/account/watchlist", unavailable)
 	router.Post("/api/v1/account/watchlist/next-screenings", unavailable)
 	router.Get("/api/v1/account/watched", unavailable)

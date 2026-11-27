@@ -149,6 +149,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{88, "088_cotecine_sources.sql"},
 		{89, "089_account_notifications.sql"},
 		{90, "090_account_web_push.sql"},
+		{91, "091_account_notification_digest.sql"},
 	}
 
 	items, err := embeddedMigrations()

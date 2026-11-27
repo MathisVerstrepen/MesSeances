@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -35,7 +36,9 @@ func TestNotificationRuleStrictInput(t *testing.T) {
 		{"json boolean", notificationRulePath, strings.Replace(validNotificationRule, `"enabled":"true"`, `"enabled":true`, 1), 400},
 		{"missing enabled", notificationRulePath, strings.Replace(validNotificationRule, `,"enabled":"true"`, "", 1), 400},
 		{"missing username", notificationRulePath, strings.Replace(validNotificationRule, `"expected_username":"owner",`, "", 1), 400},
-		{"extra", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"email":"true"}`, 400},
+		{"extra", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"sms":"true"}`, 400},
+		{"email", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"email":"true"}`, 503},
+		{"email casing", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"email":"yes"}`, 400},
 		{"push", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"push":"true"}`, 503},
 		{"push casing", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"push":"TRUE"}`, 400},
 		{"read", "/api/v1/account/notifications/read", `{"expected_username":"owner","ids":"1,2"}`, 503},
@@ -166,6 +169,65 @@ func TestPushStrictInput(t *testing.T) {
 		disabled.ServeHTTP(w, theaterPreferenceRequest(t, method, path, "{}"))
 		if w.Code != 503 {
 			t.Fatalf("disabled %s status %d", path, w.Code)
+		}
+	}
+}
+
+func TestNotificationDigestHTTPBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		status     int
+	}{
+		{"valid", `{"expected_username":"owner","frequency":"weekly"}`, 503},
+		{"off", `{"expected_username":"owner","frequency":"off"}`, 503},
+		{"unknown", `{"expected_username":"owner","frequency":"hourly"}`, 400},
+		{"missing", `{"expected_username":"owner"}`, 400},
+		{"extra", `{"expected_username":"owner","frequency":"daily","x":"1"}`, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, theaterPreferenceRequest(t, "POST", "/api/v1/account/notification-digest", tc.body))
+			if w.Code != tc.status {
+				t.Fatalf("status %d want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+			assertAccountHeaders(t, w)
+		})
+	}
+	// Account 1 with a wrong MAC: well-formed, so it reaches the service.
+	valid := base64.RawURLEncoding.EncodeToString(append([]byte{0, 0, 0, 0, 0, 0, 0, 1}, make([]byte, 16)...))
+	for _, tc := range []struct {
+		name, method, target string
+		status               int
+	}{
+		// One-click POST needs no cookie, Origin or CSRF header (RFC 8058).
+		{"one click", "POST", digestUnsubscribePath + "?token=" + valid, 503},
+		{"get never unsubscribes", "GET", digestUnsubscribePath + "?token=" + valid, 405},
+		{"missing token", "POST", digestUnsubscribePath, 400},
+		{"two tokens", "POST", digestUnsubscribePath + "?token=a&token=b", 400},
+		{"extra parameter", "POST", digestUnsubscribePath + "?token=" + valid + "&x=1", 400},
+		{"oversized", "POST", digestUnsubscribePath + "?token=" + strings.Repeat("A", 65), 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+			r := httptest.NewRequestWithContext(t.Context(), tc.method, tc.target, strings.NewReader("List-Unsubscribe=One-Click"))
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.status {
+				t.Fatalf("status %d want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+			if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
+				t.Fatal("unsubscribe response missing private headers")
+			}
+		})
+	}
+	disabled := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: AccountOptions{Enabled: false, Origin: "https://messeances.fr"}})
+	for _, tc := range []struct{ method, path string }{{"GET", "/api/v1/account/notification-digest"}, {"POST", "/api/v1/account/notification-digest"}, {"POST", digestUnsubscribePath}} {
+		w := httptest.NewRecorder()
+		disabled.ServeHTTP(w, theaterPreferenceRequest(t, tc.method, tc.path, "{}"))
+		if w.Code != 503 {
+			t.Fatalf("disabled %s %s status %d", tc.method, tc.path, w.Code)
 		}
 	}
 }
