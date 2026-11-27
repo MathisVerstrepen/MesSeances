@@ -36,6 +36,7 @@ type NotificationRuleInput struct {
 	TheaterIDs     []string
 	IncludeReturns bool
 	Enabled        bool
+	Push           bool
 }
 
 type NotificationRuleView struct {
@@ -45,6 +46,7 @@ type NotificationRuleView struct {
 	TheaterIDs     []string  `json:"theater_ids"`
 	IncludeReturns bool      `json:"include_returns"`
 	Enabled        bool      `json:"enabled"`
+	Push           bool      `json:"push"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
@@ -97,7 +99,7 @@ func parseNotificationID(raw string) (int64, error) {
 // readNotificationRules requires the authorized account lock.
 func readNotificationRules(ctx context.Context, tx pgx.Tx, a account) (NotificationRulesView, error) {
 	view := NotificationRulesView{Username: *a.username, Rules: []NotificationRuleView{}, MaxRules: maxNotificationRules, MaxCustomTheaters: maxNotificationCustomTheaters}
-	rows, err := tx.Query(ctx, `SELECT id,kind,theater_scope,theater_ids,include_returns,enabled,created_at FROM account_notification_rules WHERE account_id=$1 ORDER BY id`, a.id)
+	rows, err := tx.Query(ctx, `SELECT id,kind,theater_scope,theater_ids,include_returns,enabled,push,created_at FROM account_notification_rules WHERE account_id=$1 ORDER BY id`, a.id)
 	if err != nil {
 		return view, ErrUnavailable
 	}
@@ -105,7 +107,7 @@ func readNotificationRules(ctx context.Context, tx pgx.Tx, a account) (Notificat
 	for rows.Next() {
 		var rule NotificationRuleView
 		var id int64
-		if err := rows.Scan(&id, &rule.Kind, &rule.TheaterScope, &rule.TheaterIDs, &rule.IncludeReturns, &rule.Enabled, &rule.CreatedAt); err != nil {
+		if err := rows.Scan(&id, &rule.Kind, &rule.TheaterScope, &rule.TheaterIDs, &rule.IncludeReturns, &rule.Enabled, &rule.Push, &rule.CreatedAt); err != nil {
 			return view, ErrUnavailable
 		}
 		rule.ID, rule.CreatedAt = strconv.FormatInt(id, 10), rule.CreatedAt.UTC()
@@ -184,8 +186,8 @@ func (s *Service) CreateNotificationRule(ctx context.Context, rawSession, expect
 			return err
 		}
 		now := s.now().UTC()
-		_, err = tx.Exec(ctx, `INSERT INTO account_notification_rules(account_id,kind,theater_scope,theater_ids,include_returns,enabled,armed_after_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
-			a.id, input.Kind, input.TheaterScope, input.TheaterIDs, input.IncludeReturns, input.Enabled, armed, now)
+		_, err = tx.Exec(ctx, `INSERT INTO account_notification_rules(account_id,kind,theater_scope,theater_ids,include_returns,enabled,push,armed_after_event_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`,
+			a.id, input.Kind, input.TheaterScope, input.TheaterIDs, input.IncludeReturns, input.Enabled, input.Push, armed, now)
 		if err != nil {
 			return ErrUnavailable
 		}
@@ -205,8 +207,8 @@ func (s *Service) UpdateNotificationRule(ctx context.Context, rawSession, expect
 	return s.notificationRuleMutation(ctx, rawSession, expectedUsername, func(tx pgx.Tx, a account) error {
 		var kind, scope string
 		var ids []string
-		var includeReturns, enabled bool
-		err := tx.QueryRow(ctx, `SELECT kind,theater_scope,theater_ids,include_returns,enabled FROM account_notification_rules WHERE account_id=$1 AND id=$2 FOR UPDATE`, a.id, id).Scan(&kind, &scope, &ids, &includeReturns, &enabled)
+		var includeReturns, enabled, push bool
+		err := tx.QueryRow(ctx, `SELECT kind,theater_scope,theater_ids,include_returns,enabled,push FROM account_notification_rules WHERE account_id=$1 AND id=$2 FOR UPDATE`, a.id, id).Scan(&kind, &scope, &ids, &includeReturns, &enabled, &push)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotificationRuleNotFound
 		}
@@ -217,7 +219,7 @@ func (s *Service) UpdateNotificationRule(ctx context.Context, rawSession, expect
 			return ErrInvalidInput
 		}
 		slices.Sort(ids)
-		if scope == input.TheaterScope && slices.Equal(ids, input.TheaterIDs) && includeReturns == input.IncludeReturns && enabled == input.Enabled {
+		if scope == input.TheaterScope && slices.Equal(ids, input.TheaterIDs) && includeReturns == input.IncludeReturns && enabled == input.Enabled && push == input.Push {
 			return nil
 		}
 		// Re-arm only when the matched population can grow; disabling, narrowing
@@ -229,9 +231,9 @@ func (s *Service) UpdateNotificationRule(ctx context.Context, rawSession, expect
 				return err
 			}
 		}
-		_, err = tx.Exec(ctx, `UPDATE account_notification_rules SET theater_scope=$3,theater_ids=$4,include_returns=$5,enabled=$6,
+		_, err = tx.Exec(ctx, `UPDATE account_notification_rules SET theater_scope=$3,theater_ids=$4,include_returns=$5,enabled=$6,push=$9,
  armed_after_event_id=CASE WHEN $7::bigint<0 THEN armed_after_event_id ELSE greatest(armed_after_event_id,$7) END,
- updated_at=greatest(created_at,$8) WHERE account_id=$1 AND id=$2`, a.id, id, input.TheaterScope, input.TheaterIDs, input.IncludeReturns, input.Enabled, armed, s.now().UTC())
+ updated_at=greatest(created_at,$8) WHERE account_id=$1 AND id=$2`, a.id, id, input.TheaterScope, input.TheaterIDs, input.IncludeReturns, input.Enabled, armed, s.now().UTC(), input.Push)
 		if err != nil {
 			return ErrUnavailable
 		}

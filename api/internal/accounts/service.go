@@ -48,6 +48,10 @@ type ServiceOptions struct {
 	WatchlistProvider        WatchlistProvider
 	WatchlistReleaseProvider WatchlistReleaseProvider
 	WatchlistRefresh         func(context.Context, string) error
+	// Push is optional: sender, cipher and public key enable browser delivery.
+	Push          PushSender
+	PushCipher    accountmail.PayloadCipher
+	PushPublicKey string
 }
 
 type Service struct {
@@ -71,6 +75,10 @@ type Service struct {
 	watchlistReleaseMu          sync.Mutex // guards sweep admission and process-local pause
 	watchlistReleasePausedUntil time.Time
 	notificationMu              sync.Mutex // process-local sweep admission
+	push                        PushSender
+	pushCipher                  accountmail.PayloadCipher
+	pushPublicKey               string
+	pushMu                      sync.Mutex // process-local push delivery admission
 }
 
 func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) {
@@ -83,7 +91,7 @@ func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) 
 	if options.GooglePictures == nil && options.Avatars != nil {
 		options.GooglePictures = options.Avatars
 	}
-	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures, watchlistProvider: options.WatchlistProvider, watchlistReleaseProvider: options.WatchlistReleaseProvider, watchlistRefresh: options.WatchlistRefresh, watchlistGate: make(chan struct{}, 2), followedActivityGate: make(chan struct{}, 2)}, nil
+	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures, watchlistProvider: options.WatchlistProvider, watchlistReleaseProvider: options.WatchlistReleaseProvider, watchlistRefresh: options.WatchlistRefresh, watchlistGate: make(chan struct{}, 2), followedActivityGate: make(chan struct{}, 2), push: options.Push, pushCipher: options.PushCipher, pushPublicKey: options.PushPublicKey}, nil
 }
 
 func (s *Service) newToken() (string, Digest, error) {

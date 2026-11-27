@@ -47,7 +47,7 @@ The homepage sends the active cinema selection to `POST /api/v1/theaters/activit
 
 ### Notifications
 
-Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell. No alert exists by default and no email or browser push is sent yet. Each alert has a kind and its own cinema scope:
+Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell, and alerts marked `push` are also delivered as browser notifications (see [Browser push](#browser-push)). No alert exists by default and no email is sent yet. Each alert has a kind and its own cinema scope:
 
 - `cinema_activity`: new programming (`added_to_program`) in the scoped cinemas, optionally including returns to program (`include_returns`).
 - `watchlist_screening`: the first arrival of a canonical watchlist film in one of the scoped cinemas. Each alert notifies a given film once; returns never notify.
@@ -62,11 +62,28 @@ The API worker (`account_notifications_*` logs, every 15 seconds) reads the cine
 | `POST /api/v1/account/notifications/read` | `{expected_username, ids}`; `ids` a comma-separated list of 1-100 positive IDs | Status; unknown, foreign or already read IDs are ignored |
 | `POST /api/v1/account/notifications/read-all` | `{expected_username, through_id}` | Status; entries newer than `through_id` stay unread |
 | `GET /api/v1/account/notification-rules` | No query parameters | `{username, rules, max_rules, max_custom_theaters}` |
-| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}`; `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
+| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}` plus optional `push` (absent means `"false"`); `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
 | `POST /api/v1/account/notification-rules/update` | Same fields plus `id`; kind is immutable | Rules snapshot |
 | `POST /api/v1/account/notification-rules/delete` | `{expected_username, id}` | Rules snapshot |
 
 These routes require a complete session and the usual strict account JSON, Origin, CSRF and Fetch Metadata protections. Inbox reads share the expensive-read IP limiter; writes share the selected-theater write limiter. Unknown or foreign alerts return `404 notification_rule_not_found`; the 21st alert returns `409 notification_rule_limit_reached`. Alerts and inbox entries cascade on account deletion. Films and cinemas are resolved at read time to current canonical public metadata; entries whose film can no longer be resolved show counts without that film.
+
+### Browser push
+
+Browser push is optional and enabled when `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` (base64url P-256 pair, generate with `cd api && go run ./cmd/push-keys`) and `WEB_PUSH_SUBJECT` (`mailto:` or `https:` contact) are all set; a partial or mismatched set blocks startup with the generic configuration error. The private key is a deployment secret. Without these values the inbox keeps working and push controls stay hidden.
+
+Users enable push per device from the Alertes tab of `/compte/notifications`. The browser permission is requested only from that explicit click. iOS and iPadOS require the site to be added to the home screen first; the page explains this. Each account keeps at most 10 devices, labelled coarsely (for example `Chrome · Android`). Logging out from a device unsubscribes it best-effort; logout-all and other authority revocations detach all devices server-side immediately (they are no longer listed or delivered) and the push worker then deletes them.
+
+Endpoints must be HTTPS URLs on a known push service (`fcm.googleapis.com`, `push.services.mozilla.com`, `push.apple.com`, `notify.windows.com` and their subdomains), so the API never sends requests to arbitrary hosts. Messages use RFC 8291 `aes128gcm` encryption and RFC 8292 VAPID with a 12-hour TTL; activity alerts use a per-alert `Topic`, so a newer merged message replaces an undelivered older one. The payload holds a title, a body, a same-origin path and a tag; the service worker (`public/sw-push.js`, imported by the generated Workbox worker) re-validates the path against the site origin. The API worker (`account_push_*` logs, counters only) runs every 5 seconds when push is configured.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/push` | No query parameters | `{username, available, public_key, devices, max_devices, current_id: null}` |
+| `POST /api/v1/account/push/subscriptions` | `{expected_username, endpoint, p256dh, auth, label}` | Same view with `current_id` of this browser; re-registering updates in place and an endpoint owned by another account moves |
+| `POST /api/v1/account/push/subscriptions/delete` | `{expected_username}` plus exactly one of `id` or `endpoint` | Device view; unknown endpoints are an idempotent success |
+| `POST /api/v1/account/push/test` | `{expected_username, id}` | `204`; synchronous test message, limited to 5 per 15 minutes per client |
+
+Errors: `503 push_unavailable` when push is not configured, `409 push_device_limit_reached`, `404 push_device_not_found`, `410 push_device_expired` (the device was removed because its push service rejected it permanently) and `502 push_delivery_failed`.
 
 ### Watchlist
 

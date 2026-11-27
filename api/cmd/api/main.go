@@ -53,6 +53,7 @@ import (
 	"messeances/api/internal/ugc"
 	"messeances/api/internal/veo"
 	"messeances/api/internal/webedia"
+	"messeances/api/internal/webpush"
 	"messeances/api/internal/wikidata"
 )
 
@@ -315,6 +316,10 @@ func run(ctx context.Context) error {
 		}
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountNotifications(workerCtx, accountService, logger) }()
+		if cfg.Accounts.PushPublicKey != "" {
+			polling.Add(1)
+			go func() { defer polling.Done(); runAccountPush(workerCtx, accountService, logger) }()
+		}
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
@@ -676,13 +681,21 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *ac
 	if avatars == nil {
 		return nil, fmt.Errorf("configuration error")
 	}
-	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
+	options := accounts.ServiceOptions{
 		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
 		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
 		Avatars:           avatars,
 		WatchlistProvider: provider, WatchlistRefresh: refresh,
 		WatchlistReleaseProvider: releases,
-	})
+	}
+	if cfg.Accounts.PushPublicKey != "" {
+		vapid, err := webpush.NewVAPID(cfg.Accounts.PushPublicKey, cfg.Accounts.PushPrivateKey, cfg.Accounts.PushSubject)
+		if err != nil {
+			return nil, fmt.Errorf("configuration error")
+		}
+		options.Push, options.PushCipher, options.PushPublicKey = webpush.NewSender(vapid), cipher, vapid.PublicKey()
+	}
+	service, err := accounts.NewService(accounts.NewPostgresStore(pool), options)
 	if err != nil {
 		return nil, fmt.Errorf("configuration error")
 	}

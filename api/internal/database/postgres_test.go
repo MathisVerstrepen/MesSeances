@@ -148,6 +148,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{87, "087_webedia_sources.sql"},
 		{88, "088_cotecine_sources.sql"},
 		{89, "089_account_notifications.sql"},
+		{90, "090_account_web_push.sql"},
 	}
 
 	items, err := embeddedMigrations()

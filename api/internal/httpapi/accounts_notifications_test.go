@@ -35,7 +35,9 @@ func TestNotificationRuleStrictInput(t *testing.T) {
 		{"json boolean", notificationRulePath, strings.Replace(validNotificationRule, `"enabled":"true"`, `"enabled":true`, 1), 400},
 		{"missing enabled", notificationRulePath, strings.Replace(validNotificationRule, `,"enabled":"true"`, "", 1), 400},
 		{"missing username", notificationRulePath, strings.Replace(validNotificationRule, `"expected_username":"owner",`, "", 1), 400},
-		{"extra", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"push":"true"}`, 400},
+		{"extra", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"email":"true"}`, 400},
+		{"push", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"push":"true"}`, 503},
+		{"push casing", notificationRulePath, strings.TrimSuffix(validNotificationRule, "}") + `,"push":"TRUE"}`, 400},
 		{"read", "/api/v1/account/notifications/read", `{"expected_username":"owner","ids":"1,2"}`, 503},
 		{"read empty", "/api/v1/account/notifications/read", `{"expected_username":"owner","ids":""}`, 400},
 		{"read invalid", "/api/v1/account/notifications/read", `{"expected_username":"owner","ids":"1,x"}`, 400},
@@ -113,6 +115,57 @@ func TestNotificationRoutesWhenAccountsDisabled(t *testing.T) {
 			if w.Code != 503 {
 				t.Fatalf("enabled=%t %s %s status %d", enabled, tc.method, tc.path, w.Code)
 			}
+		}
+	}
+}
+
+func TestPushStrictInput(t *testing.T) {
+	const subscription = `{"expected_username":"owner","endpoint":"https://fcm.googleapis.com/fcm/send/x","p256dh":"k","auth":"a","label":"Chrome"}`
+	for _, tc := range []struct {
+		name, path, body string
+		status           int
+	}{
+		// Push is not configured in this fixture: valid input reaches the service.
+		{"subscribe", "/api/v1/account/push/subscriptions", subscription, 503},
+		{"subscribe missing label", "/api/v1/account/push/subscriptions", strings.Replace(subscription, `,"label":"Chrome"`, "", 1), 400},
+		{"subscribe extra", "/api/v1/account/push/subscriptions", strings.TrimSuffix(subscription, "}") + `,"x":"1"}`, 400},
+		{"delete id", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner","id":"3"}`, 503},
+		{"delete endpoint", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner","endpoint":"https://fcm.googleapis.com/fcm/send/x"}`, 503},
+		{"delete both", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner","id":"3","endpoint":"https://fcm.googleapis.com/fcm/send/x"}`, 400},
+		{"delete neither", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner"}`, 400},
+		{"delete empty id", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner","id":""}`, 400},
+		{"delete foreign endpoint", "/api/v1/account/push/subscriptions/delete", `{"expected_username":"owner","endpoint":"https://example.com/x"}`, 400},
+		{"test missing id", "/api/v1/account/push/test", `{"expected_username":"owner"}`, 400},
+		{"test bad id", "/api/v1/account/push/test", `{"expected_username":"owner","id":"0"}`, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, theaterPreferenceRequest(t, "POST", tc.path, tc.body))
+			if w.Code != tc.status {
+				t.Fatalf("status %d want %d: %s", w.Code, tc.status, w.Body.String())
+			}
+			assertAccountHeaders(t, w)
+		})
+	}
+	h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+	for _, target := range []string{"/api/v1/account/push?x=1"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "GET", target, nil))
+		if w.Code != 400 {
+			t.Fatalf("%s status %d", target, w.Code)
+		}
+	}
+	for _, path := range []string{"/api/v1/account/push", "/api/v1/account/push/subscriptions", "/api/v1/account/push/subscriptions/delete", "/api/v1/account/push/test"} {
+		disabled := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: AccountOptions{Enabled: false, Origin: "https://messeances.fr"}})
+		method := "POST"
+		if path == "/api/v1/account/push" {
+			method = "GET"
+		}
+		w := httptest.NewRecorder()
+		disabled.ServeHTTP(w, theaterPreferenceRequest(t, method, path, "{}"))
+		if w.Code != 503 {
+			t.Fatalf("disabled %s status %d", path, w.Code)
 		}
 	}
 }

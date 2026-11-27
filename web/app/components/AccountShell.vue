@@ -12,6 +12,7 @@ defineProps<{
 const account = useAccountSession()
 const route = useRoute()
 const { session, status, errorMessage } = account
+const api = useAccountApi()
 const signingOut = ref(false)
 const signOutError = ref('')
 const lifetime = useAccountLifetime()
@@ -22,6 +23,7 @@ async function logout() {
   signOutError.value = ''
   const current = lifetime.capture(false)
   try {
+    await forgetPushDevice(api, session.value?.account?.username ?? '')
     await account.logout()
     if (!current()) return
     await navigateTo('/connexion')

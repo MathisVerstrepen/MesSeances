@@ -47,6 +47,7 @@ export interface NotificationRule {
   theater_ids: string[]
   include_returns: boolean
   enabled: boolean
+  push: boolean
   created_at: string
 }
 
@@ -63,4 +64,21 @@ export interface NotificationRuleDraft {
   theater_ids: string[]
   include_returns: boolean
   enabled: boolean
+  push: boolean
+}
+
+export interface PushDevice {
+  id: string
+  label: string
+  created_at: string
+  last_success_at: string | null
+}
+
+export interface PushDevices {
+  username: string
+  available: boolean
+  public_key: string
+  devices: PushDevice[]
+  max_devices: number
+  current_id: string | null
 }
