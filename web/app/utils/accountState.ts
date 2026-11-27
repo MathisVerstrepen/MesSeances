@@ -67,6 +67,24 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Vos cinémas suivis ont changé. Vérifiez leur état avant de recommencer.'
   if (cause.code === 'theater_follow_limit_reached')
     return 'Vous suivez déjà le nombre maximal de cinémas. Arrêtez de suivre un cinéma avant de réessayer.'
+  if (cause.code === 'notification_rule_not_found')
+    return 'Cette alerte n’existe plus. Vérifiez la liste actualisée avant de recommencer.'
+  if (cause.code === 'notification_rule_limit_reached')
+    return 'Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre.'
+  if (cause.code === 'push_no_device')
+    return 'Activez d’abord les notifications sur un appareil.'
+  if (cause.code === 'email_not_verified')
+    return 'Vérifiez votre adresse e-mail avant de recevoir des e-mails.'
+  if (cause.code === 'push_unavailable')
+    return 'Les notifications push ne sont pas disponibles pour le moment.'
+  if (cause.code === 'push_device_limit_reached')
+    return 'Vous avez atteint le nombre maximal d’appareils. Retirez un appareil avant d’en ajouter un autre.'
+  if (cause.code === 'push_device_not_found')
+    return 'Cet appareil n’est plus enregistré. Vérifiez la liste actualisée.'
+  if (cause.code === 'push_device_expired')
+    return 'Cet appareil n’accepte plus les notifications. Réactivez-les depuis cet appareil.'
+  if (cause.code === 'push_delivery_failed')
+    return 'Le service de notifications du navigateur n’a pas accepté le message de test. Réessayez plus tard.'
   if (cause.code === 'theater_selection_changed')
     return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
   if (cause.code === 'watchlist_changed')

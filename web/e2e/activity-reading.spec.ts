@@ -91,6 +91,7 @@ test('manual activity survives quick visits and poster badges toggle without ope
 test('mode persists and bulk consultation includes older unloaded activity', async ({
   page,
   request,
+  isMobile,
 }) => {
   await request.post('/__playwright/scenario', { data: complete })
   await openPage(page, '/compte/activite')
@@ -111,17 +112,17 @@ test('mode persists and bulk consultation includes older unloaded activity', asy
   await expect(dialog).not.toBeVisible()
   await page.getByRole('button', { name: 'Afficher plus', exact: true }).click()
   await expect(page.locator('[data-activity-status="old"]')).toHaveCount(3)
-  await expect(page.locator('header [data-activity-notification]')).toHaveCount(
-    0,
-  )
+  // Only the desktop account sidebar shows the activity dot on the feed page.
+  const sidebarDot = page
+    .getByRole('navigation', { name: 'Espace personnel' })
+    .locator('[data-activity-notification]')
+  await expect(sidebarDot).toHaveCount(0)
   await page.locator('[data-event-id="101"]').getByRole('button').click()
   await expect(page.locator('[data-event-id="101"]')).toHaveAttribute(
     'data-activity-status',
     'new',
   )
-  await expect(
-    page.locator('header [data-activity-notification]'),
-  ).toBeVisible()
+  if (!isMobile) await expect(sidebarDot).toBeVisible()
   await openSettings(page)
   await mode.uncheck()
   await expect(mode).toBeEnabled()

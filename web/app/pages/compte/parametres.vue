@@ -436,6 +436,7 @@ async function logout() {
   clearEditor()
   editor.value = null
   try {
+    await forgetPushDevice(api, account.session.value?.account?.username ?? '')
     await account.logout()
     if (!active()) return
     await navigateTo('/connexion')

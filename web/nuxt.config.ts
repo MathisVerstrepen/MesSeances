@@ -140,6 +140,8 @@ export default defineNuxtConfig({
       ],
     },
     workbox: {
+      // Push and notification click handlers (public/sw-push.js).
+      importScripts: ['/sw-push.js'],
       navigateFallback: null,
       globIgnores: [
         '**/*.html',

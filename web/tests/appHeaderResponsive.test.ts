@@ -243,3 +243,25 @@ test('header keeps account labels and selected links unchanged on account and ci
     /aria-current="page"/,
   )
 })
+
+test('notification bell is a desktop nav item before the account link and a compact mobile icon', async () => {
+  const navStart = source.indexOf('<nav')
+  const navEnd = source.indexOf('</nav>')
+  const desktop = source.indexOf(
+    '<NotificationBell variant="nav" class="hidden lg:flex" />',
+  )
+  const account = source.indexOf(':to="accountHref"')
+  const mobile = source.indexOf(
+    '<NotificationBell class="order-2 ml-2 lg:hidden" />',
+  )
+  assert.ok(navStart < desktop && desktop < account && account < navEnd)
+  assert.ok(mobile > navEnd)
+  const bell = await readFile(
+    new URL('../app/components/NotificationBell.vue', import.meta.url),
+    'utf8',
+  )
+  // Full header height on desktop, 44px touch target on mobile.
+  assert.match(bell, /'nav-link h-full min-h-\[4\.5rem\] w-14'/)
+  assert.match(bell, /: 'size-11'/)
+  assert.match(bell, /:aria-controls="panelId"/)
+})

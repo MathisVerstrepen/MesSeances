@@ -453,3 +453,84 @@ func TestWorkerLeaderAndRateIntegration(t *testing.T) {
 		t.Fatal("replicas exceeded one send per second")
 	}
 }
+
+// Digests carry no token, are dropped once the owner unsubscribes, and are only
+// claimed when no credential or security message is due.
+func TestNotificationDigestDispatchIntegration(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		frequency string
+		sent      bool
+	}{{"enabled", "daily", true}, {"unsubscribed", "off", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newMailFixture(t)
+			f.enqueue(t)
+			f.exec(t, `UPDATE accounts SET pending_kind=NULL,email_verified_at=$2,verification_source='email' WHERE id=$1`, f.id, f.now)
+			next := any(nil)
+			if tc.frequency != "off" {
+				next = f.now.Add(time.Hour)
+			}
+			f.exec(t, `INSERT INTO account_notification_digests(account_id,frequency,next_due_at,updated_at) VALUES($1,$2,$3,$4)`, f.id, tc.frequency, next, f.now)
+			ctx := context.Background()
+			tx, err := f.pool.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			event := make([]byte, 32)
+			_, _ = rand.Read(event)
+			address, _ := testAddress("person@example.com")
+			// Created earlier than the verification mail: priority, not age, wins.
+			job := Job{EventDigest: event, AddressDigest: address, AccountID: f.id, Revision: 1, Purpose: "notification_digest", CreatedAt: f.now.Add(-time.Minute), ExpiresAt: f.now.Add(12 * time.Hour),
+				Message: Message{Recipient: "person@example.com", Subject: "digest", Text: "x", HTML: "<p>x</p>", UnsubscribeURL: "https://example.com/api/v1/notifications/unsubscribe?token=t"}}
+			if err = (&Outbox{Cipher: f.worker.Cipher}).Enqueue(ctx, tx, job); err != nil {
+				t.Fatal(err)
+			}
+			if err = tx.Commit(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.worker.step(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if f.sender.calls != 1 || f.sender.messages[0].Subject != "verification" {
+				t.Fatal("security mail must be claimed before an older digest", f.sender.calls)
+			}
+			result, err := f.worker.step(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.sent != (f.sender.calls == 2) {
+				t.Fatalf("digest outcome %s calls=%d", result, f.sender.calls)
+			}
+			if tc.sent && f.sender.messages[1].UnsubscribeURL == "" {
+				t.Fatal("one-click unsubscribe URL lost in the encrypted payload")
+			}
+		})
+	}
+}
+
+func TestNotificationTestDispatchIntegration(t *testing.T) {
+	f := newMailFixture(t)
+	f.enqueue(t)
+	f.exec(t, `UPDATE accounts SET pending_kind=NULL,email_verified_at=$2,verification_source='email' WHERE id=$1`, f.id, f.now)
+	f.exec(t, `DELETE FROM account_mail_outbox`)
+	ctx := context.Background()
+	tx, err := f.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := make([]byte, 32)
+	_, _ = rand.Read(event)
+	address, _ := testAddress("person@example.com")
+	job := Job{EventDigest: event, AddressDigest: address, AccountID: f.id, Revision: 1, Purpose: "notification_test", CreatedAt: f.now, ExpiresAt: f.now.Add(time.Hour),
+		Message: Message{Recipient: "person@example.com", Subject: "test", Text: "x", HTML: "<p>x</p>"}}
+	if err = (&Outbox{Cipher: f.worker.Cipher}).Enqueue(ctx, tx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Token-less and independent of any digest setting.
+	if result, err := f.worker.step(ctx); err != nil || result != "accepted" || f.sender.calls != 1 {
+		t.Fatalf("test mail %s %v calls=%d", result, err, f.sender.calls)
+	}
+}

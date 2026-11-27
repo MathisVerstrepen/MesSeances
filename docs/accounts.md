@@ -27,7 +27,7 @@ Signed-out and incomplete-account browsing retains the independent browser-local
 
 Complete accounts can follow or unfollow cinemas using the icon beside statistics on `/cinema/:slug`. These follows are independent of selected cinemas used for showtime filtering: neither resource imports or edits the other. Anonymous and incomplete accounts use existing sign-in/onboarding destinations, with no automatic follow after sign-in. Disabled accounts hide follow controls while keeping statistics available.
 
-`/compte/activite` combines the existing retained journals of all followed cinemas, newest observation first, with cinema attribution and cinema-scoped film/showtime links. The same film appearing at two cinemas remains two events; only repeated event IDs are deduplicated. Following exposes already-retained activity, not only events after following. Silent first-sync baselines and superseded episodes remain excluded; history is partial and earlier programs are not reconstructed. No follows means an empty feed, never all cinemas. Uninitialized history and initialized journals without events have distinct empty states. No notifications, provider requests or new worker are added.
+`/compte/activite` combines the existing retained journals of all followed cinemas, newest observation first, with cinema attribution and cinema-scoped film/showtime links. The same film appearing at two cinemas remains two events; only repeated event IDs are deduplicated. Following exposes already-retained activity, not only events after following. Silent first-sync baselines and superseded episodes remain excluded; history is partial and earlier programs are not reconstructed. No follows means an empty feed, never all cinemas. Uninitialized history and initialized journals without events have distinct empty states. The feed itself adds no provider requests; opt-in alerts derived from the same journal are described under [Notifications](#notifications).
 
 | Endpoint | Request | Successful response |
 | --- | --- | --- |
@@ -44,6 +44,64 @@ Feed items contain existing cinema activity fields plus `{theater:{id,slug,name,
 Follows synchronize on refresh/focus/reconnection and ID-free same-browser broadcasts, not live cross-device push or polling. Membership lives only in authenticated client memory; feed rows and cursors are page-local and never enter public SSR payloads, browser storage, URL queries, analytics or offline queues. Logout, identity invalidation, offline/pagehide and route departure clear private activity; late responses cannot restore departed views. Account deletion cascades durable follows, while public journals remain. Backup retention and rollout/privacy approval remain operator responsibilities.
 
 The homepage sends the active cinema selection to `POST /api/v1/theaters/activity-preview`, including device favorites for signed-out visitors. This read-only route accepts a JSON array of up to 4,096 distinct cinema IDs in the body. It returns up to four events across the selected live cinemas, newest first, with cinema attribution. An empty selection or a selection with no activity returns `[]`. The response uses `Cache-Control: no-store`, and the route shares the public expensive-read quota.
+
+### Notifications
+
+Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell, alerts marked `push` are also delivered as browser notifications (see [Browser push](#browser-push)) and alerts marked `email` feed an optional email digest (see [Email digest](#email-digest)). No alert exists by default. Each alert has a kind and its own cinema scope:
+
+- `cinema_activity`: new programming (`added_to_program`) in the scoped cinemas, optionally including returns to program (`include_returns`).
+- `watchlist_screening`: the first arrival of a canonical watchlist film in one of the scoped cinemas. Each alert notifies a given film once; returns never notify.
+- Scope `followed` and `preferred` resolve the account's followed cinemas or selected cinemas when events are processed; `custom` stores 1-64 explicit cinema IDs.
+
+The API worker (`account_notifications_*` logs, every 15 seconds) reads the cinema activity journal through a single global cursor. It reads a batch only while no publication holds the snapshot writer lock (shared try-lock, never waiting), then locks owner accounts in ID order before writing. Silent baselines and superseded episodes never notify. Rules are armed at the newest journal event when created, re-enabled, widened or re-scoped, so configuring an alert never replays past activity; migration 089 seeds the cursor at the current journal maximum. Unread activity entries for the same alert are replaced by one merged entry with a new ID. Inbox entries are kept at most 90 days and 200 per account; deleting an alert keeps delivered entries without their alert reference.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/notifications/status` | No query parameters | `{username, unread_count, latest_id}` |
+| `GET /api/v1/account/notifications` | Optional single `limit` (1-50, default 20) and `before` (positive ID); no other parameters | Status fields plus `{items, limit, next_cursor}`; items contain `{id, kind, rule_id, created_at, read, event_count, movie_count, theater_count, movies, theaters}` with at most three resolved films and cinemas |
+| `POST /api/v1/account/notifications/read` | `{expected_username, ids}`; `ids` a comma-separated list of 1-100 positive IDs | Status; unknown, foreign or already read IDs are ignored |
+| `POST /api/v1/account/notifications/read-all` | `{expected_username, through_id}` | Status; entries newer than `through_id` stay unread |
+| `GET /api/v1/account/notification-rules` | No query parameters | `{username, rules, max_rules, max_custom_theaters}` |
+| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}` plus optional `push` and `email` (absent means `"false"`); `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
+| `POST /api/v1/account/notification-rules/update` | Same fields plus `id`; kind is immutable | Rules snapshot |
+| `POST /api/v1/account/notification-rules/delete` | `{expected_username, id}` | Rules snapshot |
+
+These routes require a complete session and the usual strict account JSON, Origin, CSRF and Fetch Metadata protections. Inbox reads share the expensive-read IP limiter; writes share the selected-theater write limiter. Unknown or foreign alerts return `404 notification_rule_not_found`; the 21st alert returns `409 notification_rule_limit_reached`. Alerts and inbox entries cascade on account deletion. Films and cinemas are resolved at read time to current canonical public metadata; entries whose film can no longer be resolved show counts without that film.
+
+### Browser push
+
+Browser push is optional and enabled when `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY` (base64url P-256 pair, generate with `cd api && go run ./cmd/push-keys`) and `WEB_PUSH_SUBJECT` (`mailto:` or `https:` contact) are all set; a partial or mismatched set blocks startup with the generic configuration error. The private key is a deployment secret. Without these values the inbox keeps working and push controls stay hidden.
+
+Users enable push per device from the Alertes tab of `/compte/notifications`. The browser permission is requested only from that explicit click. iOS and iPadOS require the site to be added to the home screen first; the page explains this. Each account keeps at most 10 devices, labelled coarsely (for example `Chrome · Android`). Logging out from a device unsubscribes it best-effort; logout-all and other authority revocations detach all devices server-side immediately (they are no longer listed or delivered) and the push worker then deletes them.
+
+Endpoints must be HTTPS URLs on a known push service (`fcm.googleapis.com`, `push.services.mozilla.com`, `push.apple.com`, `notify.windows.com` and their subdomains), so the API never sends requests to arbitrary hosts. Messages use RFC 8291 `aes128gcm` encryption and RFC 8292 VAPID with a 12-hour TTL; activity alerts use a per-alert `Topic`, so a newer merged message replaces an undelivered older one. The payload holds a title, a body, a same-origin path and a tag; the service worker (`public/sw-push.js`, imported by the generated Workbox worker) re-validates the path against the site origin. The API worker (`account_push_*` logs, counters only) runs every 5 seconds when push is configured.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/push` | No query parameters | `{username, available, public_key, devices, max_devices, current_id: null}` |
+| `POST /api/v1/account/push/subscriptions` | `{expected_username, endpoint, p256dh, auth, label}` | Same view with `current_id` of this browser; re-registering updates in place and an endpoint owned by another account moves |
+| `POST /api/v1/account/push/subscriptions/delete` | `{expected_username}` plus exactly one of `id` or `endpoint` | Device view; unknown endpoints are an idempotent success |
+| `POST /api/v1/account/push/test` | `{expected_username, id}` | `204`; synchronous test message, limited to 5 per 15 minutes per client |
+
+Errors: `503 push_unavailable` when push is not configured, `409 push_device_limit_reached`, `404 push_device_not_found`, `410 push_device_expired` (the device was removed because its push service rejected it permanently) and `502 push_delivery_failed`.
+
+### Email digest
+
+The digest is an account-level setting on the Alertes tab: `off` (default), `daily` (around 08:00 Europe/Paris) or `weekly` (Wednesdays, the French release day, around 08:00). It groups unread inbox entries of alerts marked `email` that were delivered since the previous digest, at most 20 listed (the subject and intro give the total) and at most 8 days old. No mail is sent when there is nothing new. Enabling the digest never mails existing entries. Entries read in the app before the digest time are skipped. The layout is film-first: an entry about one film shows its poster in a card (watchlist arrivals and single new films), and grouped activity shows a row of up to four titled posters with the remaining count. The subject names the first films and a hidden preheader repeats the first entry. Posters are the catalog's HTTPS poster URLs, loaded by the mail client directly from TMDB (resized to `w185`) or from the provider CDN; films without a poster get a dark box with their initials, and every image has dimensions and alt text so blocked images stay readable.
+
+Digests go through the existing encrypted SES outbox with purpose `notification_digest`, a 12-hour lifetime, the usual suppression list and authority-revision checks. They never compete with credential or security mail: the dispatcher claims them only when no other message is due, the sweeper defers them while 2,000 or more messages are pending, and delivery drops them if the digest was disabled meanwhile. The worker (`account_digests_*` logs, counters only) runs every minute.
+
+Every digest carries RFC 8058 headers `List-Unsubscribe: <https://…/api/v1/notifications/unsubscribe?token=…>` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`. That public `POST` route needs no cookie, Origin or CSRF header, rejects `GET`, has its own IP limit (30 per 15 minutes) and private response headers; its HMAC token, bound to the account ID and current address, can only turn the digest off. The footer link opens `/notifications/desabonnement`, which requires an explicit click (link scanners cannot unsubscribe), sets `no-referrer` and removes the token from the address bar after success.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/notification-digest` | No query parameters | `{username, frequency, next_due_at, last_sent_at, available}` |
+| `POST /api/v1/account/notification-digest` | `{expected_username, frequency}`; `frequency` exactly `off`, `daily` or `weekly` | Same view |
+| `POST /api/v1/notifications/unsubscribe?token=…` | Single `token` query parameter; body ignored (mail clients send `List-Unsubscribe=One-Click`) | `{unsubscribed: true}`; invalid or stale tokens return `400 invalid_link` |
+
+### Test notifications
+
+The bottom of the Alertes tab lets the owner send a test through each configured channel with `POST /api/v1/account/notifications/test` (`{expected_username, channel}`, `channel` exactly `push` or `email`), sharing the 5-per-15-minutes IP limit of device tests. `push` sends one test message to every current device in parallel and returns `{channel, delivered, expired, failed}`; devices rejected permanently are removed, `409 push_no_device` means none is registered, and the per-account quota is 10 per 15 minutes. `email` queues an outbox message with purpose `notification_test` (one-hour lifetime) to the account address: a digest-styled preview of the three latest inbox entries, read or not, labelled "E-mail de test", without unsubscribe headers since it is user-requested. Its per-account quota is one per minute, three per hour and ten per day. It does not depend on the digest setting.
 
 ### Watchlist
 

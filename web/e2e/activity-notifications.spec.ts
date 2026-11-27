@@ -8,7 +8,7 @@ const complete = {
   theater_ids: [theater.id, secondTheater.id],
 }
 
-test('header and activity menu dots appear for unseen activity and clear only after visiting the feed', async ({
+test('account menu dots appear for unseen activity and clear only after visiting the feed', async ({
   page,
   request,
   isMobile,
@@ -21,19 +21,16 @@ test('header and activity menu dots appear for unseen activity and clear only af
       .activityNotificationGets,
   ).toBe(0)
   await openPage(page, '/compte')
-  const header = page
-    .getByRole('navigation', { name: 'Navigation principale' })
-    .getByRole('link', { name: 'Mon compte', exact: true })
   const activity = page
     .getByRole('navigation', { name: 'Rubriques du compte' })
     .getByRole('link', { name: 'Activité', exact: true })
-  await expect(header.locator('[data-activity-notification]')).toBeVisible()
-  await expect(header).toHaveAccessibleDescription(
-    'Nouvelle activité disponible',
-  )
   await expect(activity.locator('[data-activity-notification]')).toBeVisible()
   await expect(activity).toHaveAccessibleDescription(
     'Nouvelle activité disponible',
+  )
+  // The header bell now carries account alerts; activity stays in the account area.
+  await expect(page.locator('header [data-activity-notification]')).toHaveCount(
+    0,
   )
   if (!isMobile) {
     const sidebar = page.getByRole('navigation', { name: 'Espace personnel' })
@@ -49,10 +46,9 @@ test('header and activity menu dots appear for unseen activity and clear only af
   })
   await activity.click()
   await expect(page.locator('[data-event-id]')).toHaveCount(2)
-  await expect(header.locator('[data-activity-notification]')).toHaveCount(0)
-  await expect(header).not.toHaveAttribute('aria-description')
   await openPage(page, '/compte')
   await expect(activity.locator('[data-activity-notification]')).toHaveCount(0)
+  await expect(activity).not.toHaveAttribute('aria-description')
   await expect(page.locator('[data-activity-notification]')).toHaveCount(0)
 })
 
@@ -61,8 +57,11 @@ test('focus reconciles a visit from another device and new activity arriving aft
   request,
 }) => {
   await request.post('/__playwright/scenario', { data: complete })
-  await openPage(page, `/cinema/${theater.slug}`)
-  const dot = page.locator('header [data-activity-notification]')
+  await openPage(page, '/compte')
+  const dot = page
+    .getByRole('navigation', { name: 'Rubriques du compte' })
+    .getByRole('link', { name: 'Activité', exact: true })
+    .locator('[data-activity-notification]')
   await expect(dot).toBeVisible()
   // An independent client advances the account watermark, not this browser.
   const visit = await request.post('/api/v1/account/activity/visit', {
@@ -112,7 +111,7 @@ test('late notification responses cannot restore a dot after the account loses i
       },
     })
   })
-  await openPage(page, `/cinema/${theater.slug}`)
+  await openPage(page, '/compte')
   await reading
   await request.post('/__playwright/scenario', {
     data: { enabled: true, state: 'anonymous' },
@@ -137,7 +136,7 @@ for (const state of ['empty', 'no-follows', 'pending']) {
     if (state === 'no-follows') data.theater_ids = []
     if (state === 'pending') data.state = 'pending_username'
     await request.post('/__playwright/scenario', { data })
-    await openPage(page, `/cinema/${theater.slug}`)
+    await openPage(page, '/compte')
     await expect(page.locator('[data-activity-notification]')).toHaveCount(0)
   })
 }

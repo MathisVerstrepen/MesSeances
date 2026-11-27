@@ -116,6 +116,7 @@ function fixture() {
       definePageMeta: () => {},
       useHead: () => {},
       useAccountApi: () => ({}),
+      forgetPushDevice: async () => {},
       useAccountSession: () => ({
         session,
         status,
@@ -523,7 +524,7 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/to=/g)].length, 4)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 5)
   assert.deepEqual(
     [...navigation.matchAll(/to="([^"]+)"/g)].map((match) => match[1]),
     [
@@ -531,6 +532,7 @@ test('account area is opt-in, with one current route and disabled future categor
       '/compte/watchlist',
       '/compte/films-vus',
       '/compte/activite',
+      '/compte/notifications',
     ],
   )
   assert.ok(

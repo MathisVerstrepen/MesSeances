@@ -10,6 +10,17 @@ import type {
   SaveAccountTheaterPreferences,
 } from '~/types/account'
 import { AccountApiError } from '~/utils/accountState'
+import type {
+  AccountNotifications,
+  NotificationRuleDraft,
+  NotificationRules,
+  NotificationStatus,
+  PushDevices,
+  DigestFrequency,
+  NotificationDigest,
+  NotificationTestChannel,
+  NotificationTestResult,
+} from '~/types/notifications'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
   WatchedSnapshot,
@@ -106,6 +117,15 @@ export function useAccountApi() {
         'theater_selection_changed',
         'theater_follows_changed',
         'theater_follow_limit_reached',
+        'notification_rule_not_found',
+        'notification_rule_limit_reached',
+        'push_unavailable',
+        'push_device_limit_reached',
+        'push_device_not_found',
+        'push_device_expired',
+        'push_delivery_failed',
+        'push_no_device',
+        'email_not_verified',
         'avatar_too_large',
         'avatar_unsupported',
         'avatar_invalid',
@@ -239,6 +259,165 @@ export function useAccountApi() {
         'POST',
         signal,
       ),
+    notificationStatus: (signal?: AbortSignal) =>
+      request<NotificationStatus>(
+        '/account/notifications/status',
+        undefined,
+        'GET',
+        signal,
+      ),
+    notifications: (
+      options: { limit?: number; before?: string } = {},
+      signal?: AbortSignal,
+    ) => {
+      const query = new URLSearchParams()
+      if (options.limit) query.set('limit', String(options.limit))
+      if (options.before) query.set('before', options.before)
+      const suffix = query.size ? `?${query.toString()}` : ''
+      return request<AccountNotifications>(
+        `/account/notifications${suffix}`,
+        undefined,
+        'GET',
+        signal,
+      )
+    },
+    markNotificationsRead: (
+      input: { expected_username: string; ids: readonly string[] },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationStatus>(
+        '/account/notifications/read',
+        {
+          expected_username: input.expected_username,
+          ids: input.ids.join(','),
+        },
+        'POST',
+        signal,
+      ),
+    markAllNotificationsRead: (
+      input: { expected_username: string; through_id: string },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationStatus>(
+        '/account/notifications/read-all',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    notificationRules: (signal?: AbortSignal) =>
+      request<NotificationRules>(
+        '/account/notification-rules',
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveNotificationRule: (
+      input: {
+        expected_username: string
+        id?: string
+        rule: NotificationRuleDraft
+      },
+      signal?: AbortSignal,
+    ) => {
+      const fields = {
+        expected_username: input.expected_username,
+        kind: input.rule.kind,
+        theater_scope: input.rule.theater_scope,
+        theater_ids:
+          input.rule.theater_scope === 'custom'
+            ? input.rule.theater_ids.join(',')
+            : '',
+        include_returns:
+          input.rule.kind === 'cinema_activity' && input.rule.include_returns
+            ? 'true'
+            : 'false',
+        enabled: input.rule.enabled ? 'true' : 'false',
+        push: input.rule.push ? 'true' : 'false',
+        email: input.rule.email ? 'true' : 'false',
+      }
+      return request<NotificationRules>(
+        input.id
+          ? '/account/notification-rules/update'
+          : '/account/notification-rules',
+        input.id ? { ...fields, id: input.id } : fields,
+        'POST',
+        signal,
+      )
+    },
+    deleteNotificationRule: (
+      input: { expected_username: string; id: string },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationRules>(
+        '/account/notification-rules/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    sendTestNotification: (
+      input: { expected_username: string; channel: NotificationTestChannel },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationTestResult>(
+        '/account/notifications/test',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    notificationDigest: (signal?: AbortSignal) =>
+      request<NotificationDigest>(
+        '/account/notification-digest',
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveNotificationDigest: (
+      input: { expected_username: string; frequency: DigestFrequency },
+      signal?: AbortSignal,
+    ) =>
+      request<NotificationDigest>(
+        '/account/notification-digest',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    pushDevices: (signal?: AbortSignal) =>
+      request<PushDevices>('/account/push', undefined, 'GET', signal),
+    savePushSubscription: (
+      input: {
+        expected_username: string
+        endpoint: string
+        p256dh: string
+        auth: string
+        label: string
+      },
+      signal?: AbortSignal,
+    ) =>
+      request<PushDevices>(
+        '/account/push/subscriptions',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    deletePushDevice: (
+      input:
+        | { expected_username: string; id: string }
+        | {
+            expected_username: string
+            endpoint: string
+          },
+      signal?: AbortSignal,
+    ) =>
+      request<PushDevices>(
+        '/account/push/subscriptions/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    testPushDevice: (
+      input: { expected_username: string; id: string },
+      signal?: AbortSignal,
+    ) => request<void>('/account/push/test', { ...input }, 'POST', signal),
     watchlist: (signal?: AbortSignal) =>
       request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
     watched: (signal?: AbortSignal) =>

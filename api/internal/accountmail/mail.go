@@ -9,6 +9,9 @@ type Message struct {
 	Subject   string
 	Text      string
 	HTML      string
+	// UnsubscribeURL enables RFC 8058 one-click List-Unsubscribe headers for
+	// optional messages. It is a token-bearing HTTPS URL; never log it.
+	UnsubscribeURL string `json:",omitempty"`
 }
 
 // Sender is injected into the outbox worker. Nil is unavailable, never a silent

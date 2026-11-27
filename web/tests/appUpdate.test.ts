@@ -193,8 +193,9 @@ test('first installed-to-activated transition is not a waiting update', () => {
     f.owner.dispose()
   }
 })
-test('installed waiting worker with an old active worker surfaces an update', () => {
+test('installed waiting worker with an old active worker surfaces an update for a stale document', async () => {
   const f = fixture()
+  f.id({ id: 'b' })
   const r = new Registration()
   const w = new Worker()
   r.active = new Worker()
@@ -205,9 +206,73 @@ test('installed waiting worker with an old active worker surfaces an update', ()
   r.installing = null
   r.waiting = w
   w.move('installed')
+  await flush()
   assert.equal(f.state.available, true)
+  assert.equal(f.activations, 0)
   assert.equal(f.reloads, 0)
   f.owner.dispose()
+})
+test('waiting worker behind an already-current document activates silently without prompting', async () => {
+  for (const signal of [
+    'registration',
+    'installed',
+    'waiting',
+    'controlling',
+  ]) {
+    const f = fixture()
+    const r = new Registration()
+    const w = new Worker()
+    r.active = new Worker()
+    r.active.move('activated')
+    if (signal === 'registration') {
+      r.waiting = w
+      f.owner.setRegistration(r)
+    } else {
+      w.state = 'installing'
+      r.installing = w
+      f.owner.setRegistration(r)
+      r.installing = null
+      r.waiting = w
+      if (signal === 'installed') w.move('installed')
+      else if (signal === 'waiting') f.owner.needRefresh()
+      else f.owner.needReload()
+    }
+    await flush()
+    assert.equal(f.state.available, false, signal)
+    assert.equal(f.activations, 1, signal)
+    assert.equal(f.reloads, 0, signal)
+    // Repeated signals for the same worker never re-activate it.
+    f.owner.needRefresh()
+    await flush()
+    assert.equal(f.activations, 1, signal)
+    // The resulting controller change only rechecks; still current, no prompt.
+    r.waiting = null
+    r.active = w
+    w.move('activated')
+    f.owner.needReload()
+    await flush()
+    assert.equal(f.state.available, false, signal)
+    assert.equal(f.reloads, 0, signal)
+    f.owner.dispose()
+  }
+})
+test('worker signal without server evidence never prompts', async () => {
+  const f = fixture()
+  f.fetcher(async () => {
+    throw new Error('unavailable')
+  })
+  const r = new Registration()
+  r.active = new Worker()
+  r.waiting = new Worker()
+  f.owner.setRegistration(r)
+  f.owner.needRefresh()
+  await flush()
+  assert.equal(f.state.available, false)
+  assert.equal(f.activations, 0)
+  f.fetcher(undefined)
+  f.id({ id: 'b' })
+  await f.owner.check(true)
+  assert.equal(f.state.available, true)
 })
 test('automatic bursts share discovery and sixty-second cooldown', async () => {
   const f = fixture()
@@ -262,9 +327,13 @@ for (const body of [null, {}, { id: '' }, { id: '  ' }, { id: 2 }]) {
 }
 test('HTTP failure and JSON failure preserve known notice without background error', async () => {
   const f = fixture()
-  f.owner.needRefresh()
+  f.id({ id: 'b' })
+  await f.owner.check()
+  assert.equal(f.state.available, true)
+  await f.advance(60000)
   f.fetcher(async () => ({ ok: false, json: async () => ({ id: 'b' }) }))
   await f.owner.check()
+  assert.equal(f.fetches, 2)
   assert.equal(f.state.available, true)
   assert.equal(f.state.error, '')
   f.fetcher(async () => ({
@@ -300,8 +369,8 @@ test('discovery aborts at five seconds; explicit attempt fails without reload', 
 })
 test('offline explicit action preserves form/page and retries when online', async () => {
   const f = fixture()
-  f.owner.needRefresh()
   f.online(false)
+  f.owner.needRefresh()
   await f.owner.refresh()
   assert.equal(f.fetches, 0)
   assert.equal(f.reloads, 0)
@@ -313,12 +382,15 @@ test('offline explicit action preserves form/page and retries when online', asyn
 })
 test('preexisting waiting worker requires actual activation, not helper promise', async () => {
   const f = fixture()
+  f.id({ id: 'b' })
   const r = new Registration()
   const w = new Worker()
   r.active = new Worker()
   r.waiting = w
   f.owner.setRegistration(r)
+  await flush()
   assert.equal(f.state.available, true)
+  assert.equal(f.activations, 0)
   const attempt = f.owner.refresh()
   await flush()
   assert.equal(f.activations, 1)
@@ -333,7 +405,7 @@ test('preexisting waiting worker requires actual activation, not helper promise'
 })
 test('duplicate clicks join one fresh attempt; matching stale notice clears without reload', async () => {
   const f = fixture()
-  f.owner.needRefresh()
+  f.state.available = true
   const a = f.owner.refresh()
   const b = f.owner.refresh()
   assert.equal(a, b)

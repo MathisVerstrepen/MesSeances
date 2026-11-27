@@ -19,7 +19,7 @@ type AccountOptions struct {
 }
 
 func accountPath(path string) bool {
-	return path == "/api/v1/auth" || strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/account" || strings.HasPrefix(path, "/api/v1/account/")
+	return path == "/api/v1/auth" || strings.HasPrefix(path, "/api/v1/auth/") || path == "/api/v1/account" || strings.HasPrefix(path, "/api/v1/account/") || path == digestUnsubscribePath
 }
 
 // Wrap the whole router so cache/error and CORS policy also cover unknown paths,
@@ -95,6 +95,22 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Get("/api/v1/account/activity/reading", unavailable)
 	router.Post("/api/v1/account/activity/read", unavailable)
 	router.Post("/api/v1/account/activity/read-all", unavailable)
+	router.Get("/api/v1/account/notifications", unavailable)
+	router.Get("/api/v1/account/notifications/status", unavailable)
+	router.Post("/api/v1/account/notifications/read", unavailable)
+	router.Post("/api/v1/account/notifications/read-all", unavailable)
+	router.Post("/api/v1/account/notifications/test", unavailable)
+	router.Get("/api/v1/account/notification-rules", unavailable)
+	router.Post("/api/v1/account/notification-rules", unavailable)
+	router.Post("/api/v1/account/notification-rules/update", unavailable)
+	router.Post("/api/v1/account/notification-rules/delete", unavailable)
+	router.Get("/api/v1/account/push", unavailable)
+	router.Post("/api/v1/account/push/subscriptions", unavailable)
+	router.Post("/api/v1/account/push/subscriptions/delete", unavailable)
+	router.Post("/api/v1/account/push/test", unavailable)
+	router.Get("/api/v1/account/notification-digest", unavailable)
+	router.Post("/api/v1/account/notification-digest", unavailable)
+	router.Post(digestUnsubscribePath, unavailable)
 	router.Get("/api/v1/account/watchlist", unavailable)
 	router.Post("/api/v1/account/watchlist/next-screenings", unavailable)
 	router.Get("/api/v1/account/watched", unavailable)

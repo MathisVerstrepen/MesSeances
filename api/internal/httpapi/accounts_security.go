@@ -31,7 +31,7 @@ type accountHTTP struct {
 	origin, cookieName                                   string
 	secure                                               bool
 	login, send, step                                    *tokenBucketLimiter
-	theaters                                             *tokenBucketLimiter
+	theaters, pushTests, unsubscribes                    *tokenBucketLimiter
 	activityReads                                        *tokenBucketLimiter
 	watchlistWrites, watchlistSearches, watchlistImports *tokenBucketLimiter
 }
@@ -57,7 +57,9 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 		login:             newTokenBucketLimiter(20, 20.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
 		send:              newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
 		step:              newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
-		theaters:          newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now)}, nil
+		theaters:          newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now),
+		pushTests:         newTokenBucketLimiter(5, 5.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		unsubscribes:      newTokenBucketLimiter(30, 30.0/900, 15*time.Minute, maxRateLimitClients, time.Now)}, nil
 }
 
 func accountError(w http.ResponseWriter, err error) {
@@ -81,6 +83,24 @@ func accountError(w http.ResponseWriter, err error) {
 		status, code, message = 409, "theater_follows_changed", "Vos cinémas suivis ont changé. Vérifiez leur état avant de recommencer."
 	case errors.Is(err, accounts.ErrTheaterFollowLimit):
 		status, code, message = 409, "theater_follow_limit_reached", "Vous suivez déjà le nombre maximal de cinémas. Arrêtez de suivre un cinéma avant de réessayer."
+	case errors.Is(err, accounts.ErrNotificationRuleNotFound):
+		status, code, message = 404, "notification_rule_not_found", "Cette alerte n’existe plus. Rechargez la liste."
+	case errors.Is(err, accounts.ErrNotificationRuleLimit):
+		status, code, message = 409, "notification_rule_limit_reached", "Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre."
+	case errors.Is(err, accounts.ErrPushUnavailable):
+		status, code, message = 503, "push_unavailable", "Les notifications push sont indisponibles."
+	case errors.Is(err, accounts.ErrPushNoDevice):
+		status, code, message = 409, "push_no_device", "Activez d’abord les notifications sur un appareil."
+	case errors.Is(err, accounts.ErrMailNotReady):
+		status, code, message = 409, "email_not_verified", "Vérifiez votre adresse e-mail avant de recevoir des e-mails."
+	case errors.Is(err, accounts.ErrPushDeviceLimit):
+		status, code, message = 409, "push_device_limit_reached", "Vous avez atteint le nombre maximal d’appareils. Retirez un appareil avant d’en ajouter un autre."
+	case errors.Is(err, accounts.ErrPushDeviceNotFound):
+		status, code, message = 404, "push_device_not_found", "Cet appareil n’est plus enregistré."
+	case errors.Is(err, accounts.ErrPushDeviceExpired):
+		status, code, message = 410, "push_device_expired", "Cet appareil n’accepte plus les notifications. Réactivez-les depuis cet appareil."
+	case errors.Is(err, accounts.ErrPushDelivery):
+		status, code, message = 502, "push_delivery_failed", "Le service de notifications du navigateur n’a pas accepté le message. Réessayez plus tard."
 	case errors.Is(err, accounts.ErrAvatarNotFound):
 		status, code, message = 404, "avatar_not_found", "Photo indisponible."
 	case errors.As(err, &rate):
