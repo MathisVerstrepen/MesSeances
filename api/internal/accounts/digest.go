@@ -313,8 +313,9 @@ func (s *Service) sendDigest(ctx context.Context, accountID int64) (bool, error)
 }
 
 // readDigestItems selects unread entries of email-enabled alerts delivered
-// since the previous digest, newest first, with their rendered wording.
-func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, since time.Time) ([]pushPayload, int, error) {
+// since the previous digest, newest first, with up to four resolved films
+// (posters included) and their first cinema.
+func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, since time.Time) ([]NotificationView, int, error) {
 	var total int
 	err := tx.QueryRow(ctx, `SELECT count(*) FROM account_notifications n JOIN account_notification_rules r ON r.account_id=n.account_id AND r.id=n.rule_id AND r.email
  WHERE n.account_id=$1 AND n.id>$2 AND n.read_at IS NULL AND n.created_at>$3`, accountID, after, since).Scan(&total)
@@ -324,7 +325,7 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 	if total == 0 {
 		return nil, 0, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT n.id,n.kind,n.rule_id,n.event_count,cardinality(n.movie_ids),cardinality(n.theater_ids),n.movie_ids[1:3],n.theater_ids[1:3]
+	rows, err := tx.Query(ctx, `SELECT n.id,n.kind,n.rule_id,n.event_count,cardinality(n.movie_ids),cardinality(n.theater_ids),n.movie_ids[1:4],n.theater_ids[1:1]
  FROM account_notifications n JOIN account_notification_rules r ON r.account_id=n.account_id AND r.id=n.rule_id AND r.email
  WHERE n.account_id=$1 AND n.id>$2 AND n.read_at IS NULL AND n.created_at>$3 ORDER BY n.id DESC LIMIT $4`, accountID, after, since, digestMaxItems)
 	if err != nil {
@@ -362,7 +363,7 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 	if err != nil {
 		return nil, 0, err
 	}
-	items := make([]pushPayload, 0, len(collected))
+	items := make([]NotificationView, 0, len(collected))
 	for _, v := range collected {
 		for _, m := range v.movies {
 			if movie, ok := movies[m]; ok {
@@ -374,7 +375,7 @@ func readDigestItems(ctx context.Context, tx pgx.Tx, accountID, after int64, sin
 				v.item.Theaters = append(v.item.Theaters, theater)
 			}
 		}
-		items = append(items, renderPush(v.item, v.id, v.rule))
+		items = append(items, v.item)
 	}
 	return items, total, nil
 }

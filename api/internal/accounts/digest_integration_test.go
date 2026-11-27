@@ -86,7 +86,7 @@ func TestNotificationDigestIntegration(t *testing.T) {
 		t.Fatalf("due %+v %v", r, err)
 	}
 	message, count := digestMail(t, f, "digest@example.com")
-	if count != 1 || message.Subject != "Vos alertes MesSeances : 1 notification" || !strings.Contains(message.Text, "Current override arrive à Active 1") || strings.Contains(message.Text, "Active 3") {
+	if count != 1 || message.Subject != "Current override · MesSeances" || !strings.Contains(message.Text, "Current override — Arrive à Active 1") || !strings.Contains(message.HTML, "Nouveau à l’affiche") || strings.Contains(message.Text, "Active 3") {
 		t.Fatalf("digest %d %+v", count, message)
 	}
 	unsubscribe, err := url.Parse(message.UnsubscribeURL)
