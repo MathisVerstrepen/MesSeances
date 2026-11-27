@@ -19,7 +19,7 @@
 
 ## Repository Map
 
-- `api/cmd/api/` — API entrypoint. `api/cmd/sync-ugc/` and `api/cmd/sync-kinepolis/` — sync CLIs (proxy-required).
+- `api/cmd/api/` — API entrypoint. `api/cmd/sync-ugc/` and `api/cmd/sync-kinepolis/` — sync CLIs (proxy-required). `api/cmd/push-keys/` — prints a new VAPID key pair for optional browser push.
 - `api/internal/` — `config/`, `database/` (+ `migrations/` 001–007), `enrichment/`, `httpapi/`, `kinepolis/`, `schedule/`, `synccontrol/`, `syncproxy/`, `tmdb/`, `ugc/`.
 - `api/.air.toml` — Air live-reload (Go sources only, `_test.go` excluded, 200 ms delay, `stop_on_error=false`).
 - `web/app/` — `pages/` (`/`, `/recherche`, `/films`, `/film/[slug]`, `/cinemas`, `/admin/sync`), `components/`, `composables/`, `assets/`, `utils/`, `types/`.

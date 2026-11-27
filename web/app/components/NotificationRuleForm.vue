@@ -18,6 +18,8 @@ const props = defineProps<{
   maxCustomTheaters: number
   followedCount: number
   preferredCount: number
+  pushAvailable?: boolean
+  pushDeviceCount?: number
   theaters: readonly { id: string; name: string; city: string }[]
 }>()
 const emit = defineEmits<{
@@ -29,6 +31,7 @@ const kind = ref<NotificationKind>(props.initial.kind)
 const scope = ref<NotificationScope>(props.initial.theater_scope)
 const custom = ref<string[]>([...props.initial.theater_ids])
 const includeReturns = ref(props.initial.include_returns)
+const push = ref(props.initial.push)
 const query = ref('')
 const formError = ref('')
 const uid = useId()
@@ -76,6 +79,7 @@ function submit() {
     theater_ids: scope.value === 'custom' ? [...custom.value] : [],
     include_returns: kind.value === 'cinema_activity' && includeReturns.value,
     enabled: props.initial.enabled,
+    push: !!props.pushAvailable && push.value,
   })
 }
 </script>
@@ -242,6 +246,26 @@ function submit() {
           >Films de retour à l’affiche après au moins 28 jours sans
           séance.</span
         >
+      </span>
+    </label>
+
+    <label
+      v-if="pushAvailable"
+      class="flex min-h-11 cursor-pointer items-start gap-3 text-sm font-semibold"
+    >
+      <input
+        v-model="push"
+        type="checkbox"
+        class="mt-0.5 size-5 shrink-0 accent-ink"
+        :disabled="disabled"
+      >
+      <span>
+        Recevoir aussi en notification push
+        <span class="block text-xs font-normal text-muted">{{
+          pushDeviceCount
+            ? 'Sur les appareils où les notifications sont activées.'
+            : 'Activez les notifications sur un appareil, plus bas sur cette page.'
+        }}</span>
       </span>
     </label>
 

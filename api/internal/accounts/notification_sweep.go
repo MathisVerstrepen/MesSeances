@@ -3,6 +3,7 @@ package accounts
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -162,14 +163,19 @@ func (s *Service) deliverNotifications(ctx context.Context, lo, hi int64) (int64
 				return err
 			}
 			now := s.now().UTC()
+			inserted := []int64{}
 			for _, g := range groupNotificationMatches(matches) {
-				inserted, err := writeNotificationGroup(ctx, tx, g, now)
+				id, err := writeNotificationGroup(ctx, tx, g, now)
 				if err != nil {
 					return err
 				}
-				if inserted {
+				if id > 0 {
 					delivered++
+					inserted = append(inserted, id)
 				}
+			}
+			if err := s.enqueuePush(ctx, tx, inserted, now); err != nil {
+				return err
 			}
 			if _, err := tx.Exec(ctx, `DELETE FROM account_notifications WHERE id IN (SELECT id FROM (
  SELECT id,row_number() OVER (PARTITION BY account_id ORDER BY id DESC) n FROM account_notifications WHERE account_id=ANY($1)) ranked WHERE n>$2)`, owners, maxStoredNotifications); err != nil {
@@ -264,22 +270,28 @@ func mergeDistinct[T comparable](newer, older []T, limit int) []T {
 	return merged
 }
 
-func writeNotificationGroup(ctx context.Context, tx pgx.Tx, g *notificationGroup, now time.Time) (bool, error) {
+// writeNotificationGroup returns the new inbox ID, or 0 when a watchlist film
+// was already notified for this rule.
+func writeNotificationGroup(ctx context.Context, tx pgx.Tx, g *notificationGroup, now time.Time) (int64, error) {
+	var id int64
 	if g.kind == NotificationKindWatchlist {
-		tag, err := tx.Exec(ctx, `INSERT INTO account_notifications(account_id,rule_id,kind,public_movie_id,movie_ids,theater_ids,event_count,last_event_id,created_at)
+		err := tx.QueryRow(ctx, `INSERT INTO account_notifications(account_id,rule_id,kind,public_movie_id,movie_ids,theater_ids,event_count,last_event_id,created_at)
  VALUES($1,$2,'watchlist_screening',$3,ARRAY[$3::bigint],$4,$5,$6,$7)
- ON CONFLICT (account_id,rule_id,public_movie_id) WHERE kind='watchlist_screening' DO NOTHING`,
-			g.account, g.rule, g.movie, limitSlice(g.theaters, maxNotificationTheaters), g.events, g.last, now)
-		if err != nil {
-			return false, ErrUnavailable
+ ON CONFLICT (account_id,rule_id,public_movie_id) WHERE kind='watchlist_screening' DO NOTHING RETURNING id`,
+			g.account, g.rule, g.movie, limitSlice(g.theaters, maxNotificationTheaters), g.events, g.last, now).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
 		}
-		return tag.RowsAffected() == 1, nil
+		if err != nil {
+			return 0, ErrUnavailable
+		}
+		return id, nil
 	}
 	// An unread activity entry for the same rule is replaced by a merged entry
 	// with a new ID, so the inbox stays ordered by latest delivery.
 	rows, err := tx.Query(ctx, `DELETE FROM account_notifications WHERE account_id=$1 AND rule_id=$2 AND kind='cinema_activity' AND read_at IS NULL RETURNING id,movie_ids,theater_ids,event_count`, g.account, g.rule)
 	if err != nil {
-		return false, ErrUnavailable
+		return 0, ErrUnavailable
 	}
 	type previous struct {
 		id       int64
@@ -293,7 +305,7 @@ func writeNotificationGroup(ctx context.Context, tx pgx.Tx, g *notificationGroup
 		return p, err
 	})
 	if err != nil {
-		return false, ErrUnavailable
+		return 0, ErrUnavailable
 	}
 	slices.SortFunc(olds, func(a, b previous) int { return cmp.Compare(b.id, a.id) })
 	movies, theaters, events := g.movies, g.theaters, g.events
@@ -303,12 +315,12 @@ func writeNotificationGroup(ctx context.Context, tx pgx.Tx, g *notificationGroup
 		events += old.events
 	}
 	movies, theaters = limitSlice(movies, maxNotificationMovies), limitSlice(theaters, maxNotificationTheaters)
-	_, err = tx.Exec(ctx, `INSERT INTO account_notifications(account_id,rule_id,kind,movie_ids,theater_ids,event_count,last_event_id,created_at)
- VALUES($1,$2,'cinema_activity',$3,$4,$5,$6,$7)`, g.account, g.rule, movies, theaters, events, g.last, now)
+	err = tx.QueryRow(ctx, `INSERT INTO account_notifications(account_id,rule_id,kind,movie_ids,theater_ids,event_count,last_event_id,created_at)
+ VALUES($1,$2,'cinema_activity',$3,$4,$5,$6,$7) RETURNING id`, g.account, g.rule, movies, theaters, events, g.last, now).Scan(&id)
 	if err != nil {
-		return false, ErrUnavailable
+		return 0, ErrUnavailable
 	}
-	return true, nil
+	return id, nil
 }
 
 func limitSlice[T any](items []T, limit int) []T {

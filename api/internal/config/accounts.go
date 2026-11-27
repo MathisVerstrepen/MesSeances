@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"messeances/api/internal/accounts"
+	"messeances/api/internal/webpush"
 )
 
 type AccountsConfig struct {
@@ -30,6 +31,10 @@ type AccountsConfig struct {
 	OutboxKeyID         string
 	OutboxKey           [32]byte
 	AddressHMACKey      [32]byte
+	// Browser push is optional: all three values are set together or none.
+	PushPublicKey  string
+	PushPrivateKey string
+	PushSubject    string
 }
 
 func loadAccounts(origin string, getenv func(string) string) (AccountsConfig, error) {
@@ -110,6 +115,12 @@ func loadAccounts(origin string, getenv func(string) string) (AccountsConfig, er
 		return AccountsConfig{}, configurationError()
 	}
 	cfg.OutboxKey, cfg.AddressHMACKey = outbox, hmacKey
+	cfg.PushPublicKey, cfg.PushPrivateKey, cfg.PushSubject = getenv("WEB_PUSH_VAPID_PUBLIC_KEY"), getenv("WEB_PUSH_VAPID_PRIVATE_KEY"), getenv("WEB_PUSH_SUBJECT")
+	if cfg.PushPublicKey != "" || cfg.PushPrivateKey != "" || cfg.PushSubject != "" {
+		if _, err := webpush.NewVAPID(cfg.PushPublicKey, cfg.PushPrivateKey, cfg.PushSubject); err != nil {
+			return AccountsConfig{}, configurationError()
+		}
+	}
 	return cfg, nil
 }
 

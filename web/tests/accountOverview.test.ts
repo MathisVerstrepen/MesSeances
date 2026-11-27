@@ -116,6 +116,7 @@ function fixture() {
       definePageMeta: () => {},
       useHead: () => {},
       useAccountApi: () => ({}),
+      forgetPushDevice: async () => {},
       useAccountSession: () => ({
         session,
         status,

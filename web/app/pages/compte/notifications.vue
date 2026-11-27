@@ -19,6 +19,7 @@ const route = useRoute()
 const account = useAccountSession()
 const center = useNotificationCenter()
 const rules = useNotificationRules()
+const push = useWebPush()
 const follows = useCinemaFollows()
 const preferences = useCinemaPreferences()
 
@@ -44,6 +45,7 @@ const blankDraft: NotificationRuleDraft = {
   theater_ids: [],
   include_returns: false,
   enabled: true,
+  push: false,
 }
 const formInitial = computed<NotificationRuleDraft>(() => {
   const rule = rules.rules.value.find((item) => item.id === editing.value)
@@ -54,6 +56,7 @@ const formInitial = computed<NotificationRuleDraft>(() => {
         theater_ids: [...rule.theater_ids],
         include_returns: rule.include_returns,
         enabled: rule.enabled,
+        push: rule.push,
       }
     : blankDraft
 })
@@ -107,6 +110,7 @@ async function toggleRule(rule: NotificationRule, enabled: boolean) {
       theater_ids: [...rule.theater_ids],
       include_returns: rule.include_returns,
       enabled,
+      push: rule.push,
     },
     rule.id,
   )
@@ -119,16 +123,21 @@ function open(item: AccountNotification) {
   void center.markRead(item)
 }
 
-watch(
-  center.owner,
-  (owner) => {
-    if (!owner) return
-    now.value = new Date()
-    void center.load(true)
-    void rules.load()
-  },
-  { immediate: true },
-)
+function loadAll() {
+  if (!center.owner.value) return
+  now.value = new Date()
+  void center.load(true)
+  void rules.load()
+  void push.load()
+}
+// Start after hydration: loading flags must not differ from the server render.
+onMounted(loadAll)
+// Rules and push devices reload themselves when the owner changes.
+watch(center.owner, (owner) => {
+  if (!owner) return
+  now.value = new Date()
+  void center.load(true)
+})
 </script>
 
 <template>
@@ -319,6 +328,8 @@ watch(
               :max-custom-theaters="rules.snapshot.value.max_custom_theaters"
               :followed-count="followedCount"
               :preferred-count="preferredCount"
+              :push-available="push.available.value"
+              :push-device-count="push.devices.value.length"
               :theaters="catalog"
               @submit="submitRule"
               @cancel="editing = null"
@@ -335,8 +346,18 @@ watch(
                 <p class="text-sm [overflow-wrap:anywhere]">
                   {{ ruleScope(rule) }}
                 </p>
-                <p v-if="rule.include_returns" class="text-xs text-muted">
-                  Reprises incluses
+                <p
+                  v-if="rule.include_returns || (rule.push && push.available.value)"
+                  class="text-xs text-muted"
+                >
+                  {{
+                    [
+                      rule.include_returns ? 'Reprises incluses' : '',
+                      rule.push && push.available.value ? 'Push' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  }}
                 </p>
               </div>
               <div class="flex shrink-0 flex-wrap items-center gap-2">
@@ -404,6 +425,8 @@ watch(
           :max-custom-theaters="rules.snapshot.value.max_custom_theaters"
           :followed-count="followedCount"
           :preferred-count="preferredCount"
+          :push-available="push.available.value"
+          :push-device-count="push.devices.value.length"
           :theaters="catalog"
           @submit="submitRule"
           @cancel="editing = null"
@@ -424,6 +447,7 @@ watch(
           </p>
         </div>
       </template>
+      <NotificationPushDevices :state="push" />
     </section>
   </AccountShell>
 </template>

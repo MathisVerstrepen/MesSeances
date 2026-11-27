@@ -15,6 +15,7 @@ import type {
   NotificationRuleDraft,
   NotificationRules,
   NotificationStatus,
+  PushDevices,
 } from '~/types/notifications'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
@@ -114,6 +115,11 @@ export function useAccountApi() {
         'theater_follow_limit_reached',
         'notification_rule_not_found',
         'notification_rule_limit_reached',
+        'push_unavailable',
+        'push_device_limit_reached',
+        'push_device_not_found',
+        'push_device_expired',
+        'push_delivery_failed',
         'avatar_too_large',
         'avatar_unsupported',
         'avatar_invalid',
@@ -320,6 +326,7 @@ export function useAccountApi() {
             ? 'true'
             : 'false',
         enabled: input.rule.enabled ? 'true' : 'false',
+        push: input.rule.push ? 'true' : 'false',
       }
       return request<NotificationRules>(
         input.id
@@ -340,6 +347,43 @@ export function useAccountApi() {
         'POST',
         signal,
       ),
+    pushDevices: (signal?: AbortSignal) =>
+      request<PushDevices>('/account/push', undefined, 'GET', signal),
+    savePushSubscription: (
+      input: {
+        expected_username: string
+        endpoint: string
+        p256dh: string
+        auth: string
+        label: string
+      },
+      signal?: AbortSignal,
+    ) =>
+      request<PushDevices>(
+        '/account/push/subscriptions',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    deletePushDevice: (
+      input:
+        | { expected_username: string; id: string }
+        | {
+            expected_username: string
+            endpoint: string
+          },
+      signal?: AbortSignal,
+    ) =>
+      request<PushDevices>(
+        '/account/push/subscriptions/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    testPushDevice: (
+      input: { expected_username: string; id: string },
+      signal?: AbortSignal,
+    ) => request<void>('/account/push/test', { ...input }, 'POST', signal),
     watchlist: (signal?: AbortSignal) =>
       request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
     watched: (signal?: AbortSignal) =>

@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"messeances/api/internal/webpush"
 )
 
 func accountConfigFixture() map[string]string {
@@ -110,6 +112,38 @@ func TestAccountConfigurationFailsGenerically(t *testing.T) {
 		env[tc.key] = tc.value
 		if _, err := Load(APIBase, func(key string) string { return env[key] }); err == nil || err.Error() != "configuration error" {
 			t.Errorf("invalid %s error=%v", tc.key, err)
+		}
+	}
+}
+
+func TestAccountPushConfigurationIsAllOrNothing(t *testing.T) {
+	public, private, err := webpush.GenerateKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPublic, _, _ := webpush.GenerateKeys()
+	env := accountConfigFixture()
+	cfg, err := Load(APIBase, func(key string) string { return env[key] })
+	if err != nil || cfg.Accounts.PushPublicKey != "" {
+		t.Fatal("push must stay optional", err)
+	}
+	env["WEB_PUSH_VAPID_PUBLIC_KEY"], env["WEB_PUSH_VAPID_PRIVATE_KEY"], env["WEB_PUSH_SUBJECT"] = public, private, "mailto:ops@example.com"
+	cfg, err = Load(APIBase, func(key string) string { return env[key] })
+	if err != nil || cfg.Accounts.PushPublicKey != public || cfg.Accounts.PushPrivateKey != private || cfg.Accounts.PushSubject != "mailto:ops@example.com" {
+		t.Fatal("valid push config rejected", err)
+	}
+	for name, change := range map[string][2]string{
+		"missing subject": {"WEB_PUSH_SUBJECT", ""},
+		"missing private": {"WEB_PUSH_VAPID_PRIVATE_KEY", ""},
+		"mismatched pair": {"WEB_PUSH_VAPID_PUBLIC_KEY", otherPublic},
+		"bad subject":     {"WEB_PUSH_SUBJECT", "ops@example.com"},
+	} {
+		broken := accountConfigFixture()
+		broken["WEB_PUSH_VAPID_PUBLIC_KEY"], broken["WEB_PUSH_VAPID_PRIVATE_KEY"], broken["WEB_PUSH_SUBJECT"] = public, private, "mailto:ops@example.com"
+		broken[change[0]] = change[1]
+		cfg, err := Load(APIBase, func(key string) string { return broken[key] })
+		if err == nil || strings.Contains(err.Error(), private) || cfg.Accounts.PushPrivateKey != "" {
+			t.Fatalf("%s accepted", name)
 		}
 	}
 }

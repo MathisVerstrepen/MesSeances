@@ -18,6 +18,8 @@ type accountNotificationRule struct {
 	TheaterIDs       *string `json:"theater_ids"`
 	IncludeReturns   *string `json:"include_returns"`
 	Enabled          *string `json:"enabled"`
+	// Optional for clients predating push; absent means disabled.
+	Push *string `json:"push"`
 }
 
 type accountNotificationRuleDelete struct {
@@ -52,10 +54,17 @@ func accountList(raw string) []string {
 func parseNotificationRule(input accountNotificationRule) (accounts.NotificationRuleInput, bool) {
 	includeReturns, okReturns := accountBool(input.IncludeReturns)
 	enabled, okEnabled := accountBool(input.Enabled)
+	push := false
+	if input.Push != nil {
+		var ok bool
+		if push, ok = accountBool(input.Push); !ok {
+			return accounts.NotificationRuleInput{}, false
+		}
+	}
 	if input.ExpectedUsername == nil || input.Kind == nil || input.TheaterScope == nil || input.TheaterIDs == nil || !okReturns || !okEnabled {
 		return accounts.NotificationRuleInput{}, false
 	}
-	return accounts.NotificationRuleInput{Kind: *input.Kind, TheaterScope: *input.TheaterScope, TheaterIDs: accountList(*input.TheaterIDs), IncludeReturns: includeReturns, Enabled: enabled}, true
+	return accounts.NotificationRuleInput{Kind: *input.Kind, TheaterScope: *input.TheaterScope, TheaterIDs: accountList(*input.TheaterIDs), IncludeReturns: includeReturns, Enabled: enabled, Push: push}, true
 }
 
 func parseAccountNotificationsQuery(raw string, forceQuery bool) (int, string, error) {
