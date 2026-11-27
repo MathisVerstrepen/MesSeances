@@ -156,6 +156,7 @@ onMounted(() => {
           </template>
           <span v-else>{{ link.label }}</span>
         </NuxtLink>
+        <NotificationBell variant="nav" class="hidden lg:flex" />
         <NuxtLink
           :to="accountHref"
           :prefetch="false"
@@ -169,7 +170,7 @@ onMounted(() => {
           }}</span>
         </NuxtLink>
       </nav>
-      <NotificationBell class="order-2 ml-1 lg:order-none lg:ml-3" />
+      <NotificationBell class="order-2 ml-2 lg:hidden" />
     </div>
   </header>
 </template>

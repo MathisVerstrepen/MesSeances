@@ -4,6 +4,11 @@ import type { AccountNotification } from '~/types/notifications'
 import { unreadBadge } from '~/utils/notifications'
 
 const PANEL_ITEMS = 6
+// `nav`: full-height desktop navigation item; `compact`: mobile top-row icon.
+const props = withDefaults(defineProps<{ variant?: 'nav' | 'compact' }>(), {
+  variant: 'compact',
+})
+const panelId = computed(() => `notification-panel-${props.variant}`)
 const center = useNotificationCenter()
 const route = useRoute()
 const open = ref(false)
@@ -67,28 +72,36 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="relative grid size-11 place-items-center border-2 border-transparent text-ink transition-colors hover:border-ink hover:bg-highlight aria-expanded:border-ink aria-expanded:bg-highlight"
+      class="flex items-center justify-center text-ink transition-colors hover:bg-highlight aria-expanded:bg-highlight"
+      :class="variant === 'nav' ? 'nav-link h-full min-h-[4.5rem] w-14' : 'size-11'"
       :aria-label="label"
-      aria-controls="notification-panel"
+      :aria-controls="panelId"
       :aria-expanded="open"
       @click="toggle"
     >
-      <Bell :size="19" stroke-width="2.5" aria-hidden="true" />
-      <span
-        v-if="badge"
-        data-notification-badge
-        class="absolute -top-0.5 -right-0.5 min-w-5 rounded-full border-2 border-canvas bg-primary px-1 text-center font-mono text-[0.6rem] font-bold leading-4 text-white"
-        aria-hidden="true"
-        >{{
-          badge
-        }}</span
-      >
+      <span class="relative inline-flex">
+        <Bell
+          :size="variant === 'nav' ? 18 : 19"
+          stroke-width="2.5"
+          aria-hidden="true"
+        />
+        <span
+          v-if="badge"
+          data-notification-badge
+          class="absolute -top-2 left-2.5 min-w-[1.125rem] rounded-full border-2 border-[#f8f7f2] bg-primary px-1 text-center font-mono text-[0.6rem] leading-[0.875rem] font-bold text-white"
+          aria-hidden="true"
+          >{{
+            badge
+          }}</span
+        >
+      </span>
     </button>
     <section
       v-if="open"
-      id="notification-panel"
+      :id="panelId"
       aria-label="Notifications récentes"
-      class="absolute top-full right-0 z-40 mt-2 flex max-h-[min(32rem,calc(100dvh-6rem))] w-[min(24rem,calc(100vw-2rem))] flex-col border-2 border-ink bg-surface text-ink shadow-[6px_6px_0_#27272a]"
+      class="absolute top-full right-0 z-40 flex max-h-[min(32rem,calc(100dvh-6rem))] w-[min(24rem,calc(100vw-2rem))] flex-col border-2 border-ink bg-surface text-ink shadow-[6px_6px_0_#27272a]"
+      :class="variant === 'nav' ? 'mt-0.5' : 'mt-2'"
     >
       <header
         class="flex shrink-0 items-center justify-between gap-3 border-b-2 border-ink px-4 py-3"
