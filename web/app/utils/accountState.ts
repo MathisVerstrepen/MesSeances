@@ -67,6 +67,10 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Vos cinémas suivis ont changé. Vérifiez leur état avant de recommencer.'
   if (cause.code === 'theater_follow_limit_reached')
     return 'Vous suivez déjà le nombre maximal de cinémas. Arrêtez de suivre un cinéma avant de réessayer.'
+  if (cause.code === 'notification_rule_not_found')
+    return 'Cette alerte n’existe plus. Vérifiez la liste actualisée avant de recommencer.'
+  if (cause.code === 'notification_rule_limit_reached')
+    return 'Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre.'
   if (cause.code === 'theater_selection_changed')
     return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
   if (cause.code === 'watchlist_changed')

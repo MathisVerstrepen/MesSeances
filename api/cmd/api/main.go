@@ -314,6 +314,8 @@ func run(ctx context.Context) error {
 			go func() { defer polling.Done(); runAccountWatchlistReleases(workerCtx, accountService, logger) }()
 		}
 		polling.Add(1)
+		go func() { defer polling.Done(); runAccountNotifications(workerCtx, accountService, logger) }()
+		polling.Add(1)
 		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountCleanup(workerCtx, accountService, logger) }()

@@ -234,6 +234,10 @@ async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
       startSynchronization() {},
       refresh() {},
     }),
+    useNotificationCenter: () => ({
+      startSynchronization() {},
+      refresh() {},
+    }),
     defineNuxtPlugin: (
       plugin: (app: {
         hook: (name: string, callback: () => void) => void
@@ -1187,6 +1191,10 @@ test('account plugin revalidates theater notifications and revisit events withou
         refresh: () => {
           notificationReads++
         },
+      }),
+      useNotificationCenter: () => ({
+        startSynchronization() {},
+        refresh() {},
       }),
       useAccountSession: () => ({
         status: ref('ready'),

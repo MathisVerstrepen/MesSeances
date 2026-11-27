@@ -5,6 +5,7 @@ export default defineNuxtPlugin((nuxtApp) => {
   const watched = useWatched()
   const follows = useCinemaFollows()
   const activityNotification = useActivityNotification()
+  const notifications = useNotificationCenter()
   let active = true
   const refresh = () => {
     if (active) void account.refresh()
@@ -36,6 +37,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     watched.startSynchronization()
     follows.startSynchronization()
     activityNotification.startSynchronization()
+    notifications.startSynchronization()
     if (channel)
       channel.onmessage = (event) => {
         if (event.data === 'changed') refresh()
@@ -44,6 +46,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         if (event.data === 'watched-changed') focus()
         if (event.data === 'theater-follows-changed') focus()
         if (event.data === 'activity-visited') focus()
+        if (event.data === 'notifications-changed') focus()
       }
     if (account.status.value === 'idle') refresh()
     window.addEventListener('focus', focus)
@@ -55,8 +58,10 @@ export default defineNuxtPlugin((nuxtApp) => {
     window.addEventListener('pagehide', pagehide)
     window.addEventListener('pageshow', pageshow)
     window.setInterval(() => {
-      if (active && document.visibilityState === 'visible')
+      if (active && document.visibilityState === 'visible') {
         void activityNotification.refresh()
+        void notifications.refresh()
+      }
     }, 60000)
   })
 })
