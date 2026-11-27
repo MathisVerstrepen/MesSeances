@@ -409,6 +409,20 @@ const mock = createServer((request, response) => {
         ].some((item) => !item.consulted),
       })
     }
+    // The header bell polls the private inbox status for signed-in accounts.
+    if (path === '/api/v1/account/notifications/status') {
+      if (scenario.state !== 'complete')
+        return json(
+          response,
+          { error: { code: 'authentication_required' } },
+          401,
+        )
+      return json(response, {
+        username: scenario.username,
+        unread_count: 0,
+        latest_id: '0',
+      })
+    }
     if (path === '/api/v1/account/theater-follows') {
       followGets++
       return json(response, follows)
