@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -32,10 +33,20 @@ type SESSender struct {
 
 func (s *SESSender) Send(ctx context.Context, m Message) error {
 	from := (&mail.Address{Name: s.FromName, Address: s.From}).String()
+	message := &types.Message{Subject: content(m.Subject), Body: &types.Body{Text: content(m.Text), Html: content(m.HTML)}}
+	if m.UnsubscribeURL != "" {
+		if !strings.HasPrefix(m.UnsubscribeURL, "https://") && !strings.HasPrefix(m.UnsubscribeURL, "http://localhost") || strings.ContainsAny(m.UnsubscribeURL, "<>\r\n ") {
+			return ErrRejected
+		}
+		message.Headers = []types.MessageHeader{
+			{Name: aws.String("List-Unsubscribe"), Value: aws.String("<" + m.UnsubscribeURL + ">")},
+			{Name: aws.String("List-Unsubscribe-Post"), Value: aws.String("List-Unsubscribe=One-Click")},
+		}
+	}
 	_, err := s.Client.SendEmail(ctx, &sesv2.SendEmailInput{
 		FromEmailAddress: aws.String(from), FromEmailAddressIdentityArn: aws.String(s.IdentityARN), ConfigurationSetName: aws.String(s.ConfigurationSet),
 		Destination: &types.Destination{ToAddresses: []string{m.Recipient}},
-		Content:     &types.EmailContent{Simple: &types.Message{Subject: content(m.Subject), Body: &types.Body{Text: content(m.Text), Html: content(m.HTML)}}},
+		Content:     &types.EmailContent{Simple: message},
 	}, func(o *sesv2.Options) { o.RetryMaxAttempts = 1 })
 	return sendError(err)
 }

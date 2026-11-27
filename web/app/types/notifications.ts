@@ -48,6 +48,7 @@ export interface NotificationRule {
   include_returns: boolean
   enabled: boolean
   push: boolean
+  email: boolean
   created_at: string
 }
 
@@ -65,6 +66,17 @@ export interface NotificationRuleDraft {
   include_returns: boolean
   enabled: boolean
   push: boolean
+  email: boolean
+}
+
+export type DigestFrequency = 'off' | 'daily' | 'weekly'
+
+export interface NotificationDigest {
+  username: string
+  frequency: DigestFrequency
+  next_due_at: string | null
+  last_sent_at: string | null
+  available: boolean
 }
 
 export interface PushDevice {

@@ -20,6 +20,11 @@ const account = useAccountSession()
 const center = useNotificationCenter()
 const rules = useNotificationRules()
 const push = useWebPush()
+const digest = useNotificationDigest()
+const emailAvailable = computed(() => !!digest.digest.value?.available)
+const digestEnabled = computed(
+  () => !!digest.digest.value && digest.digest.value.frequency !== 'off',
+)
 const follows = useCinemaFollows()
 const preferences = useCinemaPreferences()
 
@@ -46,6 +51,7 @@ const blankDraft: NotificationRuleDraft = {
   include_returns: false,
   enabled: true,
   push: false,
+  email: false,
 }
 const formInitial = computed<NotificationRuleDraft>(() => {
   const rule = rules.rules.value.find((item) => item.id === editing.value)
@@ -57,6 +63,7 @@ const formInitial = computed<NotificationRuleDraft>(() => {
         include_returns: rule.include_returns,
         enabled: rule.enabled,
         push: rule.push,
+        email: rule.email,
       }
     : blankDraft
 })
@@ -111,6 +118,7 @@ async function toggleRule(rule: NotificationRule, enabled: boolean) {
       include_returns: rule.include_returns,
       enabled,
       push: rule.push,
+      email: rule.email,
     },
     rule.id,
   )
@@ -129,6 +137,7 @@ function loadAll() {
   void center.load(true)
   void rules.load()
   void push.load()
+  void digest.load()
 }
 // Start after hydration: loading flags must not differ from the server render.
 onMounted(loadAll)
@@ -330,6 +339,8 @@ watch(center.owner, (owner) => {
               :preferred-count="preferredCount"
               :push-available="push.available.value"
               :push-device-count="push.devices.value.length"
+              :email-available="emailAvailable"
+              :digest-enabled="digestEnabled"
               :theaters="catalog"
               @submit="submitRule"
               @cancel="editing = null"
@@ -347,13 +358,14 @@ watch(center.owner, (owner) => {
                   {{ ruleScope(rule) }}
                 </p>
                 <p
-                  v-if="rule.include_returns || (rule.push && push.available.value)"
+                  v-if="rule.include_returns || (rule.push && push.available.value) || (rule.email && emailAvailable)"
                   class="text-xs text-muted"
                 >
                   {{
                     [
                       rule.include_returns ? 'Reprises incluses' : '',
                       rule.push && push.available.value ? 'Push' : '',
+                      rule.email && emailAvailable ? 'E-mail' : '',
                     ]
                       .filter(Boolean)
                       .join(' · ')
@@ -427,6 +439,8 @@ watch(center.owner, (owner) => {
           :preferred-count="preferredCount"
           :push-available="push.available.value"
           :push-device-count="push.devices.value.length"
+          :email-available="emailAvailable"
+          :digest-enabled="digestEnabled"
           :theaters="catalog"
           @submit="submitRule"
           @cancel="editing = null"
@@ -448,6 +462,7 @@ watch(center.owner, (owner) => {
         </div>
       </template>
       <NotificationPushDevices :state="push" />
+      <NotificationDigestSettings :state="digest" />
     </section>
   </AccountShell>
 </template>
