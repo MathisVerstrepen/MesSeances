@@ -81,6 +81,10 @@ func accountError(w http.ResponseWriter, err error) {
 		status, code, message = 409, "theater_follows_changed", "Vos cinémas suivis ont changé. Vérifiez leur état avant de recommencer."
 	case errors.Is(err, accounts.ErrTheaterFollowLimit):
 		status, code, message = 409, "theater_follow_limit_reached", "Vous suivez déjà le nombre maximal de cinémas. Arrêtez de suivre un cinéma avant de réessayer."
+	case errors.Is(err, accounts.ErrNotificationRuleNotFound):
+		status, code, message = 404, "notification_rule_not_found", "Cette alerte n’existe plus. Rechargez la liste."
+	case errors.Is(err, accounts.ErrNotificationRuleLimit):
+		status, code, message = 409, "notification_rule_limit_reached", "Vous avez atteint le nombre maximal d’alertes. Supprimez une alerte avant d’en créer une autre."
 	case errors.Is(err, accounts.ErrAvatarNotFound):
 		status, code, message = 404, "avatar_not_found", "Photo indisponible."
 	case errors.As(err, &rate):

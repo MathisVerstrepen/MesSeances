@@ -8,6 +8,7 @@ import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
 import { type Component, computed, createSSRApp, ref } from 'vue'
 import * as accountState from '../app/utils/accountState.ts'
+import * as notificationUtils from '../app/utils/notifications.ts'
 
 const require = createRequire(import.meta.url)
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
@@ -33,7 +34,11 @@ async function component(path: string, globals: Context = {}) {
       exports,
       computed,
       require: (id: string) =>
-        id === '~/utils/accountState' ? accountState : require(id),
+        id === '~/utils/accountState'
+          ? accountState
+          : id === '~/utils/notifications'
+            ? notificationUtils
+            : require(id),
       ...globals,
     },
   )
@@ -178,6 +183,7 @@ test('watchlist navigation and home reuse the plain clock without bookmark regre
       useRoute: () => ({ path: '/compte/watchlist' }),
       useAccountSession: () => ({ session: ref({ state: 'complete' }) }),
       useActivityNotification: () => ({ hasNew: ref(false) }),
+      useNotificationCenter: () => ({ unreadCount: ref(0) }),
       definePageMeta: () => {},
       useHead: () => {},
     })

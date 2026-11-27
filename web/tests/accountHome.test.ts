@@ -7,6 +7,7 @@ import { parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import { compile, computed, createSSRApp, ref, type Ref } from 'vue'
 import * as accountState from '../app/utils/accountState.ts'
+import * as notificationUtils from '../app/utils/notifications.ts'
 import type { AccountSession } from '../app/types/account.ts'
 
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
@@ -54,10 +55,15 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
   const { descriptor } = parse(home)
   let title = ''
   const state = evaluate(
-    `${descriptor.scriptSetup!.content}\nexports.state = { account, complete, hasNewActivity, accountDestination };`,
+    `${descriptor.scriptSetup!.content}\nexports.state = { account, complete, hasNewActivity, unreadCount, unreadBadge, accountDestination };`,
     {
       computed,
-      require: (name: string) => (name === '@lucide/vue' ? {} : accountState),
+      require: (name: string) =>
+        name === '@lucide/vue'
+          ? {}
+          : name === '~/utils/notifications'
+            ? notificationUtils
+            : accountState,
       definePageMeta: (meta: { middleware: string }) =>
         assert.equal(meta.middleware, 'account-auth'),
       useHead: (head: { title: string }) => {
@@ -65,6 +71,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
       },
       useAccountSession: () => ({ session }),
       useActivityNotification: () => ({ hasNew: ref(false) }),
+      useNotificationCenter: () => ({ unreadCount: ref(0) }),
     },
   ).state
   assert.ok(state)
@@ -83,6 +90,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
     })
     for (const icon of [
       'Activity',
+      'Bell',
       'WatchlistIcon',
       'Settings',
       'ChevronRight',
@@ -93,7 +101,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
   const html = await render()
   assert.equal(title, 'Mon compte - MesSeances')
   assert.match(html, /<h1>Mon compte<\/h1>/)
-  assert.equal([...html.matchAll(/<li>/g)].length, 4)
+  assert.equal([...html.matchAll(/<li>/g)].length, 5)
   assert.match(html, /href="\/compte\/activite"/)
   assert.match(html, /href="\/compte\/watchlist"/)
   assert.match(html, /href="\/compte\/parametres"/)
@@ -105,6 +113,7 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
     '/compte/watchlist',
     '/compte/films-vus',
     '/compte/activite',
+    '/compte/notifications',
   ])
   const sidebar = createSSRApp({
     render: compile(parse(navigation).descriptor.template!.content),
@@ -113,15 +122,18 @@ test('home renders settings, watchlist, watched films and activity in sidebar or
       watchlistActive: false,
       activityActive: false,
       watchedActive: false,
+      notificationsActive: false,
       upcomingEntries: [],
       hasNewActivity: false,
+      unreadCount: 0,
+      unreadBadge: notificationUtils.unreadBadge,
     }),
   })
   sidebar.component('NuxtLink', {
     props: ['to', 'prefetch'],
     template: '<a :href="to"><slot /></a>',
   })
-  for (const icon of ['Settings', 'WatchlistIcon', 'Activity'])
+  for (const icon of ['Settings', 'WatchlistIcon', 'Activity', 'Bell'])
     sidebar.component(icon, { template: '<svg />' })
   const sidebarHtml = await renderToString(sidebar)
   const sidebarHrefs = [
@@ -165,6 +177,7 @@ test('desktop settings selection follows exact normalized route, not account hom
         computed,
         useRoute: () => ({ path }),
         useActivityNotification: () => ({ hasNew: ref(false) }),
+        useNotificationCenter: () => ({ unreadCount: ref(0) }),
         require: () => ({}),
       },
     )
@@ -177,8 +190,11 @@ test('desktop settings selection follows exact normalized route, not account hom
         settingsActive: active,
         watchlistActive: false,
         activityActive: false,
+        notificationsActive: false,
         upcomingEntries: [],
         hasNewActivity: false,
+        unreadCount: 0,
+        unreadBadge: notificationUtils.unreadBadge,
       }),
     })
     app.component('NuxtLink', {
@@ -188,6 +204,7 @@ test('desktop settings selection follows exact normalized route, not account hom
     app.component('Settings', { template: '<svg />' })
     app.component('Activity', { template: '<svg />' })
     app.component('WatchlistIcon', { template: '<svg />' })
+    app.component('Bell', { template: '<svg />' })
     const html = await renderToString(app)
     assert.equal(html.includes('aria-current="page"'), active.value)
     assert.match(html, /href="\/compte\/parametres"/)

@@ -70,6 +70,7 @@ type Service struct {
 	watchlistReleaseProvider    WatchlistReleaseProvider
 	watchlistReleaseMu          sync.Mutex // guards sweep admission and process-local pause
 	watchlistReleasePausedUntil time.Time
+	notificationMu              sync.Mutex // process-local sweep admission
 }
 
 func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) {

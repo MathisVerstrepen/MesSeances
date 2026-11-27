@@ -27,7 +27,7 @@ Signed-out and incomplete-account browsing retains the independent browser-local
 
 Complete accounts can follow or unfollow cinemas using the icon beside statistics on `/cinema/:slug`. These follows are independent of selected cinemas used for showtime filtering: neither resource imports or edits the other. Anonymous and incomplete accounts use existing sign-in/onboarding destinations, with no automatic follow after sign-in. Disabled accounts hide follow controls while keeping statistics available.
 
-`/compte/activite` combines the existing retained journals of all followed cinemas, newest observation first, with cinema attribution and cinema-scoped film/showtime links. The same film appearing at two cinemas remains two events; only repeated event IDs are deduplicated. Following exposes already-retained activity, not only events after following. Silent first-sync baselines and superseded episodes remain excluded; history is partial and earlier programs are not reconstructed. No follows means an empty feed, never all cinemas. Uninitialized history and initialized journals without events have distinct empty states. No notifications, provider requests or new worker are added.
+`/compte/activite` combines the existing retained journals of all followed cinemas, newest observation first, with cinema attribution and cinema-scoped film/showtime links. The same film appearing at two cinemas remains two events; only repeated event IDs are deduplicated. Following exposes already-retained activity, not only events after following. Silent first-sync baselines and superseded episodes remain excluded; history is partial and earlier programs are not reconstructed. No follows means an empty feed, never all cinemas. Uninitialized history and initialized journals without events have distinct empty states. The feed itself adds no provider requests; opt-in alerts derived from the same journal are described under [Notifications](#notifications).
 
 | Endpoint | Request | Successful response |
 | --- | --- | --- |
@@ -44,6 +44,29 @@ Feed items contain existing cinema activity fields plus `{theater:{id,slug,name,
 Follows synchronize on refresh/focus/reconnection and ID-free same-browser broadcasts, not live cross-device push or polling. Membership lives only in authenticated client memory; feed rows and cursors are page-local and never enter public SSR payloads, browser storage, URL queries, analytics or offline queues. Logout, identity invalidation, offline/pagehide and route departure clear private activity; late responses cannot restore departed views. Account deletion cascades durable follows, while public journals remain. Backup retention and rollout/privacy approval remain operator responsibilities.
 
 The homepage sends the active cinema selection to `POST /api/v1/theaters/activity-preview`, including device favorites for signed-out visitors. This read-only route accepts a JSON array of up to 4,096 distinct cinema IDs in the body. It returns up to four events across the selected live cinemas, newest first, with cinema attribution. An empty selection or a selection with no activity returns `[]`. The response uses `Cache-Control: no-store`, and the route shares the public expensive-read quota.
+
+### Notifications
+
+Complete accounts can define up to 20 alerts on `/compte/notifications`; matching alerts fill a private in-app inbox shown by the header bell. No alert exists by default and no email or browser push is sent yet. Each alert has a kind and its own cinema scope:
+
+- `cinema_activity`: new programming (`added_to_program`) in the scoped cinemas, optionally including returns to program (`include_returns`).
+- `watchlist_screening`: the first arrival of a canonical watchlist film in one of the scoped cinemas. Each alert notifies a given film once; returns never notify.
+- Scope `followed` and `preferred` resolve the account's followed cinemas or selected cinemas when events are processed; `custom` stores 1-64 explicit cinema IDs.
+
+The API worker (`account_notifications_*` logs, every 15 seconds) reads the cinema activity journal through a single global cursor. It reads a batch only while no publication holds the snapshot writer lock (shared try-lock, never waiting), then locks owner accounts in ID order before writing. Silent baselines and superseded episodes never notify. Rules are armed at the newest journal event when created, re-enabled, widened or re-scoped, so configuring an alert never replays past activity; migration 089 seeds the cursor at the current journal maximum. Unread activity entries for the same alert are replaced by one merged entry with a new ID. Inbox entries are kept at most 90 days and 200 per account; deleting an alert keeps delivered entries without their alert reference.
+
+| Endpoint | Request | Successful response |
+| --- | --- | --- |
+| `GET /api/v1/account/notifications/status` | No query parameters | `{username, unread_count, latest_id}` |
+| `GET /api/v1/account/notifications` | Optional single `limit` (1-50, default 20) and `before` (positive ID); no other parameters | Status fields plus `{items, limit, next_cursor}`; items contain `{id, kind, rule_id, created_at, read, event_count, movie_count, theater_count, movies, theaters}` with at most three resolved films and cinemas |
+| `POST /api/v1/account/notifications/read` | `{expected_username, ids}`; `ids` a comma-separated list of 1-100 positive IDs | Status; unknown, foreign or already read IDs are ignored |
+| `POST /api/v1/account/notifications/read-all` | `{expected_username, through_id}` | Status; entries newer than `through_id` stay unread |
+| `GET /api/v1/account/notification-rules` | No query parameters | `{username, rules, max_rules, max_custom_theaters}` |
+| `POST /api/v1/account/notification-rules` | `{expected_username, kind, theater_scope, theater_ids, include_returns, enabled}`; `theater_ids` comma-separated and empty unless scope is `custom`; booleans exactly `"true"` or `"false"`; `include_returns` must be `"false"` for watchlist alerts | Rules snapshot |
+| `POST /api/v1/account/notification-rules/update` | Same fields plus `id`; kind is immutable | Rules snapshot |
+| `POST /api/v1/account/notification-rules/delete` | `{expected_username, id}` | Rules snapshot |
+
+These routes require a complete session and the usual strict account JSON, Origin, CSRF and Fetch Metadata protections. Inbox reads share the expensive-read IP limiter; writes share the selected-theater write limiter. Unknown or foreign alerts return `404 notification_rule_not_found`; the 21st alert returns `409 notification_rule_limit_reached`. Alerts and inbox entries cascade on account deletion. Films and cinemas are resolved at read time to current canonical public metadata; entries whose film can no longer be resolved show counts without that film.
 
 ### Watchlist
 
