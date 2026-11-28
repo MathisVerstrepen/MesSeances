@@ -227,6 +227,7 @@ export function parseSitemapData(
     if (
       Object.prototype.toString.call(movie) !== '[object Object]' ||
       Object.prototype.toString.call(movie.slug) !== '[object String]' ||
+      Object.prototype.toString.call(movie.title) !== '[object String]' ||
       Object.prototype.toString.call(movie.updated_at) !== '[object String]' ||
       [
         movie.overview,

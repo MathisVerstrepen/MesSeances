@@ -93,6 +93,12 @@ export default defineNuxtConfig({
           href: '/apple-touch-icon-180x180.png',
           sizes: '180x180',
         },
+        {
+          rel: 'alternate',
+          type: 'text/plain',
+          href: '/llms.txt',
+          title: 'Guide MesSeances pour agents IA (llms.txt)',
+        },
       ],
     },
   },
