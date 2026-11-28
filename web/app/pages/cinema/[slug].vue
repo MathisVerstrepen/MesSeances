@@ -618,6 +618,18 @@ useHead(() => ({
       ]
     : [],
 }))
+useHead(() => ({
+  link: notFound.value
+    ? []
+    : [
+        {
+          rel: 'alternate',
+          type: 'text/markdown',
+          href: `${canonicalUrl.value}.md`,
+          title: 'Version Markdown pour agents IA',
+        },
+      ],
+}))
 </script>
 
 <template>

@@ -32,6 +32,7 @@ type API struct {
 	publicTheaterImages PublicTheaterImageController
 	sitemap             SitemapObserver
 	origin              string
+	openAPI             []byte
 }
 
 type ShortlinkService interface {
@@ -148,6 +149,11 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 }
 
 func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options HandlerOptions) http.Handler {
+	return accountBoundary(newRouter(service, webOrigin, options))
+}
+
+// newRouter registers every route; NewHandlerWithOptions adds the account boundary.
+func newRouter(service *schedule.Service, webOrigin string, options HandlerOptions) *chi.Mux {
 	if options.Admin.Logger == nil {
 		options.Admin.Logger = observability.NewLogger(io.Discard)
 	}
@@ -158,7 +164,12 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.RateLimitClock == nil {
 		options.RateLimitClock = time.Now
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, publicTheaterImages: options.PublicTheaterImages, sitemap: options.Sitemap, origin: webOrigin}
+	openAPI, err := renderPublicOpenAPI(webOrigin)
+	if err != nil {
+		// The spec is embedded at build time and parsed by tests.
+		panic(err)
+	}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, publicTheaterImages: options.PublicTheaterImages, sitemap: options.Sitemap, origin: webOrigin, openAPI: openAPI}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
@@ -193,6 +204,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
+	router.Get("/api/v1/openapi.json", api.publicOpenAPI)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/timeline", api.timeline)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/statistics", api.statistics)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history", api.historyStatistics)
@@ -220,7 +232,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Méthode non autorisée.")
 	})
 
-	return accountBoundary(router)
+	return router
 }
 
 func jsonContentType(next http.Handler) http.Handler {
