@@ -4,12 +4,15 @@ import test from 'node:test'
 import type { H3Event } from 'h3'
 import * as internalApi from '../server/utils/internalApi.ts'
 import * as accountPrivacy from '../shared/accountPrivacy.ts'
+import * as publicPageCache from '../shared/publicPageCache.ts'
 import { executeModule } from './helpers/renderVue.ts'
 import {
   buildInternalApiHeaders,
+  CLIENT_IP_HEADER,
   generateRequestId,
   INTERNAL_API_TOKEN_HEADER,
   REQUEST_ID_HEADER,
+  resolveClientIp,
 } from '../server/utils/internalApi.ts'
 
 const SECRET = 'a'.repeat(64)
@@ -42,6 +45,52 @@ test('builds server API headers with one bounded request ID and optional private
   )
 })
 
+test('forwards the visitor address only next to the private token', () => {
+  assert.deepEqual(buildInternalApiHeaders(SECRET, REQUEST_ID, '2001:db8::1'), {
+    [REQUEST_ID_HEADER]: REQUEST_ID,
+    [INTERNAL_API_TOKEN_HEADER]: SECRET,
+    [CLIENT_IP_HEADER]: '2001:db8::1',
+  })
+  // Without the token the API would ignore it; never send it.
+  assert.deepEqual(buildInternalApiHeaders('', REQUEST_ID, '203.0.113.9'), {
+    [REQUEST_ID_HEADER]: REQUEST_ID,
+  })
+  assert.equal(
+    buildInternalApiHeaders(SECRET, REQUEST_ID, '203.0.113.9, 10.0.0.1')[
+      CLIENT_IP_HEADER
+    ],
+    undefined,
+  )
+})
+
+test('resolves the visitor address from the proxy header or the socket peer', () => {
+  const request = (
+    headers: Record<string, string | string[] | undefined>,
+    remoteAddress?: string,
+  ) => {
+    const event = { node: { req: { headers, socket: { remoteAddress } } } }
+    // SAFETY: resolveClientIp only reads node.req headers and socket address, as on an H3Event.
+    return event as H3Event
+  }
+  assert.equal(
+    resolveClientIp(request({ 'x-real-ip': ' 203.0.113.9 ' }), 'X-Real-IP'),
+    '203.0.113.9',
+  )
+  assert.equal(
+    resolveClientIp(request({ 'x-real-ip': '203.0.113.9' }, '172.18.0.1'), ''),
+    '172.18.0.1',
+  )
+  for (const value of ['203.0.113.9, 10.0.0.1', 'unknown', '', ['1.2.3.4']])
+    assert.equal(
+      resolveClientIp(
+        request({ 'x-real-ip': value }, '172.18.0.1'),
+        'x-real-ip',
+      ),
+      '',
+    )
+  assert.equal(resolveClientIp(request({}, '172.18.0.1'), 'x-real-ip'), '')
+})
+
 test('generates fresh cryptographic request IDs in the API contract format', () => {
   const first = generateRequestId()
   const second = generateRequestId()
@@ -65,6 +114,7 @@ test('actual middleware replaces visitor IDs and SSR API propagates identity wit
     {
       '@tailwindcss/vite': () => ({}),
       './shared/accountPrivacy': accountPrivacy,
+      './shared/publicPageCache': publicPageCache,
     },
   ).default.runtimeConfig
   assert.equal(config.internalApiSharedSecret, '')
@@ -74,7 +124,15 @@ test('actual middleware replaces visitor IDs and SSR API propagates identity wit
   )
   const event = {
     context: {},
-    node: { req: { headers: { 'x-request-id': 'visitor-value' } } },
+    node: {
+      req: {
+        headers: {
+          'x-request-id': 'visitor-value',
+          'x-real-ip': '203.0.113.9',
+        },
+        socket: { remoteAddress: '172.18.0.1' },
+      },
+    },
   }
   const responseHeaders = new Headers()
   const middleware = executeModule<{
@@ -83,6 +141,7 @@ test('actual middleware replaces visitor IDs and SSR API propagates identity wit
     middlewareSource,
     {
       defineEventHandler: (handler: (request: typeof event) => void) => handler,
+      useRuntimeConfig: () => ({ clientIpHeader: 'x-real-ip' }),
       setResponseHeader: (_event: typeof event, name: string, value: string) =>
         responseHeaders.set(name, value),
     },
@@ -146,6 +205,10 @@ test('actual middleware replaces visitor IDs and SSR API propagates identity wit
       assert.equal(
         headers.get(INTERNAL_API_TOKEN_HEADER),
         server && secret ? secret : null,
+      )
+      assert.equal(
+        headers.get(CLIENT_IP_HEADER),
+        server && secret ? '203.0.113.9' : null,
       )
       assert.ok(!calls[0]!.url.includes(SECRET))
       if (!server || !secret)

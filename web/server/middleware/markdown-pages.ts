@@ -16,6 +16,7 @@ import { todayInParis } from '../../app/utils/date'
 import { absoluteSiteUrl } from '../../app/utils/siteUrl'
 import {
   buildInternalApiHeaders,
+  initializeClientIp,
   requestIdForEvent,
 } from '../utils/internalApi'
 import {
@@ -51,15 +52,20 @@ function cacheKey(request: MarkdownPageRequest): string {
   ].join(':')
 }
 
-// Agent traffic uses the public API budget, not the internal one that
-// serves HTML pages to visitors.
+// Like HTML pages, each agent spends its own server-rendering budget: the
+// API keys it on the forwarded visitor address under a global ceiling.
 async function render(
   event: H3Event,
   request: MarkdownPageRequest,
 ): Promise<string> {
   const config = useRuntimeConfig(event)
   const apiBase = config.apiBase.replace(/\/$/, '')
-  const headers = buildInternalApiHeaders('', requestIdForEvent(event))
+  // This middleware runs before the request-id one, which records it too.
+  const headers = buildInternalApiHeaders(
+    config.internalApiSharedSecret,
+    requestIdForEvent(event),
+    initializeClientIp(event, config.clientIpHeader),
+  )
   const siteUrl = config.public.siteUrl
   const slug = encodeURIComponent(request.slug)
   if (request.kind === 'cinema') {

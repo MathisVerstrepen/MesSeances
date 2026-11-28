@@ -1626,3 +1626,34 @@ func assertAPIError(t *testing.T, response *httptest.ResponseRecorder, status in
 		t.Fatalf("error=%+v", result.Error)
 	}
 }
+
+func TestPublicReadRoutesAnswerHEADLikeGET(t *testing.T) {
+	handler := testHandler(t)
+	for _, target := range []string{"/api/v1/openapi.json", "/api/v1/cities", "/api/v1/theaters?city=lille", "/api/v1/movies?page_size=1"} {
+		get := httptest.NewRecorder()
+		handler.ServeHTTP(get, httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil))
+		head := httptest.NewRecorder()
+		handler.ServeHTTP(head, httptest.NewRequestWithContext(t.Context(), http.MethodHead, target, nil))
+		if get.Code != http.StatusOK || head.Code != http.StatusOK || head.Header().Get("Content-Type") != get.Header().Get("Content-Type") {
+			t.Fatalf("target=%s GET=%d HEAD=%d content-type=%q", target, get.Code, head.Code, head.Header().Get("Content-Type"))
+		}
+	}
+	for _, target := range []string{"/api/v1/nope", "/api/v1/movies/nope-404/missing"} {
+		head := httptest.NewRecorder()
+		handler.ServeHTTP(head, httptest.NewRequestWithContext(t.Context(), http.MethodHead, target, nil))
+		if head.Code != http.StatusNotFound {
+			t.Fatalf("target=%s HEAD=%d", target, head.Code)
+		}
+	}
+	// Writes, private and operator routes keep their method rules.
+	for _, target := range []string{"/api/v1/shortlinks", "/api/v1/admin/session", "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle", "/metrics"} {
+		head := httptest.NewRecorder()
+		handler.ServeHTTP(head, httptest.NewRequestWithContext(t.Context(), http.MethodHead, target, nil))
+		if head.Code == http.StatusOK {
+			t.Fatalf("target=%s HEAD=%d", target, head.Code)
+		}
+	}
+	if publicReadPath("/api/v1/accounts") != true || publicReadPath("/api/v1/account/me") || publicReadPath("/api/v1/auth") || publicReadPath("/healthz") {
+		t.Fatal("publicReadPath prefixes")
+	}
+}

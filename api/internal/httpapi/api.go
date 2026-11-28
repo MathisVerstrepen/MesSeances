@@ -173,13 +173,15 @@ func newRouter(service *schedule.Service, webOrigin string, options HandlerOptio
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
+	internalVisitorReads := newTokenBucketLimiter(internalVisitorReadBurst, internalVisitorReadRefillRate, internalVisitorReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
 	internalExpensiveReads := newTokenBucketLimiter(internalExpensiveReadBurst, internalExpensiveReadRefillRate, internalExpensiveReadIdleHorizon, internalRateLimitClients, options.RateLimitClock)
-	expensiveReads := expensiveReadRateLimit(publicExpensiveReads, internalExpensiveReads)
+	expensiveReads := expensiveReadRateLimit(publicExpensiveReads, internalVisitorReads, internalExpensiveReads)
 	shortlinkCreations := rateLimit(newTokenBucketLimiter(shortlinkCreationBurst, shortlinkCreationRefillRate, shortlinkCreationIdleHorizon, maxRateLimitClients, options.RateLimitClock), func(r *http.Request) string {
 		return requestIdentityFromContext(r.Context()).publicKey
 	})
 	router := chi.NewRouter()
 	router.Use(requestMetadata(clients, authenticator))
+	router.Use(publicReadHead)
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
 	router.Use(recoverJSON(options.Admin.Logger))

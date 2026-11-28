@@ -15,11 +15,20 @@ const (
 	expensiveReadRefillRate  = 1.0
 	expensiveReadIdleHorizon = 20 * time.Second
 
-	internalExpensiveReadBurst       = 40
-	internalExpensiveReadRefillRate  = 5.0
+	// Server rendering forwards the visitor address with the internal token:
+	// each visitor gets its own budget, so one crawler cannot drain the pages
+	// of everyone else, and the global ceiling still protects the API.
+	internalVisitorReadBurst       = 30
+	internalVisitorReadRefillRate  = 2.0
+	internalVisitorReadIdleHorizon = 15 * time.Second
+
+	internalExpensiveReadBurst       = 320
+	internalExpensiveReadRefillRate  = 40.0
 	internalExpensiveReadIdleHorizon = 8 * time.Second
 	internalRateLimitClients         = 1
-	internalRateLimitKey             = "internal-service"
+	// Shared key for the global ceiling and for internal calls made without a
+	// visitor, such as sitemap generation.
+	internalRateLimitKey = "internal-service"
 
 	shortlinkCreationBurst       = 5
 	shortlinkCreationRefillRate  = 1.0 / 144.0
@@ -118,15 +127,26 @@ func rateLimit(limiter *tokenBucketLimiter, key func(*http.Request) string) func
 	}
 }
 
-func expensiveReadRateLimit(public, internal *tokenBucketLimiter) func(http.Handler) http.Handler {
+func expensiveReadRateLimit(public, visitors, internal *tokenBucketLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity := requestIdentityFromContext(r.Context())
-			limiter, key := public, identity.publicKey
+			var allowed bool
+			var retryAfter int
 			if identity.internalService {
-				limiter, key = internal, internalRateLimitKey
+				visitor := identity.internalVisitorKey
+				if visitor == "" {
+					visitor = internalRateLimitKey
+				}
+				// The visitor budget is checked first so a throttled visitor
+				// never spends the global ceiling.
+				allowed, retryAfter = visitors.allow(visitor)
+				if allowed {
+					allowed, retryAfter = internal.allow(internalRateLimitKey)
+				}
+			} else {
+				allowed, retryAfter = public.allow(identity.publicKey)
 			}
-			allowed, retryAfter := limiter.allow(key)
 			if !allowed {
 				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))

@@ -4,13 +4,19 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"net/http"
+	"net/netip"
 
 	"github.com/go-chi/chi/v5"
 
 	"messeances/api/internal/schedule"
 )
 
-const internalServiceTokenHeader = "X-Messeances-Internal-Token"
+const (
+	internalServiceTokenHeader = "X-Messeances-Internal-Token"
+	// Trusted only next to a valid internal token: the web server sets it from
+	// the address its reverse proxy reported for the visitor.
+	internalVisitorAddressHeader = "X-Messeances-Client-IP"
+)
 
 type internalServiceAuthenticator struct {
 	configured bool
@@ -36,6 +42,19 @@ func (a internalServiceAuthenticator) authenticate(r *http.Request) bool {
 	}
 	presented := sha256.Sum256([]byte(values[0]))
 	return subtle.ConstantTimeCompare(a.expected[:], presented[:]) == 1
+}
+
+// internalVisitorKey returns the canonical visitor address, or empty when the
+// header is missing, repeated or not a plain IP address.
+func internalVisitorKey(values []string) string {
+	if len(values) != 1 {
+		return ""
+	}
+	address, err := netip.ParseAddr(values[0])
+	if err != nil || address.Zone() != "" {
+		return ""
+	}
+	return address.Unmap().String()
 }
 
 func (api *API) requireInternalService(next http.Handler) http.Handler {
