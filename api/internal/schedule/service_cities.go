@@ -38,7 +38,7 @@ func cities(view *SnapshotView) CityInventory {
 
 func (s *Service) City(slug string) (CityDetail, error) {
 	view := s.source.Snapshot()
-	bucketPosition, found := view.cityBucketBySlug[slug]
+	bucketPosition, found := view.canonicalCityBucket(slug)
 	if !found {
 		return CityDetail{}, &NotFoundError{Message: "Ville introuvable."}
 	}

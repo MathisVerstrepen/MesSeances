@@ -135,14 +135,14 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 		view.theaterBySlug[theater.Slug] = position
 		view.theaterPositions[position] = position
 		view.theaterCatalog[position] = position
-		cityKey := foldKey(strings.TrimSpace(theater.City))
-		bucket, exists := view.cityBucketByFold[cityKey]
+		key := cityKey(theater.City)
+		bucket, exists := view.cityBucketByFold[key]
 		if !exists {
 			view.cityBuckets = append(view.cityBuckets, cityBucket{city: theater.City})
 			bucket = len(view.cityBuckets) - 1
-			view.cityBucketByFold[cityKey] = bucket
+			view.cityBucketByFold[key] = bucket
 		}
-		labelsByFold[cityKey] = append(labelsByFold[cityKey], theater.City)
+		labelsByFold[key] = append(labelsByFold[key], theater.City)
 		view.theaterCity[position] = bucket
 		view.cityBuckets[bucket].positions = append(view.cityBuckets[bucket].positions, position)
 	}
@@ -151,6 +151,10 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 		view.cityBuckets[bucket].city = identity.name
 		view.cityBuckets[bucket].slug = identity.slug
 		view.cityBucketBySlug[identity.slug] = bucket
+	}
+	// Every response names a theater's city the way its city page does.
+	for position := range view.data.Theaters {
+		view.data.Theaters[position].City = view.cityBuckets[view.theaterCity[position]].city
 	}
 	sort.Slice(view.theaterCatalog, func(i, j int) bool {
 		left, right := view.data.Theaters[view.theaterCatalog[i]], view.data.Theaters[view.theaterCatalog[j]]
@@ -164,8 +168,7 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 	})
 	for rank, position := range view.theaterCatalog {
 		view.theaterRank[position] = rank
-		cityKey := foldKey(strings.TrimSpace(view.data.Theaters[position].City))
-		bucket := view.cityBucketByFold[cityKey]
+		bucket := view.theaterCity[position]
 		view.cityBuckets[bucket].catalogPositions = append(view.cityBuckets[bucket].catalogPositions, position)
 	}
 	variantPositions := make(map[string]map[string]int)
@@ -301,6 +304,29 @@ func (v *SnapshotView) resolveMovieSlug(slug string) (string, bool) {
 	return canonical, ok
 }
 
+// cityBucket finds a city filter by slug or any spelling of its name.
+func (v *SnapshotView) cityBucket(value string) (int, bool) {
+	if position, found := v.cityBucketBySlug[strings.TrimSpace(value)]; found {
+		return position, true
+	}
+	position, found := v.cityBucketByFold[cityLookupKey(value)]
+	return position, found
+}
+
+// canonicalCityBucket accepts only a canonical slug, or a legacy slug whose
+// hash suffix once separated spellings of the now merged city.
+func (v *SnapshotView) canonicalCityBucket(slug string) (int, bool) {
+	if position, found := v.cityBucketBySlug[slug]; found {
+		return position, true
+	}
+	base := legacyCitySlugSuffix.ReplaceAllString(slug, "")
+	if base == slug {
+		return 0, false
+	}
+	position, found := v.cityBucketBySlug[base]
+	return position, found
+}
+
 func (v *SnapshotView) positionsForCities(cities []string) []int {
 	if len(cities) == 0 {
 		return append([]int(nil), v.theaterPositions...)
@@ -308,7 +334,7 @@ func (v *SnapshotView) positionsForCities(cities []string) []int {
 	positions := make([]int, 0)
 	seen := make(map[int]bool)
 	for _, city := range cities {
-		bucketPosition, matched := v.cityBucketByFold[foldKey(strings.TrimSpace(city))]
+		bucketPosition, matched := v.cityBucket(city)
 		if !matched {
 			continue
 		}
@@ -331,7 +357,7 @@ func (v *SnapshotView) catalogPositionsForCities(cities []string) []int {
 	positions := make([]int, 0)
 	matchedBuckets := 0
 	for _, city := range cities {
-		bucketPosition, matched := v.cityBucketByFold[foldKey(strings.TrimSpace(city))]
+		bucketPosition, matched := v.cityBucket(city)
 		if !matched {
 			continue
 		}
