@@ -8,16 +8,15 @@ mkdirSync(new URL('../tmp/playwright', import.meta.url), {
   mode: 0o700,
 })
 
-const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
-if (!Number.isInteger(port) || port < 1024 || port > 65535)
-  throw new Error('PLAYWRIGHT_PORT must be an integer from 1024 to 65535')
-
-const baseURL = `http://127.0.0.1:${port}`
-
+// Each worker starts its own fixture server (e2e/fixtures.ts) from one shared
+// production build (e2e/global-setup.ts), so tests run fully in parallel.
 export default defineConfig({
   testDir: './e2e',
-  fullyParallel: false,
-  workers: 1,
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+  fullyParallel: true,
+  // Default: half the CPU cores. Override with --workers.
+  workers: process.env.CI ? 2 : undefined,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   timeout: 30000,
@@ -27,7 +26,6 @@ export default defineConfig({
   ],
   outputDir: '../tmp/playwright/results',
   use: {
-    baseURL,
     serviceWorkers: 'block',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -50,12 +48,4 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'node tools/playwright-server.mjs',
-    url: `${baseURL}/__playwright/health`,
-    reuseExistingServer: false,
-    timeout: 120000,
-    gracefulShutdown: { signal: 'SIGTERM', timeout: 10000 },
-    env: { PLAYWRIGHT_PORT: String(port), NUXT_TELEMETRY_DISABLED: '1' },
-  },
 })

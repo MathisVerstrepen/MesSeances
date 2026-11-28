@@ -38,15 +38,30 @@ PATH. Refresh this workspace with `npm --prefix web ci`, then retry
 reinstall; it replaces `node_modules` and runs Nuxt preparation. Do not upgrade
 the system Playwright package to repair a missing project dependency.
 
-The suite starts and stops its own loopback Nuxt fixture on port 13400, with
-a synthetic API on a random loopback port. `PLAYWRIGHT_PORT=13401 make
-test-browser` selects another port; an occupied port fails rather than
-reusing or stopping someone else's server. Generation is isolated under
-`web/node_modules/.cache/playwright-<port>/`; it does not rewrite the
-developer's `.nuxt` directory. The fixture disables the dev type checker and
-Oxc tsconfig discovery so it does not depend on `.nuxt/tsconfig.json`. Run
-normal typecheck separately for application types. A fixture-only Nuxt
+Global setup builds the application once in production mode under
+`web/node_modules/.cache/playwright-build/` (preset `node-listener`, fixture
+readiness plugin included); it does not rewrite the developer's `.nuxt` or
+`.output` directories. Each Playwright worker then starts its own loopback
+fixture server (`tools/playwright-server.mjs`) on ephemeral ports: a synthetic
+API plus the built Nuxt listener, which also proxies `/api` to the synthetic
+API as the dev proxy did. Scenario state is therefore per worker and tests run
+fully in parallel (`fullyParallel`, half the CPU cores locally, 2 workers per
+CI shard; override with `--workers`). A worker's server stops with the worker,
+or when its IPC channel disconnects. A lock file next to the build directory
+makes a second concurrent suite in the same worktree fail fast instead of
+overwriting the build.
+
+For focused local loops, `PLAYWRIGHT_REUSE_BUILD=1` skips the build when one
+already exists; it does not detect source changes, so rebuild after editing
+application code. The build disables the type checker and Oxc tsconfig
+discovery so it does not depend on `.nuxt/tsconfig.json`. Run normal
+typecheck separately for application types. A fixture-only Nuxt
 `app:mounted` marker lets interactions wait for hydration without sleeps.
+Loading-state scenarios use `hold` modes instead of fixed delays: the
+synthetic API keeps the response until the test posts
+`/__playwright/release`, and a scenario reset releases anything still held.
+Scroll-restoration scenarios whose SSR and client requests both need latency
+use one shared transport delay (`transportDelayMs`).
 
 Coverage includes SSR cinema identity and listings, the films tab and search,
 back/forward navigation, a missing cinema's SSR 404, and rejection of synthetic
@@ -117,9 +132,12 @@ playwright-cli screenshot --filename=tmp/playwright/cli-cinema.png
 playwright-cli close
 ```
 
-Stop the fixture with Ctrl-C in its terminal when finished. `--headed` is
+The standalone fixture listens on port 13400 (`PLAYWRIGHT_PORT` selects
+another, `0` an ephemeral one) and builds the production fixture first unless
+`PLAYWRIGHT_REUSE_BUILD=1` finds an existing build. Stop the fixture with
+Ctrl-C in its terminal when finished. `--headed` is
 optional. CLI exploration and the automated suite must use different fixture
-ports if run concurrently. Unlike the automated suite, manual CLI exploration
+ports if run concurrently; the suite itself uses ephemeral ports. Unlike the automated suite, manual CLI exploration
 does not install its browser routing/egress guards; stay on the synthetic
 fixture and do not follow external booking or footer links. Turn discoveries
 into tracked `web/e2e/*.spec.ts` tests rather than leaving one-off scripts.
