@@ -360,3 +360,65 @@ func TestGueretUnavailablePreservesFullDatasetAndAtomicFailure(t *testing.T) {
 		}
 	}
 }
+
+func TestGueretEntryRedirectIsUnavailableWithoutFetching(t *testing.T) {
+	start := gueretTestStart()
+	chain := gueretTestChain(start)
+	cases := []struct {
+		name, location string
+		status         int
+		duplicate      bool
+		unavailable    bool
+	}{
+		{"exact", gueretEntry, 307, false, true},
+		{"status-302", gueretEntry, 302, false, false},
+		{"status-301", gueretEntry, 301, false, false},
+		{"two-locations", gueretEntry, 307, true, false},
+		{"relative", "/reserver/", 307, false, false},
+		{"no-slash", strings.TrimSuffix(gueretEntry, "/"), 307, false, false},
+		{"query", gueretEntry + "?x=1", 307, false, false},
+		{"fragment", gueretEntry + "#", 307, false, false},
+		{"other-host", "https://achat.veocinemas.fr/reserver/", 307, false, false},
+		{"http", "http://achat.cinema-senechal.com/reserver/", 307, false, false},
+		{"uppercase", "https://achat.cinema-senechal.com/RESERVER/", 307, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls, body := 0, &gueretUnreadBody{}
+			c := testClient(t, func(req *http.Request) (*http.Response, error) {
+				if calls > 2 || req.URL.String() != chain[calls] || req.Method != http.MethodGet {
+					t.Fatal("entry target sent")
+				}
+				status, target := []int{302, 302, 307}[calls], chain[calls+1]
+				if calls == 0 {
+					target = strings.TrimPrefix(target, "https://relay.mvtx.us")
+				}
+				r := fixtureResponse(status, "", "text/html")
+				if calls == 2 {
+					r.StatusCode, target, r.Body = tc.status, tc.location, body
+				}
+				r.Header.Set("Location", target)
+				if tc.duplicate && calls == 2 {
+					r.Header.Add("Location", target)
+				}
+				calls++
+				return r, nil
+			})
+			result, err := c.Checkout(t.Context(), chain[0], start)
+			if tc.unavailable {
+				if err != nil || !result.unavailableEnrichment || result.regularFinal404Unavailable || len(result.Body) != 0 || result.canonicalURL != "" || calls != 3 || c.RequestCount() != 1 || body.reads != 0 || body.closes != 1 {
+					t.Fatal("entry redirect not an unread unavailable outcome", calls, body, err)
+				}
+				return
+			}
+			var failure *RequestError
+			if !errors.As(err, &failure) || failure.Kind != syncproxy.FailureRedirect || result.unavailableEnrichment || calls != 3 {
+				t.Fatal("near-miss became unavailable or followed", calls, err)
+			}
+		})
+	}
+	u, _ := url.Parse(gueretEntry)
+	if checkoutFetchURLAllowed(u) || allowedURL(u) || checkoutURLAllowed(u) {
+		t.Fatal("entry gained fetch/public authority")
+	}
+}
