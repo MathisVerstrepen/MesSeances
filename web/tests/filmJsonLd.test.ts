@@ -121,12 +121,22 @@ test('builds compact shared-reference graph and retains every showtime without m
     {
       '@type': 'MovieTheater',
       '@id': 'https://messeances.fr/cinema/ugc-les-halles#cinema',
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: 'Paris',
+        addressCountry: 'FR',
+      },
       name: 'UGC Les Halles',
       url: 'https://messeances.fr/cinema/ugc-les-halles',
     },
     {
       '@type': 'MovieTheater',
       '@id': 'https://messeances.fr/cinema/pathe-wepler#cinema',
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: 'Paris',
+        addressCountry: 'FR',
+      },
       name: 'Pathé Wepler',
       url: 'https://messeances.fr/cinema/pathe-wepler',
     },
@@ -143,9 +153,29 @@ test('builds compact shared-reference graph and retains every showtime without m
   for (const event of events) {
     assert.deepEqual(
       Object.keys(event).sort(),
-      ['@type', 'endDate', 'location', 'startDate', 'workPresented'].sort(),
+      [
+        '@type',
+        'endDate',
+        'eventAttendanceMode',
+        'eventStatus',
+        'image',
+        'location',
+        'name',
+        'startDate',
+        'subtitleLanguage',
+        'videoFormat',
+        'workPresented',
+      ].sort(),
     )
     assert.deepEqual(event.workPresented, { '@id': `${movieUrl}#movie` })
+    assert.equal(event.eventStatus, 'https://schema.org/EventScheduled')
+    assert.equal(
+      event.eventAttendanceMode,
+      'https://schema.org/OfflineEventAttendanceMode',
+    )
+    assert.equal(event.image, 'https://image.tmdb.org/t/p/w500/poster.jpg')
+    assert.equal(event.subtitleLanguage, 'fr')
+    assert.equal(event.videoFormat, '2D')
   }
   assert.deepEqual(
     events.map((event) => event.location?.['@id']),
@@ -153,6 +183,14 @@ test('builds compact shared-reference graph and retains every showtime without m
       'https://messeances.fr/cinema/ugc-les-halles#cinema',
       'https://messeances.fr/cinema/ugc-les-halles#cinema',
       'https://messeances.fr/cinema/pathe-wepler#cinema',
+    ],
+  )
+  assert.deepEqual(
+    events.map((event) => event.name),
+    [
+      `${movie.title} à UGC Les Halles`,
+      `${movie.title} à UGC Les Halles`,
+      `${movie.title} à Pathé Wepler`,
     ],
   )
   assert.deepEqual(

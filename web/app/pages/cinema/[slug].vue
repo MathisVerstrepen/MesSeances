@@ -24,6 +24,10 @@ import { formatOptions, formatShowtimeCount } from '~/utils/formats'
 import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import {
+  screeningEventDetails,
+  theaterPostalAddress,
+} from '~/utils/screeningJsonLd'
+import {
   filterAndSortCatalogMovies,
   movieCatalogSortValues,
 } from '~/utils/movieCatalogPresentation'
@@ -34,6 +38,7 @@ import {
   queriesEqual,
   singularQueryValue,
 } from '~/utils/routeQuery'
+import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { hasCanonicalShowtimeEnd } from '~/utils/showtimeEnd'
 import {
@@ -505,7 +510,7 @@ const cinemaJsonLd = computed(() => {
     current.theater.city.trim() &&
     current.theater.postal_code.trim()
   )
-    theaterNode.address = current.theater.address.trim()
+    theaterNode.address = theaterPostalAddress(current.theater)
   const cityUrl = absoluteSiteUrl(
     config.public.siteUrl,
     `/ville/${encodeURIComponent(current.theater.city_slug)}/cinemas`,
@@ -575,7 +580,12 @@ const cinemaJsonLd = computed(() => {
     const event: JsonLdNode = {
       '@type': 'ScreeningEvent',
       '@id': `${theaterUrl}#screening-${encodeURIComponent(id)}`,
-      name: `${showtime.movie.title} à ${current.theater.name}`,
+      ...screeningEventDetails(showtime, {
+        theaterId: current.theater.id,
+        theaterName: current.theater.name,
+        originalLanguage: showtime.movie.original_language,
+        image: safePosterUrl(showtime.poster_url),
+      }),
       startDate: showtime.start_time,
       location: { '@id': theaterId },
       workPresented: { '@id': movieId },
