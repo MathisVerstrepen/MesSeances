@@ -371,7 +371,7 @@ test('pending summaries omit factual chips and expose one screen-reader loading 
   request,
 }) => {
   await request.post('/__playwright/scenario', {
-    data: { ...complete, screenings: 'delay' },
+    data: { ...complete, screenings: 'hold' },
   })
   await openPage(page, '/compte/watchlist')
   await expect(
@@ -384,5 +384,7 @@ test('pending summaries omit factual chips and expose one screen-reader loading 
       exact: true,
     }),
   ).toBeEnabled()
+  const release = await request.post('/__playwright/release')
+  expect((await release.json()).released).toBeGreaterThan(0)
   await expect(page.locator(chip)).toHaveCount(2)
 })

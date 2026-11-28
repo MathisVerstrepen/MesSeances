@@ -255,7 +255,7 @@ test('SSR failures return 502; client retry preserves failed period and loading 
     page.getByRole('link', { name: 'Le dernier jour de 2024' }),
   ).toBeVisible()
   await expect(page.getByLabel('Mois', { exact: true })).toHaveValue('12')
-  await request.post('/__playwright/upcoming', { data: { mode: 'delay' } })
+  await request.post('/__playwright/upcoming', { data: { mode: 'hold' } })
   await page
     .getByRole('navigation', { name: 'Période des sorties' })
     .getByRole('link', { name: 'À venir', exact: true })
@@ -266,6 +266,8 @@ test('SSR failures return 502; client retry preserves failed period and loading 
   await expect(
     page.getByRole('link', { name: 'Le dernier jour de 2024' }),
   ).toHaveCount(0)
+  const release = await request.post('/__playwright/release')
+  expect((await release.json()).released).toBeGreaterThan(0)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     'Prochainement.',
   )

@@ -41,6 +41,7 @@ test('cinema identity and programme render on the server', async ({
 test('film synopsis resets on changed schedule and external menu keeps real keyboard focus and safe destinations', async ({
   page,
   isMobile,
+  baseURL,
 }) => {
   const tomorrow = new Date(`${date}T12:00:00Z`)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
@@ -116,7 +117,7 @@ test('film synopsis resets on changed schedule and external menu keeps real keyb
     schemas
       .flatMap((schema) => schema['@graph'] || [schema])
       .find((schema) => schema['@type'] === 'Movie').url,
-  ).toBe('http://127.0.0.1:13400/film/film-playwright')
+  ).toBe(new URL('/film/film-playwright', baseURL).href)
   if (isMobile) await page.locator('#mobile-date-trigger').click()
   const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
   await tabs.filter({ hasText: 'Demain' }).click()
@@ -180,6 +181,7 @@ test('estimated end descriptions have unique associations, focus/Escape behavior
 
 test('rendered legal pages retain privacy disclosures, credit links and canonical robots policy', async ({
   page,
+  baseURL,
 }) => {
   for (const [path, title, robots] of [
     ['/confidentialite', 'Confidentialité', 'index,follow'],
@@ -195,7 +197,7 @@ test('rendered legal pages retain privacy disclosures, credit links and canonica
     )
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
       'href',
-      `http://127.0.0.1:13400${path}`,
+      new URL(path, baseURL).href,
     )
     const content = page.getByRole('main')
     if (path === '/confidentialite')
