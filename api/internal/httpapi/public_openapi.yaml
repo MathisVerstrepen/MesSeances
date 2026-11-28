@@ -1,0 +1,1195 @@
+openapi: 3.1.0
+info:
+  title: MesSeances — API publique
+  version: 1.0.0
+  description: |
+    API JSON en lecture seule des horaires de cinéma en France publiés par MesSeances
+    (grandes chaînes et cinémas indépendants). Aucune authentification n'est requise.
+
+    - Les dates (`AAAA-MM-JJ`) et heures de créneau (`HH:MM`) s'entendent à l'heure de Paris
+      (Europe/Paris). Les horodatages renvoyés sont en UTC (ISO 8601).
+    - Les lectures coûteuses sont limitées à environ 1 requête par seconde par client, avec
+      une rafale de 20. Au-delà, la réponse est `429` avec un en-tête `Retry-After`.
+    - Chaque séance porte un `booking_url` vers le site de l'exploitant. MesSeances ne vend
+      pas de billets.
+    - Les valeurs énumérées des réponses (chaînes, langues, formats) peuvent s'enrichir :
+      traitez une valeur inconnue comme valide.
+
+    Guide pour agents : `/llms.txt`.
+  contact:
+    name: MesSeances
+    url: https://messeances.fr/mentions-legales
+servers:
+  - url: https://messeances.fr
+# Every operation is public: no authentication scheme applies.
+security: []
+tags:
+  - name: Cinémas
+    description: Villes, cinémas et leurs adresses.
+  - name: Films
+    description: Catalogue des films et prochaines sorties.
+  - name: Séances
+    description: Horaires de séances par film, par cinéma ou par créneau.
+  - name: Méta
+    description: Description de l'API elle-même.
+paths:
+  /api/v1/openapi.json:
+    get:
+      operationId: getOpenAPI
+      summary: Spécification OpenAPI de l'API publique
+      tags: [Méta]
+      responses:
+        "200":
+          description: Ce document, au format JSON.
+          content:
+            application/json:
+              schema:
+                type: object
+  /api/v1/cities:
+    get:
+      operationId: listCities
+      summary: Villes couvertes et leurs cinémas
+      description: Inventaire complet des villes et de leurs cinémas, pour trouver un slug de ville ou un identifiant de cinéma.
+      tags: [Cinémas]
+      responses:
+        "200":
+          description: Inventaire des villes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CityInventory"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/cities/{slug}:
+    get:
+      operationId: getCity
+      summary: Cinémas et films d'une ville
+      tags: [Cinémas]
+      parameters:
+        - $ref: "#/components/parameters/CitySlugPath"
+      responses:
+        "200":
+          description: Cinémas de la ville et films qui y sont programmés.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CityDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/theaters:
+    get:
+      operationId: listTheaters
+      summary: Annuaire des cinémas
+      description: Adresse, technologies de projection et dates programmées de chaque cinéma.
+      tags: [Cinémas]
+      parameters:
+        - name: city
+          in: query
+          description: Slug de ville (voir `listCities`).
+          schema:
+            type: string
+          example: agen
+        - name: chain
+          in: query
+          description: Chaîne ou plateforme de billetterie, par exemple `ugc`, `pathe`, `cgr`, `kinepolis`.
+          schema:
+            type: string
+          example: cgr
+      responses:
+        "200":
+          description: Cinémas correspondant aux filtres.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TheaterCatalogItem"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/theaters/{slug}/showtimes:
+    get:
+      operationId: getTheaterShowtimes
+      summary: Séances d'un cinéma pour une date
+      tags: [Séances]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Slug du cinéma, par exemple `cgr-P0867`.
+          schema:
+            type: string
+        - name: date
+          in: query
+          description: Date de séance à l'heure de Paris. Aujourd'hui si absente.
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Cinéma et séances de la date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TheaterShowtimes"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/timeline:
+    get:
+      operationId: getTimeline
+      summary: Frise horaire des séances de plusieurs cinémas
+      tags: [Séances]
+      parameters:
+        - $ref: "#/components/parameters/DateRequired"
+        - $ref: "#/components/parameters/Theaters"
+        - $ref: "#/components/parameters/Language"
+      responses:
+        "200":
+          description: Séances de la date regroupées par cinéma.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Timeline"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/movies:
+    get:
+      operationId: listMovies
+      summary: Catalogue et recherche de films
+      tags: [Films]
+      parameters:
+        - name: search
+          in: query
+          description: Recherche dans le titre français ou original.
+          schema:
+            type: string
+        - name: currently_screened
+          in: query
+          description: Ne garder que les films à l'affiche (`true`) ou hors affiche (`false`).
+          schema:
+            type: boolean
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [title_asc, title_desc, release_date_desc, runtime_asc, runtime_desc, showtimes_desc]
+        - name: genres
+          in: query
+          description: Genres séparés par des virgules (voir `available_genres`).
+          schema:
+            type: string
+        - name: duration
+          in: query
+          schema:
+            type: string
+            enum: [short, medium, long]
+        - name: date
+          in: query
+          description: Début de la période de séances considérée.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          description: Fin de la période de séances considérée.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/Theaters"
+        - name: screening_summary
+          in: query
+          description: Ajoute les compteurs de séances restantes et des 7 prochains jours.
+          schema:
+            type: boolean
+        - name: include_ended
+          in: query
+          description: Inclure les films dont les séances sont terminées.
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+      responses:
+        "200":
+          description: Page du catalogue.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovieCatalog"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/movies/upcoming:
+    get:
+      operationId: listUpcomingMovies
+      summary: Prochaines sorties en salle
+      tags: [Films]
+      parameters:
+        - name: view
+          in: query
+          description: "`upcoming` (défaut) pour les sorties à venir, `history` pour les sorties passées."
+          schema:
+            type: string
+            enum: [upcoming, history]
+        - name: year
+          in: query
+          description: Année, avec `view=history` uniquement.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 9999
+        - name: month
+          in: query
+          description: Mois (1 à 12), avec `view=history` uniquement.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: Page de sorties.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpcomingMovies"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/movies/{slug}/showtimes:
+    get:
+      operationId: getMovieShowtimes
+      summary: Séances d'un film pour une date
+      description: Séances regroupées par cinéma, paginées par 10 cinémas. Sans `city` ni `theaters`, couvre toute la France.
+      tags: [Séances]
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Slug du film, par exemple `film-8806`.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/DateRequired"
+        - $ref: "#/components/parameters/City"
+        - $ref: "#/components/parameters/Theaters"
+        - name: language
+          in: query
+          schema:
+            type: string
+            enum: [ALL, ORIGINAL, VOF, VOSTFR, VF, VO, VF_SME, VFSTF]
+        - $ref: "#/components/parameters/Format"
+        - name: sort
+          in: query
+          description: "`catalog` (défaut) ou `next` pour les prochaines séances d'abord."
+          schema:
+            type: string
+            enum: [catalog, next]
+        - $ref: "#/components/parameters/Page"
+      responses:
+        "200":
+          description: Film, dates disponibles et séances par cinéma.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MovieSchedule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/search/slot:
+    get:
+      operationId: searchSlot
+      summary: Séances qui tiennent dans un créneau horaire
+      description: Séances qui commencent après `start_after` et finissent avant `finish_before`, publicité estimée comprise.
+      tags: [Séances]
+      parameters:
+        - $ref: "#/components/parameters/DateRequired"
+        - name: start_after
+          in: query
+          required: true
+          description: Heure de Paris `HH:MM`.
+          schema:
+            type: string
+            pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          example: "18:00"
+        - name: finish_before
+          in: query
+          required: true
+          description: Heure de Paris `HH:MM`, postérieure à `start_after`. Une heure entre 00:00 et 02:00 désigne le lendemain.
+          schema:
+            type: string
+            pattern: "^[0-2][0-9]:[0-5][0-9]$"
+          example: "23:00"
+        - $ref: "#/components/parameters/City"
+        - $ref: "#/components/parameters/Theaters"
+        - $ref: "#/components/parameters/Language"
+        - $ref: "#/components/parameters/Format"
+        - name: buffer_ads
+          in: query
+          description: Minutes de publicité estimées avant le film (15 par défaut).
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 120
+        - name: include_ads
+          in: query
+          description: "`true` (défaut) si le créneau commence à l'heure affichée, publicité comprise ; `false` pour arriver au début du film."
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Séances compatibles avec le créneau.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlotResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+components:
+  parameters:
+    CitySlugPath:
+      name: slug
+      in: path
+      required: true
+      description: Slug de ville, par exemple `agen`.
+      schema:
+        type: string
+    City:
+      name: city
+      in: query
+      description: Slug de ville. Exclusif avec `theaters`.
+      schema:
+        type: string
+    Theaters:
+      name: theaters
+      in: query
+      description: Identifiants de cinémas (`id`) séparés par des virgules. Exclusif avec `city`.
+      schema:
+        type: string
+      example: cgr-P0867,ticketingcine-EMS0204
+    DateRequired:
+      name: date
+      in: query
+      required: true
+      description: Date de séance à l'heure de Paris.
+      schema:
+        type: string
+        format: date
+    Language:
+      name: language
+      in: query
+      description: "`ORIGINAL` regroupe VOF et VOSTFR."
+      schema:
+        type: string
+        enum: [ALL, ORIGINAL, VOF, VOSTFR, VF, VO, VF_SME, VFSTF]
+    Format:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX, ICE, INFINITY_VISION]
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+  responses:
+    BadRequest:
+      description: Paramètre invalide (`invalid_query`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Slug inconnu (`not_found`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: Limite de débit atteinte (`rate_limited`).
+      headers:
+        Retry-After:
+          description: Secondes à attendre avant de réessayer.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: Horaires momentanément indisponibles (`schedule_unavailable`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: invalid_query
+        message:
+          type: string
+          description: Message en français.
+    City:
+      type: object
+      required: [name, slug]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+    CityTheater:
+      type: object
+      required: [provider, id, slug, name]
+      properties:
+        provider:
+          type: string
+          description: Chaîne ou plateforme de billetterie.
+        id:
+          type: string
+          description: Identifiant à passer dans `theaters`.
+        slug:
+          type: string
+        name:
+          type: string
+    CityInventoryItem:
+      type: object
+      required: [name, slug, theaters]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/CityTheater"
+    CityInventory:
+      type: object
+      required: [generated_at, items]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/CityInventoryItem"
+    DiscoveryWindow:
+      type: object
+      description: Dates de séance couvertes, bornes incluses.
+      required: [from, through, timezone]
+      properties:
+        from:
+          type: string
+          format: date
+        through:
+          type: string
+          format: date
+        timezone:
+          type: string
+    CityTheaterProgramme:
+      type: object
+      required: [id, movie_count, showtime_count]
+      properties:
+        id:
+          type: string
+        movie_count:
+          type: integer
+        showtime_count:
+          type: integer
+    CityDiscovery:
+      type: object
+      required: [window, theaters]
+      properties:
+        window:
+          oneOf:
+            - $ref: "#/components/schemas/DiscoveryWindow"
+            - type: "null"
+        theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/CityTheaterProgramme"
+    CityDetail:
+      type: object
+      required: [discovery, generated_at, city, theaters, movies]
+      properties:
+        discovery:
+          $ref: "#/components/schemas/CityDiscovery"
+        generated_at:
+          type: string
+          format: date-time
+        city:
+          $ref: "#/components/schemas/City"
+        theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/Theater"
+        movies:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCatalogItem"
+    PublicImage:
+      type: object
+      required: [url, width, height]
+      properties:
+        url:
+          type: string
+          format: uri
+        width:
+          type: integer
+        height:
+          type: integer
+    Theater:
+      type: object
+      required: [provider, id, slug, name, address, city, city_slug, postal_code, available_dates, accepted_passes]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        city_slug:
+          type: string
+        postal_code:
+          type: string
+        available_dates:
+          type: array
+          items:
+            type: string
+            format: date
+        accepted_passes:
+          type: array
+          description: Cartes et abonnements acceptés.
+          items:
+            type: string
+    TheaterWithImage:
+      type: object
+      required: [provider, id, slug, name, address, city, city_slug, postal_code, available_dates, accepted_passes, image]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        city_slug:
+          type: string
+        postal_code:
+          type: string
+        available_dates:
+          type: array
+          items:
+            type: string
+            format: date
+        accepted_passes:
+          type: array
+          items:
+            type: string
+        image:
+          oneOf:
+            - $ref: "#/components/schemas/PublicImage"
+            - type: "null"
+    TheaterCatalogItem:
+      type: object
+      required: [technologies, provider, id, slug, name, address, city, city_slug, postal_code, available_dates, available_formats, accepted_passes, latitude, longitude]
+      properties:
+        technologies:
+          type: array
+          description: Technologies de projection du cinéma (IMAX, DOLBY…).
+          items:
+            type: string
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        city:
+          type: string
+        city_slug:
+          type: string
+        postal_code:
+          type: string
+        available_dates:
+          type: array
+          items:
+            type: string
+            format: date
+        available_formats:
+          type: array
+          items:
+            type: string
+        accepted_passes:
+          type: array
+          items:
+            type: string
+        latitude:
+          type: [number, "null"]
+        longitude:
+          type: [number, "null"]
+        image:
+          $ref: "#/components/schemas/PublicImage"
+    Movie:
+      type: object
+      required: [original_title, original_language, slug, title, runtime_minutes, updated_at]
+      properties:
+        original_title:
+          type: [string, "null"]
+        original_language:
+          type: [string, "null"]
+          description: Code ISO 639-1 de la langue originale.
+        slug:
+          type: string
+        title:
+          type: string
+        runtime_minutes:
+          type: integer
+          description: Durée en minutes, 0 si inconnue.
+        updated_at:
+          type: string
+          format: date-time
+    Trailer:
+      type: object
+      required: [type, url, source, language]
+      properties:
+        type:
+          type: string
+          description: "`youtube` ou `mp4`."
+        url:
+          type: string
+          format: uri
+        source:
+          type: string
+        language:
+          type: [string, "null"]
+    MovieCatalogItem:
+      type: object
+      required: [original_title, original_language, french_release_date, slug, title, runtime_minutes, updated_at, poster_url, tmdb_id, imdb_id, metacritic_id, trailer, trailer_vf_youtube_key, trailer_vo_youtube_key, overview, release_date, genres]
+      properties:
+        original_title:
+          type: [string, "null"]
+        original_language:
+          type: [string, "null"]
+        french_release_date:
+          type: [string, "null"]
+          format: date
+        slug:
+          type: string
+        title:
+          type: string
+        runtime_minutes:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+        showtime_count:
+          type: integer
+          description: Nombre de séances programmées.
+        remaining_showtime_count:
+          type: integer
+          description: Présent avec `screening_summary=true`.
+        next_7_days_showtime_count:
+          type: integer
+          description: Présent avec `screening_summary=true`.
+        poster_url:
+          type: [string, "null"]
+          format: uri
+        tmdb_id:
+          type: [integer, "null"]
+        imdb_id:
+          type: [string, "null"]
+        metacritic_id:
+          type: [string, "null"]
+        trailer:
+          oneOf:
+            - $ref: "#/components/schemas/Trailer"
+            - type: "null"
+        trailer_vf_youtube_key:
+          type: [string, "null"]
+        trailer_vo_youtube_key:
+          type: [string, "null"]
+        overview:
+          type: [string, "null"]
+          description: Synopsis en français.
+        release_date:
+          type: [string, "null"]
+          format: date
+        genres:
+          type: array
+          items:
+            type: string
+    MovieScreeningWindow:
+      type: object
+      required: [as_of, timezone, from, through, day_count]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        from:
+          type: string
+          format: date
+        through:
+          type: string
+          format: date
+        day_count:
+          type: integer
+    MovieCatalog:
+      type: object
+      required: [generated_at, catalog_revision, items, available_genres, page, page_size, total]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        catalog_revision:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCatalogItem"
+        available_genres:
+          type: array
+          items:
+            type: string
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+        screening_window:
+          $ref: "#/components/schemas/MovieScreeningWindow"
+    UpcomingWindow:
+      type: object
+      required: [from, through]
+      properties:
+        from:
+          type: string
+          format: date
+        through:
+          type: string
+          format: date
+    UpcomingMovies:
+      type: object
+      required: [generated_at, catalog_revision, timezone, window, view, year, month, available_years, available_months, items, page, total, total_weeks, total_pages]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        catalog_revision:
+          type: string
+        timezone:
+          type: string
+        window:
+          oneOf:
+            - $ref: "#/components/schemas/UpcomingWindow"
+            - type: "null"
+        view:
+          type: string
+        year:
+          type: [integer, "null"]
+        month:
+          type: [integer, "null"]
+        available_years:
+          type: array
+          items:
+            type: integer
+        available_months:
+          type: array
+          items:
+            type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCatalogItem"
+        page:
+          type: integer
+        total:
+          type: integer
+        total_weeks:
+          type: integer
+        total_pages:
+          type: integer
+    Showtime:
+      type: object
+      required: [provider, id, movie, start_time, end_time, estimated_end_time, estimated_end_ads_minutes, language, format, room, booking_url]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        movie:
+          $ref: "#/components/schemas/Movie"
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+          description: Fin publiée par l'exploitant ; égale à `start_time` si inconnue.
+        estimated_end_time:
+          type: [string, "null"]
+          format: date-time
+          description: Fin estimée à partir de la durée du film et de la publicité.
+        estimated_end_ads_minutes:
+          type: [integer, "null"]
+        language:
+          type: string
+          description: "`VF`, `VO`, `VOSTFR`, `VF_SME`, `VFSTF`, ou vide si inconnue."
+        format:
+          type: string
+          description: "`2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, `INFINITY_VISION`…"
+        room:
+          type: string
+        booking_url:
+          type: [string, "null"]
+          format: uri
+    TimelineShowtime:
+      type: object
+      required: [provider, id, movie, start_time, end_time, estimated_end_time, estimated_end_ads_minutes, language, format, room, booking_url, start_offset_minutes, duration_minutes, poster_url, backdrop_url]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        movie:
+          $ref: "#/components/schemas/Movie"
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        estimated_end_time:
+          type: [string, "null"]
+          format: date-time
+        estimated_end_ads_minutes:
+          type: [integer, "null"]
+        language:
+          type: string
+        format:
+          type: string
+        room:
+          type: string
+        booking_url:
+          type: [string, "null"]
+          format: uri
+        start_offset_minutes:
+          type: integer
+        duration_minutes:
+          type: integer
+        poster_url:
+          type: [string, "null"]
+          format: uri
+        backdrop_url:
+          type: [string, "null"]
+          format: uri
+    DiscoveryTheater:
+      type: object
+      required: [provider, id, slug, name, city, city_slug, movie_count, showtime_count]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        city:
+          type: string
+        city_slug:
+          type: string
+        movie_count:
+          type: integer
+        showtime_count:
+          type: integer
+    TheaterDiscovery:
+      type: object
+      required: [window, movies, other_theaters]
+      properties:
+        window:
+          oneOf:
+            - $ref: "#/components/schemas/DiscoveryWindow"
+            - type: "null"
+        movies:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieCatalogItem"
+        other_theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryTheater"
+    TheaterShowtimes:
+      type: object
+      required: [technologies, discovery, generated_at, timezone, theater, date, showtimes, available_formats]
+      properties:
+        technologies:
+          type: array
+          items:
+            type: string
+        discovery:
+          $ref: "#/components/schemas/TheaterDiscovery"
+        generated_at:
+          type: string
+          format: date-time
+        timezone:
+          type: string
+        theater:
+          $ref: "#/components/schemas/TheaterWithImage"
+        date:
+          type: [string, "null"]
+          format: date
+        showtimes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineShowtime"
+        available_formats:
+          type: array
+          items:
+            type: string
+    TimelineTheater:
+      type: object
+      required: [provider, id, slug, name, city, accepted_passes, showtimes]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        city:
+          type: string
+        accepted_passes:
+          type: array
+          items:
+            type: string
+        showtimes:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineShowtime"
+    Timeline:
+      type: object
+      required: [date, timezone, window_start_time, window_end_time, theaters]
+      properties:
+        date:
+          type: string
+          format: date
+        timezone:
+          type: string
+        window_start_time:
+          type: string
+          format: date-time
+        window_end_time:
+          type: string
+          format: date-time
+        theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimelineTheater"
+    DiscoveryCity:
+      type: object
+      required: [name, slug, theater_count, showtime_count]
+      properties:
+        name:
+          type: string
+        slug:
+          type: string
+        theater_count:
+          type: integer
+        showtime_count:
+          type: integer
+    MovieDiscovery:
+      type: object
+      required: [window, cities]
+      properties:
+        window:
+          oneOf:
+            - $ref: "#/components/schemas/DiscoveryWindow"
+            - type: "null"
+        cities:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryCity"
+    MovieTheaterShowtimes:
+      type: object
+      required: [movie_url, provider, id, slug, name, city, city_slug, showtimes]
+      properties:
+        movie_url:
+          type: [string, "null"]
+          format: uri
+          description: Page du film sur le site de l'exploitant.
+        provider:
+          type: string
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+        city:
+          type: string
+        city_slug:
+          type: string
+        showtimes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Showtime"
+    MovieShowtimesPagination:
+      type: object
+      required: [page, page_size, total, has_more]
+      properties:
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total:
+          type: integer
+          description: Nombre total de cinémas.
+        has_more:
+          type: boolean
+    MovieSchedule:
+      type: object
+      required: [discovery, release_status, movie, backdrop_url, currently_screened, date, available_dates, catalog_revision, available_languages, available_formats, pagination, theaters]
+      properties:
+        discovery:
+          $ref: "#/components/schemas/MovieDiscovery"
+        release_status:
+          type: string
+          description: "`upcoming`, `showing`, `ended` ou `unavailable`."
+        movie:
+          $ref: "#/components/schemas/MovieCatalogItem"
+        backdrop_url:
+          type: [string, "null"]
+          format: uri
+        currently_screened:
+          type: boolean
+        date:
+          type: string
+          format: date
+        available_dates:
+          type: array
+          items:
+            type: string
+            format: date
+        catalog_revision:
+          type: string
+        available_languages:
+          type: array
+          items:
+            type: string
+        available_formats:
+          type: array
+          items:
+            type: string
+        pagination:
+          oneOf:
+            - $ref: "#/components/schemas/MovieShowtimesPagination"
+            - type: "null"
+        theaters:
+          type: array
+          items:
+            $ref: "#/components/schemas/MovieTheaterShowtimes"
+    TheaterSummary:
+      type: object
+      required: [provider, id, name, city]
+      properties:
+        provider:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        city:
+          type: string
+    SlotResult:
+      type: object
+      required: [showtime, theater, effective_start_time, effective_end_time, buffer_ads_minutes, slack_before_minutes, slack_after_minutes, poster_url, backdrop_url]
+      properties:
+        showtime:
+          $ref: "#/components/schemas/Showtime"
+        theater:
+          $ref: "#/components/schemas/TheaterSummary"
+        effective_start_time:
+          type: string
+          format: date-time
+        effective_end_time:
+          type: string
+          format: date-time
+        buffer_ads_minutes:
+          type: integer
+        slack_before_minutes:
+          type: integer
+          description: Marge entre le début du créneau et le début effectif.
+        slack_after_minutes:
+          type: integer
+          description: Marge entre la fin effective et la fin du créneau.
+        poster_url:
+          type: [string, "null"]
+          format: uri
+        backdrop_url:
+          type: [string, "null"]
+          format: uri
