@@ -27,6 +27,7 @@ export function renderLlmsTxt(siteUrl: string): string {
 
 Repères pour les agents :
 
+- Pour une question du type « séances à Lille cet après-midi », ouvrez [la page des séances de la ville](${url('/ville/{slug}')}) (ou sa version \`.md\`) : elle liste toutes les séances du jour, cinéma par cinéma. Le slug de ville est le nom en minuscules, sans accents ni espaces (ex. \`lille\`, \`paris\`) ; la liste complète est dans \`/api/v1/cities\`.
 - Préférez l'API JSON publique (section ci-dessous, décrite par une [spécification OpenAPI](${url('/api/v1/openapi.json')})) pour extraire des horaires : elle est plus compacte et plus stable que le HTML. Pour lire une fiche sans HTML, ajoutez \`.md\` à son adresse. Donnez à l'utilisateur les liens vers les pages du site.
 - Fuseau horaire : les dates (\`AAAA-MM-JJ\`) et les heures de créneau (\`HH:MM\`) s'entendent à l'heure de Paris (Europe/Paris). Les horodatages renvoyés par l'API sont en UTC (ISO 8601, suffixe \`Z\`).
 - Identifiants : un film a un slug \`film-{n}\` (ex. \`film-8806\`), un cinéma un slug \`{chaîne}-{identifiant}\` (ex. \`cgr-P0867\`), une ville un slug en minuscules (ex. \`agen\`). Les paramètres \`theaters\` attendent des \`id\` de cinéma séparés par des virgules ; l'\`id\` est égal au slug sauf mention contraire dans llms-full.txt. Trouvez les slugs avec \`/api/v1/cities\`, \`/api/v1/movies?search=\` ou dans [llms-full.txt](${url('/llms-full.txt')}).
@@ -44,6 +45,8 @@ Repères pour les agents :
 - [Fiche film](${url('/film/{slug}')}): séances d'un film par cinéma ; paramètres \`date\`, \`language\`, \`format\`, \`sort=next\` (prochaines séances d'abord).
 - [Fiche film en Markdown](${url('/film/{slug}.md')}): mêmes séances en texte léger ; paramètres \`date\`, \`city\` (slug de ville), \`page\`.
 - [Annuaire des cinémas](${url('/cinemas')}): tous les cinémas couverts, par ville et par chaîne.
+- [Séances d'une ville](${url('/ville/{slug}')}): toutes les séances du jour, regroupées par cinéma puis par film ; paramètres \`date\`, \`page\` (6 cinémas par page).
+- [Séances d'une ville en Markdown](${url('/ville/{slug}.md')}): mêmes séances en texte léger ; paramètres \`date\`, \`page\`.
 - [Cinémas d'une ville](${url('/ville/{slug}/cinemas')}): paramètres \`q\` (recherche), \`sort\`.
 - [Fiche cinéma](${url('/cinema/{slug}')}): séances du jour d'un cinéma ; paramètres \`date\`, \`view=films\`.
 - [Fiche cinéma en Markdown](${url('/cinema/{slug}.md')}): séances du jour regroupées par film ; paramètre \`date\`.
@@ -67,6 +70,7 @@ Lecture seule, requêtes \`GET\` sans authentification, réponses \`application/
 ## Optional
 
 - [Guide complet](${url('/llms-full.txt')}): ce guide, la liste de toutes les villes et cinémas avec leurs slugs, et les films les plus programmés.
+- [Guide en HTML](${url('/agents')}): ce guide sous forme de page web, pour les outils qui ne lisent pas le texte brut.
 - [Plan du site](${url('/sitemap.xml')}): index des sitemaps films, cinémas, villes et articles.
 - [Mentions légales](${url('/mentions-legales')})
 - [Politique de confidentialité](${url('/confidentialite')})

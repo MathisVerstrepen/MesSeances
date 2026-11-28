@@ -127,7 +127,9 @@ test('local inventories preserve encoded sorted URLs, null omission and independ
     { path: '/cinema/ugc-zeta' },
   ])
   assert.deepEqual(buildCitySitemapEntries(snapshot()), [
+    { path: '/ville/lyon' },
     { path: '/ville/lyon/cinemas' },
+    { path: '/ville/paris%20%26%20proche', lastmod: observed },
     { path: '/ville/paris%20%26%20proche/cinemas', lastmod: observed },
   ])
 })

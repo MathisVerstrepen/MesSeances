@@ -318,6 +318,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
     <HomeCinemas />
 
+    <HomeCityLinks />
+
     <section
       class="border-b-2 border-ink bg-[#ffcf3f]"
       aria-labelledby="shortcuts-title"

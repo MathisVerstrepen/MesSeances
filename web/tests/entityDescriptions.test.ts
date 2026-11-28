@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   cinemaDescription,
   cityDescription,
+  cityShowtimesDescription,
 } from '../app/utils/entityDescriptions.ts'
 
 test('builds French city descriptions with stored counts and correct plurals', () => {
@@ -26,7 +27,7 @@ test('builds cinema descriptions from provider, location, and available-date cou
       postalCode: '84130',
       availableDateCount: 2,
     }),
-    'Capitole Studios est un cinéma Cinewest à 84130, Le Pontet. Sa programmation compte 2 dates disponibles.',
+    'Capitole Studios est un cinéma Cinewest à 84130 Le Pontet. Sa programmation compte 2 dates disponibles.',
   )
   assert.equal(
     cinemaDescription({
@@ -37,7 +38,7 @@ test('builds cinema descriptions from provider, location, and available-date cou
       postalCode: '29000',
       availableDateCount: 2,
     }),
-    'Katorza est un cinéma Cinéville à 29000, Quimper. Sa programmation compte 2 dates disponibles.',
+    'Katorza est un cinéma Cinéville à 29000 Quimper. Sa programmation compte 2 dates disponibles.',
   )
   assert.equal(
     cinemaDescription({
@@ -59,7 +60,7 @@ test('builds cinema descriptions from provider, location, and available-date cou
       postalCode: '59000',
       availableDateCount: 2,
     }),
-    'UGC Lille est un cinéma UGC à 40 rue de Béthune, 59000, Lille. Sa programmation compte 2 dates disponibles.',
+    'UGC Lille est un cinéma UGC à 40 rue de Béthune, 59000 Lille. Sa programmation compte 2 dates disponibles.',
   )
 
   assert.equal(
@@ -83,7 +84,7 @@ test('builds cinema descriptions from provider, location, and available-date cou
       postalCode: '69002',
       availableDateCount: 3,
     }),
-    'Pathé Bellecour est un cinéma Pathé à 79 rue de la République, 69002, Lyon. Sa programmation compte 3 dates disponibles.',
+    'Pathé Bellecour est un cinéma Pathé à 79 rue de la République, 69002 Lyon. Sa programmation compte 3 dates disponibles.',
   )
 
   assert.equal(
@@ -95,6 +96,65 @@ test('builds cinema descriptions from provider, location, and available-date cou
       postalCode: '33000',
       availableDateCount: 4,
     }),
-    'CGR Bordeaux Le Français est un cinéma CGR à 9 rue Montesquieu, 33000, Bordeaux. Sa programmation compte 4 dates disponibles.',
+    'CGR Bordeaux Le Français est un cinéma CGR à 9 rue Montesquieu, 33000 Bordeaux. Sa programmation compte 4 dates disponibles.',
+  )
+})
+
+test('cinema descriptions drop postal codes and cities already in the address', () => {
+  assert.equal(
+    cinemaDescription({
+      name: 'Le Majestic',
+      provider: 'ugc',
+      city: 'LILLE',
+      address: '54 rue de Béthune 59000 LILLE',
+      postalCode: '59000',
+      availableDateCount: 4,
+    }),
+    'Le Majestic est un cinéma UGC à 54 rue de Béthune 59000 LILLE. Sa programmation compte 4 dates disponibles.',
+  )
+})
+
+test('cinema and city descriptions lead with the films on screen', () => {
+  assert.equal(
+    cinemaDescription({
+      name: 'Le Majestic',
+      provider: 'ugc',
+      city: 'Lille',
+      address: '54 rue de Béthune',
+      postalCode: '59000',
+      availableDateCount: 4,
+      movieTitles: [
+        'Un bon petit soldat',
+        'Club Kid',
+        ' Club Kid ',
+        'Malika',
+        '15/18',
+      ],
+    }),
+    'Le Majestic est un cinéma UGC à 54 rue de Béthune, 59000 Lille. À l’affiche : Un bon petit soldat, Club Kid, Malika et 1 autre film.',
+  )
+  assert.match(
+    cinemaDescription({
+      name: 'Cinéma',
+      provider: 'cgr',
+      city: 'Agen',
+      availableDateCount: 1,
+      movieTitles: ['Gabin', 'Moulin'],
+    }),
+    /À l’affiche : Gabin et Moulin\.$/,
+  )
+  assert.equal(
+    cityShowtimesDescription('Lille', 3, [
+      'Hunger Games',
+      'Billie',
+      'Jupiter',
+      'Camembert',
+      'Moulin',
+    ]),
+    'Séances de cinéma à Lille : horaires du jour dans 3 cinémas. À l’affiche : Hunger Games, Billie, Jupiter et 2 autres films. Versions VF et VOSTFR, réservation.',
+  )
+  assert.equal(
+    cityShowtimesDescription('Agen', 1, []),
+    'Séances de cinéma à Agen : horaires du jour dans 1 cinéma.',
   )
 })

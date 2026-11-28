@@ -1,8 +1,17 @@
 import type { H3Event } from 'h3'
 import type {
+  CityDetailResponse,
   MovieShowtimesResponse,
   TheaterShowtimesResponse,
+  TimelineResponse,
 } from '../../app/types/api'
+import {
+  cityAvailableDates,
+  cityDayPageCount,
+  cityDayTheaters,
+  orderCityTheaters,
+  resolveCityDate,
+} from '../../app/utils/cityDay'
 import { todayInParis } from '../../app/utils/date'
 import { absoluteSiteUrl } from '../../app/utils/siteUrl'
 import {
@@ -14,6 +23,7 @@ import {
   MarkdownQueryError,
   parseMarkdownPageRequest,
   renderCinemaMarkdown,
+  renderCityMarkdown,
   renderFilmMarkdown,
   type MarkdownPageRequest,
 } from '../utils/markdownPages'
@@ -62,6 +72,34 @@ async function render(
       },
     )
     return renderCinemaMarkdown(siteUrl, response)
+  }
+  if (request.kind === 'ville') {
+    const detail = await $fetch<CityDetailResponse>(
+      `${apiBase}/api/v1/cities/${slug}`,
+      { headers, retry: false },
+    )
+    const today = todayInParis()
+    const dates = cityAvailableDates(detail.theaters, today)
+    const date = resolveCityDate(request.date, dates, today)
+    const pageCount = cityDayPageCount(detail.theaters.length)
+    const page = Math.min(request.page ?? 1, pageCount)
+    const theaters = cityDayTheaters(orderCityTheaters(detail), page)
+    const timeline = theaters.length
+      ? await $fetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, {
+          headers,
+          retry: false,
+          query: {
+            date,
+            theaters: theaters.map((theater) => theater.id).join(','),
+          },
+        })
+      : null
+    return renderCityMarkdown(siteUrl, detail, timeline, {
+      date,
+      dates,
+      page,
+      pageCount,
+    })
   }
   const fetchSchedule = (date: string) => {
     const query: MovieShowtimesQuery = { date }
@@ -136,9 +174,11 @@ export default defineEventHandler(async (event) => {
       return sendText(
         event,
         404,
-        request.kind === 'film'
-          ? '# Film introuvable\n'
-          : '# Cinéma introuvable\n',
+        {
+          film: '# Film introuvable\n',
+          cinema: '# Cinéma introuvable\n',
+          ville: '# Ville introuvable\n',
+        }[request.kind],
       )
     if (failure.statusCode === 400)
       return sendText(event, 400, '# Requête invalide\n')

@@ -3,11 +3,14 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import type {
   CatalogMovie,
+  CityDetailResponse,
   MovieShowtimesResponse,
   Showtime,
   TheaterShowtimesResponse,
+  TimelineResponse,
   TimelineShowtime,
 } from '../app/types/api.ts'
+import * as cityDay from '../app/utils/cityDay.ts'
 import * as date from '../app/utils/date.ts'
 import * as siteUrl from '../app/utils/siteUrl.ts'
 import * as internalApi from '../server/utils/internalApi.ts'
@@ -19,6 +22,7 @@ const {
   MarkdownQueryError,
   parseMarkdownPageRequest,
   renderCinemaMarkdown,
+  renderCityMarkdown,
   renderFilmMarkdown,
 } = markdownPages
 
@@ -212,7 +216,7 @@ test('film Markdown lists facts, dated showtimes per theater and navigation link
     assert.ok(body.includes(`${fact}\n`), fact)
   assert.match(
     body,
-    /\n## Séances du samedi 29 août \(2026-08-29\) en France\n/,
+    /\n## Séances du samedi 29 août 2026 \(2026-08-29\) en France\n/,
   )
   assert.match(
     body,
@@ -333,7 +337,12 @@ async function middleware(
       headers: Record<string, string>
       query: Record<string, string | number>
     },
-  ) => Promise<MovieShowtimesResponse | TheaterShowtimesResponse>,
+  ) => Promise<
+    | MovieShowtimesResponse
+    | TheaterShowtimesResponse
+    | CityDetailResponse
+    | TimelineResponse
+  >,
 ) {
   const source = await readFile(
     new URL('../server/middleware/markdown-pages.ts', import.meta.url),
@@ -389,6 +398,7 @@ async function middleware(
     },
     {
       '../../app/utils/date': date,
+      '../../app/utils/cityDay': cityDay,
       '../../app/utils/siteUrl': siteUrl,
       '../utils/internalApi': internalApi,
       '../utils/markdownPages': markdownPages,
@@ -511,4 +521,149 @@ test('film and cinema pages advertise their Markdown versions', async () => {
       page,
     )
   }
+})
+
+function cityDetail(theaterCount = 2): CityDetailResponse {
+  return {
+    generated_at: '2026-08-29T02:00:00Z',
+    city: { name: 'Lille', slug: 'lille' },
+    discovery: {
+      window: null,
+      theaters: [
+        { id: 'ugc-1', movie_count: 3, showtime_count: 50 },
+        { id: 'ugc-2', movie_count: 1, showtime_count: 10 },
+      ],
+    },
+    movies: [],
+    theaters: Array.from({ length: theaterCount }, (_, index) => ({
+      provider: 'ugc' as const,
+      id: `ugc-${index + 1}`,
+      slug: `ugc-${index + 1}`,
+      name: index === 0 ? 'UGC Ciné Cité' : `Cinéma ${index + 1}`,
+      address: index === 0 ? '40 rue de Béthune 59000 LILLE' : '',
+      city: 'Lille',
+      city_slug: 'lille',
+      postal_code: '59000',
+      available_dates: ['2026-08-29', '2026-08-30'],
+      accepted_passes: [],
+    })),
+  }
+}
+
+function cityTimeline(): TimelineResponse {
+  return {
+    date: '2026-08-29',
+    timezone: 'Europe/Paris',
+    window_start_time: '2026-08-29T06:00:00Z',
+    window_end_time: '2026-08-30T00:00:00Z',
+    theaters: [
+      {
+        provider: 'ugc',
+        id: 'ugc-1',
+        slug: 'ugc-1',
+        name: 'UGC Ciné Cité',
+        city: 'Lille',
+        accepted_passes: [],
+        showtimes: [
+          timelineShowtime({
+            id: 'late',
+            start_time: '2026-08-29T18:00:00Z',
+            end_time: '2026-08-29T19:58:00Z',
+            booking_url: null,
+          }),
+          timelineShowtime({
+            id: 'early',
+            start_time: '2026-08-29T12:00:00Z',
+            end_time: '2026-08-29T13:58:00Z',
+            booking_url: null,
+          }),
+        ],
+      },
+    ],
+  }
+}
+
+test('Markdown page requests accept a page for cities but not for cinemas', () => {
+  assert.deepEqual(
+    parseMarkdownPageRequest(
+      '/ville/lille.md',
+      new URLSearchParams('date=2026-08-29&page=2&city=x'),
+    ),
+    { kind: 'ville', slug: 'lille', date: '2026-08-29', page: 2 },
+  )
+})
+
+test('city Markdown lists each cinema with its films and paginates', () => {
+  const body = renderCityMarkdown(site, cityDetail(12), cityTimeline(), {
+    date: '2026-08-29',
+    dates: ['2026-08-29', '2026-08-30'],
+    page: 1,
+    pageCount: 2,
+  })
+  assert.match(body, /^# Séances de cinéma à Lille\n/)
+  assert.ok(
+    body.includes(
+      '- Cinémas : 12 ([annuaire](https://site.test/ville/lille/cinemas))\n',
+    ),
+  )
+  assert.ok(body.includes('- Mise à jour : 29 août à 04h00\n'))
+  assert.match(body, /\n## Séances du samedi 29 août 2026 \(2026-08-29\)\n/)
+  assert.match(
+    body,
+    /\[2026-08-30\]\(https:\/\/site\.test\/ville\/lille\.md\?date=2026-08-30\)/,
+  )
+  assert.ok(
+    body.includes(
+      '\n### [UGC Ciné Cité](https://site.test/cinema/ugc-1)\n\n40 rue de Béthune 59000 LILLE\n',
+    ),
+    'postal code already in address',
+  )
+  assert.ok(
+    body.includes(
+      '\n#### [Le \\*grand\\* film](https://site.test/film/film-42) · 1h 58min\n\n- 14h00 → 15h58 · VOSTFR · 2D · Salle 1\n- 20h00 → 21h58',
+    ),
+  )
+  assert.ok(
+    body.includes(
+      '\n### [Cinéma 2](https://site.test/cinema/ugc-2)\n\n59000\n\nAucune séance ce jour.\n',
+    ),
+  )
+  assert.match(
+    body,
+    /Page 1 sur 2 \(12 cinémas\) · \[cinémas suivants\]\(https:\/\/site\.test\/ville\/lille\.md\?date=2026-08-29&page=2\)/,
+  )
+  assert.match(
+    body,
+    /\/api\/v1\/timeline\?date=2026-08-29&theaters=ugc-1%2Cugc-2/,
+  )
+  assert.match(body, /Légende : VF version française/)
+})
+
+test('Markdown middleware renders a city page from the city and timeline endpoints', async () => {
+  const calls: Array<{
+    url: string
+    headers: Record<string, string>
+    query?: Record<string, string | number>
+  }> = []
+  const handler = await middleware(async (url, options) => {
+    calls.push({ url, headers: options.headers, query: options.query })
+    return url.endsWith('/timeline') ? cityTimeline() : cityDetail()
+  })
+  const request = event('/ville/lille.md?date=2026-08-29')
+  const body = await handler(request)
+  assert.match(body!, /^# Séances de cinéma à Lille/)
+  assert.equal(
+    request.headers.get('Link'),
+    '<https://site.test/ville/lille>; rel="canonical"',
+  )
+  assert.deepEqual(
+    calls.map((call) => call.url),
+    ['http://api.test/api/v1/cities/lille', 'http://api.test/api/v1/timeline'],
+  )
+  assert.deepEqual(calls[1]!.query, {
+    date: '2026-08-29',
+    theaters: 'ugc-1,ugc-2',
+  })
+  for (const call of calls)
+    assert.deepEqual(Object.keys(call.headers), ['X-Request-ID'])
 })

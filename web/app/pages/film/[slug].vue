@@ -21,6 +21,7 @@ import type {
 import {
   formatDateLabel,
   formatLongDate,
+  formatLongDateWithYear,
   formatParisTime,
   todayInParis,
 } from '~/utils/date'
@@ -419,6 +420,12 @@ const visibleShowtimeCount = computed(() =>
     0,
   ),
 )
+
+// The default date lives at the canonical URL.
+function filmDateHref(date: string): string {
+  const path = `/film/${encodeURIComponent(canonicalSlug.value)}`
+  return date === fallbackDate() ? path : `${path}?date=${date}`
+}
 
 function fallbackDate(): string {
   return availableDates.value.includes(today.value)
@@ -1367,7 +1374,7 @@ if (
             <p
               class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2"
             >
-              {{ formatLongDate(selectedDate) }}
+              {{ formatLongDateWithYear(selectedDate) }}
             </p>
           </div>
           <div
@@ -1481,6 +1488,7 @@ if (
               :available-dates="availableDates"
               :today="today"
               mobile-tabs="all"
+              :date-href="filmDateHref"
               @select="selectMobileDate"
             />
             <span
@@ -1559,6 +1567,7 @@ if (
               :selected-date="selectedDate"
               :available-dates="availableDates"
               :today="today"
+              :date-href="filmDateHref"
               @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
             />
             <span

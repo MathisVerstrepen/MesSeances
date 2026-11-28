@@ -36,6 +36,32 @@ export function formatLongDate(date: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
+// Agents and search snippets need the year to judge freshness.
+export function formatLongDateWithYear(date: string): string {
+  const [year, month, day] = date.split('-').map(Number)
+  if (!year || !month || !day) return date
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: PARIS_TIMEZONE,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)))
+}
+
+// "28 novembre à 03h00", in Paris time.
+export function formatParisUpdate(isoDate: string): string {
+  const instant = new Date(isoDate)
+  if (!Number.isFinite(instant.getTime())) return ''
+  const day = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: PARIS_TIMEZONE,
+    day: 'numeric',
+    month: 'long',
+  }).format(instant)
+  return `${day} à ${formatParisTime(isoDate)}`
+}
+
 export function addCalendarDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
   if (!year || !month || !day) return ''
