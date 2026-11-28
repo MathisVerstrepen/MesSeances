@@ -14,6 +14,9 @@ import (
 var gueretAlias = regexp.MustCompile(`^/r/[1-9][0-9]{0,19}$`)
 var gueretDestination = regexp.MustCompile(`^/reserver/F[1-9][0-9]{0,19}/D([0-9]{10})/(VF|VO)/[1-9][0-9]{0,19}/$`)
 var gueretDecimal = regexp.MustCompile(`^[1-9][0-9]{0,19}$`)
+
+const gueretEntry = "https://achat.cinema-senechal.com/reserver/"
+
 var gueretRootClock = regexp.MustCompile(`^([01][0-9]|2[0-3])(:|%3[Aa])[0-5][0-9]$`)
 
 func canonicalCheckoutURL(u *url.URL) bool {
@@ -145,6 +148,13 @@ func gueretUnavailable(u *url.URL, r *http.Response, b checkoutBinding) bool {
 	// terminal Location, even empty, is not an unambiguous unavailable result.
 	if hop == 3 && r.StatusCode == http.StatusNotFound {
 		return len(r.Header.Values("Location")) == 0
+	}
+	// A session not (yet) sold online resolves its alias to the bare booking
+	// entry instead of a session destination. Like the regular branch's entry
+	// redirect, this exact literal is an unavailable outcome, never fetched.
+	if hop == 2 {
+		return r.StatusCode == http.StatusTemporaryRedirect && len(r.Header.Values("Location")) == 1 &&
+			r.Header.Get("Location") == gueretEntry
 	}
 	if hop != 1 || r.StatusCode != http.StatusFound || len(r.Header.Values("Location")) != 1 {
 		return false
