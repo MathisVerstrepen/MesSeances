@@ -4,6 +4,7 @@ import type {
   Theater,
   TimelineShowtime,
 } from '../types/api.ts'
+import { safeBackdropUrl, safePosterUrl } from './safeImageUrl.ts'
 
 export const CITY_DAY_PAGE_SIZE = 6
 
@@ -39,6 +40,35 @@ export type CityDayTheater = Pick<
 export interface CityDayMovieGroup {
   movie: CityDayShowtime['movie']
   showtimes: CityDayShowtime[]
+}
+
+// Artwork is stored once per film rather than on every session, to keep the
+// hydration payload of big cities small.
+export interface CityDayMovieMedia {
+  poster: string | null
+  backdrop: string | null
+}
+
+export type CityDayMediaBySlug = Record<string, CityDayMovieMedia>
+
+export function cityMovieMedia(
+  showtimes: readonly Pick<
+    TimelineShowtime,
+    'movie' | 'poster_url' | 'backdrop_url'
+  >[],
+): CityDayMediaBySlug {
+  const media = new Map<string, CityDayMovieMedia>()
+  for (const showtime of showtimes) {
+    const entry = media.get(showtime.movie.slug)
+    const poster = safePosterUrl(showtime.poster_url)
+    const backdrop = safeBackdropUrl(showtime.backdrop_url)
+    if (!entry) media.set(showtime.movie.slug, { poster, backdrop })
+    else {
+      entry.poster ??= poster
+      entry.backdrop ??= backdrop
+    }
+  }
+  return Object.fromEntries(media)
 }
 
 export function compactCityShowtime(
