@@ -524,7 +524,11 @@ test('local names link to city and canonical cinema pages without changing row g
         return result
       })
       expect(geometry.linked).toEqual(geometry.unlinked)
-      expect(geometry.linked.map((row) => row.height)).toEqual([52.5, 53])
+      // Production CSS minification rounds text-sm's line-height ratio (1/64 px).
+      const heights = geometry.linked.map((row) => row.height)
+      expect(heights).toHaveLength(2)
+      expect(heights[0]).toBeCloseTo(52.5, 1)
+      expect(heights[1]).toBeCloseTo(53, 1)
       for (const row of geometry.linked) {
         expect(row.lineHeight).toBe('20px')
         for (const cell of row.cells) {

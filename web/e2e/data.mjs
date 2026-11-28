@@ -216,6 +216,53 @@ export const secondTheater = {
   city_slug: 'roubaix',
 }
 
+// Opt-in located inventory for the directory search, nearby mode and picker.
+export const locatedDirectoryTheaters = [
+  { ...theater, postal_code: '59000', latitude: 50.6366, longitude: 3.0635 },
+  {
+    ...secondTheater,
+    provider: 'cgr',
+    postal_code: '59100',
+    latitude: 50.69,
+    longitude: 3.16,
+  },
+  {
+    ...theater,
+    provider: 'pathe',
+    id: 'fixture-paris-11',
+    slug: 'cinema-paris-11',
+    name: 'Cinéma Bastille',
+    city: 'Paris',
+    city_slug: 'paris',
+    postal_code: '75011',
+    latitude: 48.8534,
+    longitude: 2.3691,
+  },
+  {
+    ...theater,
+    provider: 'megarama',
+    id: 'fixture-bordeaux',
+    slug: 'cinema-bordeaux',
+    name: 'Cinéma Garonne',
+    city: 'Bordeaux',
+    city_slug: 'bordeaux',
+    postal_code: '33000',
+    latitude: 44.8378,
+    longitude: -0.5792,
+    available_formats: ['2D', 'IMAX'],
+  },
+  {
+    ...theater,
+    provider: 'ticketingcine',
+    id: 'fixture-lyon',
+    slug: 'cinema-lyon',
+    name: 'Cinéma Sans Repère',
+    city: 'Lyon',
+    city_slug: 'lyon',
+    postal_code: '69001',
+  },
+]
+
 // Opt-in Véo inventory: existing provider scenarios retain their original counts.
 export const veoTheaters = ['P1234', 'EMS1361'].map((id, index) => ({
   ...theater,

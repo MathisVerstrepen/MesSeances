@@ -39,6 +39,7 @@ import {
   queryLanguageOptions,
   queryLanguageValues,
 } from '~/utils/showtimeFilters'
+import { languageOptionTitle } from '~/utils/languageGlossary'
 import {
   filterCompatibleShowtimeResults,
   filterSelectedShowtimeResults,
@@ -1265,6 +1266,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                   v-for="option in queryLanguageOptions"
                   :key="option.value"
                   :value="option.value"
+                  :title="languageOptionTitle(option.label)"
                 >
                   {{ option.label }}
                 </option>
@@ -1530,7 +1532,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                   class="flex items-center gap-2 capitalize"
                 >
                   <span v-if="index > 0" aria-hidden="true">·</span>
-                  <span>{{ item }}</span>
+                  <LanguageText :text="item" />
                 </li>
               </ul>
               <div

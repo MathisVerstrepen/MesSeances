@@ -1,8 +1,14 @@
 // Owned, offline Nuxt fixture. No deployment dotenv, provider, database or real auth.
-import { createServer } from 'node:http'
-import { fileURLToPath } from 'node:url'
-import { buildNuxt, loadNuxt } from '@nuxt/kit'
-import { toNodeListener } from 'h3'
+// Serves the shared production fixture build; one instance per Playwright worker.
+import { createServer, request as httpRequest } from 'node:http'
+import { pathToFileURL } from 'node:url'
+import {
+  acquireBuildLock,
+  buildFixture,
+  fixtureServerEntry,
+  releaseBuildLock,
+  reusableBuild,
+} from './playwright-build.mjs'
 import {
   accountActivityItem,
   scrollActivityPage,
@@ -40,13 +46,33 @@ import {
   watchedVenues,
   watchedShowtimes,
   scrollInventory,
+  locatedDirectoryTheaters,
 } from '../e2e/data.mjs'
 
-const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
-if (!Number.isInteger(port) || port < 1024 || port > 65535)
+// 0 selects an ephemeral port, reported on the PLAYWRIGHT_READY line.
+const port = Number(process.env.PLAYWRIGHT_PORT ?? 13400)
+if (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535)))
   throw new Error('Invalid PLAYWRIGHT_PORT')
-const origin = `http://127.0.0.1:${port}`
+let origin = `http://127.0.0.1:${port}`
 const unexpected = []
+// Responses a scenario holds until the test observes its loading state.
+const held = []
+function releaseHeld() {
+  for (const send of held.splice(0)) send()
+}
+// Transport latency for scroll-restoration scenarios whose SSR and client
+// requests must arrive after navigation; they cannot wait for a test release.
+const transportDelayMs = 700
+function delay(response, send) {
+  setTimeout(() => {
+    if (!response.destroyed) send()
+  }, transportDelayMs)
+}
+function hold(response, send) {
+  held.push(() => {
+    if (!response.destroyed) send()
+  })
+}
 let scenario = {
   enabled: false,
   state: 'anonymous',
@@ -346,19 +372,16 @@ const mock = createServer((request, response) => {
           value.chains = value.chains.slice(0, 1)
         }
       }
-      if (value) {
-        setTimeout(() => {
-          if (!response.destroyed)
-            json(
-              response,
-              mode === 'error'
-                ? { error: { code: 'schedule_unavailable' } }
-                : value,
-              mode === 'error' ? 503 : 200,
-            )
-        }, 700)
-        return
-      }
+      if (value)
+        return delay(response, () =>
+          json(
+            response,
+            mode === 'error'
+              ? { error: { code: 'schedule_unavailable' } }
+              : value,
+            mode === 'error' ? 503 : 200,
+          ),
+        )
     }
     if (path === '/api/v1/statistics/history') {
       const periods = url.searchParams.getAll('period')
@@ -474,6 +497,8 @@ const mock = createServer((request, response) => {
           technologies: ['IMAX', 'ICE'],
         },
       ])
+    if (path === '/api/v1/theaters' && scenario.locatedDirectory)
+      return json(response, locatedDirectoryTheaters)
     if (path === '/api/v1/theaters' && scenario.directoryTechnologies)
       return json(response, [
         {
@@ -699,12 +724,8 @@ const mock = createServer((request, response) => {
           503,
         )
       const value = releaseCatalog(url.searchParams, mode)
-      if (mode === 'delay') {
-        setTimeout(() => {
-          if (!response.destroyed) json(response, value)
-        }, 1500)
-        return
-      }
+      if (mode === 'hold') return hold(response, () => json(response, value))
+      if (mode === 'slow') return delay(response, () => json(response, value))
       return json(response, value)
     }
     if (
@@ -717,13 +738,8 @@ const mock = createServer((request, response) => {
         return json(response, { error: { code: 'schedule_unavailable' } }, 503)
       const value = screeningCatalog(url.searchParams)
       if (mode === 'partial') delete value.items[0]?.next_7_days_showtime_count
-      if (mode === 'delay') {
-        // Bounded transport delay only for a loading-state scenario.
-        setTimeout(() => {
-          if (!response.destroyed) json(response, value)
-        }, 1500)
-        return
-      }
+      // Held until POST /__playwright/release, only for a loading-state scenario.
+      if (mode === 'hold') return hold(response, () => json(response, value))
       return json(response, value)
     }
     if (path === '/api/v1/movies' && scenario.scrollCatalog) {
@@ -748,17 +764,15 @@ const mock = createServer((request, response) => {
         generated_at: generatedAt,
         catalog_revision: 'scroll-fixture',
       }
-      setTimeout(() => {
-        if (!response.destroyed)
-          json(
-            response,
-            mode === 'error'
-              ? { error: { code: 'schedule_unavailable' } }
-              : value,
-            mode === 'error' ? 503 : 200,
-          )
-      }, 700)
-      return
+      return delay(response, () =>
+        json(
+          response,
+          mode === 'error'
+            ? { error: { code: 'schedule_unavailable' } }
+            : value,
+          mode === 'error' ? 503 : 200,
+        ),
+      )
     }
     if (path === '/api/v1/movies' && scenario.imaxGuideMovies)
       return json(response, {
@@ -1004,25 +1018,17 @@ await new Promise((resolve, reject) => {
   mock.listen(0, '127.0.0.1', resolve)
 })
 const api = `http://127.0.0.1:${mock.address().port}`
-Object.assign(process.env, {
-  NUXT_API_BASE: api,
-  NUXT_INTERNAL_API_SHARED_SECRET: '',
-  NUXT_PUBLIC_API_BASE: '',
-  NUXT_PUBLIC_SITE_URL: origin,
-  NUXT_PUBLIC_UMAMI_SCRIPT_URL: '',
-  NUXT_PUBLIC_UMAMI_WEBSITE_ID: '',
-})
-let nuxt
+let handler
 let web
 let closing = false
 async function close() {
   if (closing) return
   closing = true
+  releaseHeld()
   web?.closeAllConnections()
   web?.close()
   mock.closeAllConnections()
   mock.close()
-  await nuxt?.close()
 }
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, async () => {
@@ -1030,48 +1036,34 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     process.exit(0)
   })
 }
-try {
-  nuxt = await loadNuxt({
-    cwd: fileURLToPath(new URL('..', import.meta.url)),
-    dev: true,
-    dotenv: false,
-    overrides: {
-      buildDir: fileURLToPath(
-        new URL(`../node_modules/.cache/playwright-${port}`, import.meta.url),
-      ),
-      devServer: { host: '127.0.0.1', port, url: origin },
-      typescript: { typeCheck: false },
-      plugins: [
-        fileURLToPath(new URL('../e2e/readiness.client.ts', import.meta.url)),
-      ],
-      hooks: {
-        'vite:extendConfig'(config) {
-          // Nuxt supplies aliases; don't discover the developer's .nuxt tsconfig.
-          config.oxc = { ...config.oxc, tsconfig: false }
-        },
-      },
-      nitro: {
-        // Keep SWR behavior, but never reuse another synthetic server run's XML.
-        devStorage: { cache: { driver: 'memory' } },
-        devProxy: { '/api': { target: `${api}/api`, changeOrigin: false } },
-      },
-      runtimeConfig: {
-        apiBase: api,
-        internalApiSharedSecret: '',
-        public: {
-          apiBase: '',
-          siteUrl: origin,
-          umamiScriptUrl: '',
-          umamiWebsiteId: '',
-        },
-      },
-    },
+// A worker-owned instance must not outlive its Playwright worker.
+if (process.connected)
+  process.once('disconnect', async () => {
+    await close()
+    process.exit(0)
   })
-  await buildNuxt(nuxt)
-  const handler = nuxt.server.handler || toNodeListener(nuxt.server.app)
+// Production replacement for the dev-only Nitro devProxy: same Host, no rewrite.
+function proxyApi(request, response) {
+  const upstream = httpRequest(
+    `${api}${request.url}`,
+    { method: request.method, headers: request.headers },
+    (reply) => {
+      response.writeHead(reply.statusCode || 502, reply.headers)
+      reply.pipe(response)
+    },
+  )
+  upstream.once('error', () => {
+    if (!response.headersSent) response.writeHead(502)
+    response.end()
+  })
+  request.pipe(upstream)
+}
+try {
   web = createServer((request, response) => {
     if (request.url === '/__playwright/health')
-      return json(response, { ready: true })
+      return handler
+        ? json(response, { ready: true })
+        : json(response, { ready: false }, 503)
     if (request.url === '/__playwright/state')
       return json(response, {
         unexpected,
@@ -1140,6 +1132,7 @@ try {
         if (input.manualReading)
           activityPreferences.set(scenario.username, true)
         unexpected.length = 0
+        releaseHeld()
         json(response, { ready: true })
       })
       return
@@ -1220,12 +1213,42 @@ try {
       })
       return
     }
+    if (request.url === '/__playwright/release' && request.method === 'POST') {
+      request.resume()
+      const released = held.length
+      releaseHeld()
+      return json(response, { released })
+    }
+    if (/^\/api(?:[/?]|$)/.test(request.url)) return proxyApi(request, response)
+    if (!handler) return json(response, { ready: false }, 503)
     return handler(request, response)
   })
   await new Promise((resolve, reject) => {
     web.once('error', reject)
     web.listen(port, '127.0.0.1', resolve)
   })
+  origin = `http://127.0.0.1:${web.address().port}`
+  // Nitro reads NUXT_* runtime overrides when the built server is imported.
+  Object.assign(process.env, {
+    NUXT_API_BASE: api,
+    NUXT_INTERNAL_API_SHARED_SECRET: '',
+    NUXT_PUBLIC_API_BASE: '',
+    NUXT_PUBLIC_SITE_URL: origin,
+    NUXT_PUBLIC_UMAMI_SCRIPT_URL: '',
+    NUXT_PUBLIC_UMAMI_WEBSITE_ID: '',
+  })
+  // The Playwright global setup builds once; a standalone run builds itself.
+  if (process.env.PLAYWRIGHT_FIXTURE_PREBUILT !== '1' && !reusableBuild()) {
+    acquireBuildLock()
+    try {
+      await buildFixture()
+    } finally {
+      releaseBuildLock()
+    }
+  }
+  ;({ listener: handler } = await import(
+    pathToFileURL(fixtureServerEntry).href
+  ))
   console.log(`PLAYWRIGHT_READY ${origin}`)
 } catch (error) {
   await close()

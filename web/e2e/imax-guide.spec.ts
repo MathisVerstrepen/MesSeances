@@ -558,7 +558,7 @@ test('guide highlights Odysseum and sends the full cinema list to the IMAX direc
   await expect(page).toHaveURL(/\/cinemas\?technologies=IMAX$/)
   await expect(
     page
-      .locator('#cinema-section-all')
+      .locator('#cinema-results')
       .getByRole('link', { name: /Voir les séances/ }),
   ).toHaveCount(1)
 })

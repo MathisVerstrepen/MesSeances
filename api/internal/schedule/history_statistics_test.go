@@ -71,7 +71,7 @@ func TestHistoryEmptyPublicationValidation(t *testing.T) {
 func TestHistoryTheaterCityIdentities(t *testing.T) {
 	theaters := []TheaterRecord{{City: "Évreux"}, {City: " evreux "}, {City: "LILLE"}, {City: "lille"}, {City: "\u2003Lille\u00a0"}, {City: "Σ"}, {City: "ς"}}
 	identities := TheaterCityIdentities(theaters)
-	if len(identities) != len(theaters) || identities[0].Slug == identities[1].Slug || identities[2] != identities[3] || identities[2] != identities[4] || identities[5] != identities[6] {
+	if len(identities) != len(theaters) || identities[0] != (City{Name: "Évreux", Slug: "evreux"}) || identities[1] != identities[0] || identities[2] != (City{Name: "Lille", Slug: "lille"}) || identities[2] != identities[3] || identities[2] != identities[4] || identities[5] != identities[6] {
 		t.Fatal(identities)
 	}
 	reversed := make([]TheaterRecord, len(theaters))

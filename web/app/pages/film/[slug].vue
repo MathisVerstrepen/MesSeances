@@ -21,6 +21,7 @@ import type {
 import {
   formatDateLabel,
   formatLongDate,
+  formatLongDateWithYear,
   formatParisTime,
   todayInParis,
 } from '~/utils/date'
@@ -88,6 +89,7 @@ const activeLanguage = ref<LanguageFilter>('ALL')
 const activeTechnology = ref<TechnologyFilter>('ALL')
 const sortByNextShowtime = ref(false)
 const openMobilePanel = ref<MobileControlPanel | null>(null)
+const desktopFiltersOpen = ref(false)
 const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const movieTitle = ref<HTMLHeadingElement | null>(null)
@@ -269,6 +271,11 @@ const technologyFormats = computed<ShowtimeFormat[]>(() => {
 const technologyOptions = computed<
   Array<{ value: TechnologyFilter; label: string }>
 >(() => [...availableFormatOptions(technologyFormats.value)])
+const activeFilterCount = computed(
+  () =>
+    Number(activeLanguage.value !== 'ALL') +
+    Number(activeTechnology.value !== 'ALL'),
+)
 const activeFilterSummary = computed(() =>
   showtimeFilterSummary(
     activeLanguage.value,
@@ -419,6 +426,12 @@ const visibleShowtimeCount = computed(() =>
     0,
   ),
 )
+
+// The default date lives at the canonical URL.
+function filmDateHref(date: string): string {
+  const path = `/film/${encodeURIComponent(canonicalSlug.value)}`
+  return date === fallbackDate() ? path : `${path}?date=${date}`
+}
 
 function fallbackDate(): string {
   return availableDates.value.includes(today.value)
@@ -1346,7 +1359,7 @@ if (
       <FilmCityDiscovery v-if="broadScope" :discovery="schedule.discovery" />
       <section
         v-if="!hasNoSessions"
-        class="schedule-section mt-6 pt-4 sm:mt-12 sm:pt-10"
+        class="schedule-section mt-6 pt-4 sm:mt-10 sm:pt-0"
         aria-labelledby="schedule-heading"
       >
         <div
@@ -1367,7 +1380,7 @@ if (
             <p
               class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2"
             >
-              {{ formatLongDate(selectedDate) }}
+              {{ formatLongDateWithYear(selectedDate) }}
             </p>
           </div>
           <div
@@ -1451,9 +1464,11 @@ if (
               />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Filtres</span>
-                <span class="truncate text-[0.58rem] text-muted">{{
-                  activeFilterSummary
-                }}</span>
+                <LanguageText
+                  class="truncate text-[0.58rem] text-muted"
+                  :text="activeFilterSummary"
+                  :focusable="false"
+                />
               </span>
             </button>
             <button
@@ -1481,6 +1496,7 @@ if (
               :available-dates="availableDates"
               :today="today"
               mobile-tabs="all"
+              :date-href="filmDateHref"
               @select="selectMobileDate"
             />
             <span
@@ -1516,7 +1532,7 @@ if (
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
-                  {{ option.label }}
+                  <LanguageText :text="option.label" :focusable="false" />
                 </button>
               </div>
             </div>
@@ -1559,6 +1575,7 @@ if (
               :selected-date="selectedDate"
               :available-dates="availableDates"
               :today="today"
+              :date-href="filmDateHref"
               @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
             />
             <span
@@ -1569,6 +1586,26 @@ if (
             <button
               type="button"
               class="ml-auto inline-flex h-10 shrink-0 items-center gap-2 border-2 border-ink px-4 font-mono text-[10px] font-black uppercase tracking-[0.06em] focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
+              :class="desktopFiltersOpen ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
+              aria-controls="desktop-filter-panel"
+              :aria-expanded="desktopFiltersOpen"
+              :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
+              @click="desktopFiltersOpen = !desktopFiltersOpen"
+            >
+              <SlidersHorizontal :size="16" aria-hidden="true" />
+              <span class="whitespace-nowrap">Filtres</span>
+              <span
+                v-if="activeFilterCount"
+                class="grid size-5 place-items-center border-[1.5px] border-current text-[10px] leading-none"
+                aria-hidden="true"
+                >{{
+                  activeFilterCount
+                }}</span
+              >
+            </button>
+            <button
+              type="button"
+              class="inline-flex h-10 shrink-0 items-center gap-2 border-2 border-ink px-4 font-mono text-[10px] font-black uppercase tracking-[0.06em] focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
               :class="sortByNextShowtime ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
               :aria-pressed="sortByNextShowtime"
               aria-label="Trier les cinémas par prochain horaire"
@@ -1579,7 +1616,11 @@ if (
             </button>
           </div>
 
-          <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
+          <div
+            v-show="desktopFiltersOpen"
+            id="desktop-filter-panel"
+            class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3"
+          >
             <div class="flex flex-wrap items-center gap-2">
               <span
                 id="language-filter-label"
@@ -1600,7 +1641,7 @@ if (
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
-                  {{ option.label }}
+                  <LanguageText :text="option.label" :focusable="false" />
                 </button>
               </div>
             </div>
@@ -1833,9 +1874,10 @@ if (
                       class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
                     >
                       <template v-if="showtime.language"
-                        ><span>{{
-                          languageLabel(showtime.language, showtime.movie.original_language)
-                        }}</span><span aria-hidden="true">·</span></template
+                        ><LanguageText
+                          :text="languageLabel(showtime.language, showtime.movie.original_language)"
+                          :focusable="false"
+                        /><span aria-hidden="true">·</span></template
                       >
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">

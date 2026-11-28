@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Building2,
   ChartNoAxesCombined,
+  Clock,
   Film,
   LoaderCircle,
   MapPin,
@@ -485,6 +486,13 @@ useHead(() => ({
               </h1>
             </div>
             <div class="mt-6 flex flex-wrap items-center gap-3">
+              <NuxtLink
+                :to="`/ville/${encodeURIComponent(detail.city.slug)}`"
+                class="inline-flex min-h-11 items-center gap-2 border-2 border-ink bg-ink px-4 font-mono text-[0.7rem] font-black uppercase text-surface hover:bg-primary"
+              >
+                <Clock :size="17" aria-hidden="true" />
+                Séances du jour
+              </NuxtLink>
               <NuxtLink
                 :to="{ path: '/statistiques', query: { period: 'all', city: [detail.city.slug] } }"
                 aria-label="Statistiques"

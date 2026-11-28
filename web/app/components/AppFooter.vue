@@ -122,6 +122,13 @@ function scrollToTop() {
                 >
               </li>
               <li>
+                <NuxtLink
+                  to="/agents"
+                  class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
+                  >Agents IA et API</NuxtLink
+                >
+              </li>
+              <li>
                 <a
                   href="https://github.com/MathisVerstrepen/MesSeances"
                   class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"

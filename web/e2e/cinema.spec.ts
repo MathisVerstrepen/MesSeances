@@ -1,5 +1,11 @@
-import type { Locator } from '@playwright/test'
-import { test, expect, openPage } from './fixtures'
+import type { Locator, Page } from '@playwright/test'
+import {
+  test,
+  expect,
+  openPage,
+  openDirectoryFilters,
+  closeDirectoryFilters,
+} from './fixtures'
 import {
   date,
   movie,
@@ -13,6 +19,15 @@ import {
 } from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
+
+// The directory search opens a chain on Enter when it is the best suggestion.
+async function chooseDirectoryChain(page: Page, query: string) {
+  const search = page.getByRole('combobox', { name: /^Ville, code postal/ })
+  await search.focus()
+  await page.keyboard.type(query)
+  await expect(page.getByRole('listbox', { name: 'Suggestions' })).toBeVisible()
+  await page.keyboard.press('Enter')
+}
 
 test('cinema identity and programme render on the server', async ({
   request,
@@ -41,6 +56,7 @@ test('cinema identity and programme render on the server', async ({
 test('film synopsis resets on changed schedule and external menu keeps real keyboard focus and safe destinations', async ({
   page,
   isMobile,
+  baseURL,
 }) => {
   const tomorrow = new Date(`${date}T12:00:00Z`)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
@@ -116,7 +132,7 @@ test('film synopsis resets on changed schedule and external menu keeps real keyb
     schemas
       .flatMap((schema) => schema['@graph'] || [schema])
       .find((schema) => schema['@type'] === 'Movie').url,
-  ).toBe('http://127.0.0.1:13400/film/film-playwright')
+  ).toBe(new URL('/film/film-playwright', baseURL).href)
   if (isMobile) await page.locator('#mobile-date-trigger').click()
   const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
   await tabs.filter({ hasText: 'Demain' }).click()
@@ -180,6 +196,7 @@ test('estimated end descriptions have unique associations, focus/Escape behavior
 
 test('rendered legal pages retain privacy disclosures, credit links and canonical robots policy', async ({
   page,
+  baseURL,
 }) => {
   for (const [path, title, robots] of [
     ['/confidentialite', 'Confidentialité', 'index,follow'],
@@ -195,7 +212,7 @@ test('rendered legal pages retain privacy disclosures, credit links and canonica
     )
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
       'href',
-      `http://127.0.0.1:13400${path}`,
+      new URL(path, baseURL).href,
     )
     const content = page.getByRole('main')
     if (path === '/confidentialite')
@@ -938,30 +955,31 @@ test('Ciné-Movida directory chain/theater persistence, empty venue and credit s
 }, info) => {
   await request.post('/__playwright/scenario', { data: { cinemovida: true } })
   await openPage(page, '/cinemas')
-  await page.getByRole('button', { name: /^Filtres/ }).click()
-  const choice = page.getByRole('checkbox', {
-    name: 'Ciné-Movida',
-    exact: true,
-  })
-  await choice.focus()
-  await page.keyboard.press('Space')
-  await expect(choice).toBeChecked()
+  await chooseDirectoryChain(page, 'Ciné-Movida')
   await expect(page).toHaveURL(/chains=cinemovida/)
-  await page.keyboard.press('Escape')
+  await expect(
+    (await openDirectoryFilters(page))
+      .getByRole('group', { name: 'Enseigne', exact: true })
+      .getByRole('button', { name: /^Ciné-Movida/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await closeDirectoryFilters(page)
   await page.reload()
   await expect(page).toHaveURL(/chains=cinemovida/)
   const selected = page
-    .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+    .getByRole('button', { name: /^Ajouter Perpignan - Castillet à mes/ })
     .first()
   await expect(selected).toBeEnabled()
   await selected.focus()
   await page.keyboard.press('Space')
+  await expect(
+    page.getByRole('button', { name: /^Retirer Perpignan - Castillet de mes/ }),
+  ).toHaveAttribute('aria-pressed', 'true')
   await page.reload()
   await expect(
     page
-      .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+      .getByRole('button', { name: /^Retirer Perpignan - Castillet de mes/ })
       .first(),
-  ).toBeChecked()
+  ).toHaveAttribute('aria-pressed', 'true')
   const empty = cinemovidaTheaters[3]
   await openPage(page, `/cinema/${empty.slug}?date=${date}`)
   await expect(page.locator('main')).toContainText(empty.name)
@@ -1186,13 +1204,8 @@ test('Ociné directory chain keyboard selection, URL reload and official credit 
 }, info) => {
   await request.post('/__playwright/scenario', { data: { ocine: true } })
   await openPage(page, '/cinemas')
-  await page.getByRole('button', { name: /^Filtres/ }).click()
-  const choice = page.getByRole('checkbox', { name: 'Ociné', exact: true })
-  await choice.focus()
-  await page.keyboard.press('Space')
-  await expect(choice).toBeChecked()
+  await chooseDirectoryChain(page, 'Ociné')
   await expect(page).toHaveURL(/chains=ocine/)
-  await page.keyboard.press('Escape')
   for (const venue of ocineTheaters)
     await expect(
       page.getByRole('link', { name: new RegExp(venue.name) }).first(),
@@ -1386,13 +1399,8 @@ test('Cinéode directory keyboard selection, URL state, empty programme and offi
 }, info) => {
   await request.post('/__playwright/scenario', { data: { cineode: true } })
   await openPage(page, '/cinemas')
-  await page.getByRole('button', { name: /^Filtres/ }).click()
-  const choice = page.getByRole('checkbox', { name: 'Cinéode', exact: true })
-  await choice.focus()
-  await page.keyboard.press('Space')
-  await expect(choice).toBeChecked()
+  await chooseDirectoryChain(page, 'Cinéode')
   await expect(page).toHaveURL(/chains=cineode/)
-  await page.keyboard.press('Escape')
   const empty = cineodeTheaters[1]
   await expect(
     page.getByRole('link', { name: new RegExp(empty.name) }).first(),
@@ -1527,7 +1535,7 @@ for (const venue of veoTheaters) {
   })
 }
 
-test('shared filter button keeps all chains accessible at desktop and mobile widths', async ({
+test('chain facets keep every chain reachable by keyboard at desktop and mobile widths', async ({
   page,
   request,
 }, info) => {
@@ -1535,47 +1543,37 @@ test('shared filter button keeps all chains accessible at desktop and mobile wid
     data: { veo: true, allChains: true },
   })
   const mobile = info.project.name === 'mobile'
-  for (const height of mobile ? [844] : [900, 480]) {
-    await page.setViewportSize({ width: mobile ? 390 : 1440, height })
-    await openPage(page, '/cinemas')
-    const trigger = page.getByRole('button', { name: /^Filtres/ })
-    const region = page.getByRole('dialog', {
-      name: 'Filtres des cinémas',
-      exact: true,
-    })
-    await expect(trigger).toHaveAttribute('aria-expanded', 'false')
-    await expect(region).toBeHidden()
-    await trigger.click()
-    await expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    const panel = page.getByRole('group', {
-      name: 'Filtrer par enseigne',
-      exact: true,
-    })
-    const options = panel.getByRole('checkbox')
+  for (const width of mobile ? [320, 390] : [1440, 1024]) {
+    await page.setViewportSize({ width, height: mobile ? 844 : 900 })
+    await openPage(page, '/cinemas?region=hauts-de-france')
+    const filters = await openDirectoryFilters(page)
+    const chains = filters.getByRole('group', { name: 'Enseigne', exact: true })
+    const options = chains.getByRole('button')
     await expect(options).toHaveCount(11)
-    const last = options.last()
-    await expect(last).toHaveAccessibleName('Véo Cinémas')
+    const veo = chains.getByRole('button', { name: /^Véo Cinémas/ })
+    await expect(veo).toHaveAttribute('aria-pressed', 'false')
     await options.first().focus()
-    for (let index = 1; index < (await options.count()); index++)
+    const count = await options.count()
+    for (let index = 0; index < count; index++) {
+      if (await veo.evaluate((element) => element === document.activeElement))
+        break
       await page.keyboard.press('Tab')
-    await expect(last).toBeFocused()
+    }
+    await expect(veo).toBeFocused()
     await page.keyboard.press('Space')
-    await expect(last).toBeChecked()
     await expect(page).toHaveURL(/chains=veo/)
+    await expect(veo).toHaveAttribute('aria-pressed', 'true')
+    await expect(
+      page
+        .locator('#cinema-results')
+        .getByRole('link', { name: /^Voir les séances/ }),
+    ).toHaveCount(veoTheaters.length)
     await page.screenshot({
-      path: info.outputPath(`filtres-enseignes-${height}.png`),
+      path: info.outputPath(`facettes-enseignes-${width}.png`),
     })
-    await panel.getByRole('button', { name: 'Réinitialiser' }).click()
-    await expect(last).not.toBeChecked()
+    await veo.click()
     await expect(page).not.toHaveURL(/chains=/)
-    await options.first().focus()
-    await page.keyboard.press('Escape')
-    await expect(region).toBeHidden()
-    await expect(trigger).toBeFocused()
-    await trigger.click()
-    await expect(panel).toBeVisible()
-    await page.getByRole('button', { name: 'Fermer les filtres' }).click()
-    await expect(region).toBeHidden()
+    await closeDirectoryFilters(page)
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -1590,12 +1588,8 @@ test('Véo directory filtering and operator credit retain brand identity on desk
 }, info) => {
   await request.post('/__playwright/scenario', { data: { veo: true } })
   await openPage(page, '/cinemas')
-  await page.getByRole('button', { name: /^Filtres/ }).click()
-  const chain = page.getByRole('checkbox', { name: 'Véo Cinémas', exact: true })
-  await chain.locator('..').click()
-  await expect(chain).toBeChecked()
+  await chooseDirectoryChain(page, 'Véo')
   await expect(page).toHaveURL(/chains=veo/)
-  await page.keyboard.press('Escape')
   for (const venue of veoTheaters)
     await expect(
       page.getByRole('link', { name: new RegExp(venue.name) }).first(),

@@ -297,7 +297,8 @@ test('Grand Ecran multi-word names preserve accents, locations and one accessibl
 
 test('all public theater-name surfaces supply provider metadata, while timeline movies keep generic text', async () => {
   for (const path of [
-    'pages/cinemas.vue',
+    'components/CinemaDirectoryRow.vue',
+    'components/CinemaPickerDialog.vue',
     'pages/recherche.vue',
     'pages/cinema/[slug].vue',
     'pages/ville/[slug]/cinemas.vue',
@@ -316,9 +317,9 @@ test('all public theater-name surfaces supply provider metadata, while timeline 
     )
     assert.doesNotMatch(value, /<TheaterName[^>]*\bplain\b/, path)
   }
-  const cinemas = await source('pages/cinemas.vue')
-  assert.match(cinemas, /:provider="row\.theater\.provider"/)
-  assert.match(cinemas, /:provider="theater\.provider"/)
+  const picker = await source('components/CinemaPickerDialog.vue')
+  assert.match(picker, /:provider="row\.theater\.provider"/)
+  assert.match(picker, /:provider="theater\.provider"/)
   const timeline = await source('components/TimelineMatrix.vue')
   assert.match(
     timeline,

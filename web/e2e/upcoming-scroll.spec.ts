@@ -10,7 +10,7 @@ for (const signedIn of [false, true]) {
         data: {
           enabled: signedIn,
           state: signedIn ? 'complete' : 'anonymous',
-          upcoming: 'delay',
+          upcoming: 'slow',
         },
       })
       const path = `/films/prochainement${query}`

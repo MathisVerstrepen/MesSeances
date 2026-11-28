@@ -19,9 +19,15 @@ import type {
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { publicCinemaImageUrl } from '~/utils/cinemaImage'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
-import { formatLongDate, todayInParis } from '~/utils/date'
+import {
+  formatLongDate,
+  formatLongDateWithYear,
+  formatParisUpdate,
+  todayInParis,
+} from '~/utils/date'
 import { formatOptions, formatShowtimeCount } from '~/utils/formats'
 import { cinemaDescription } from '~/utils/entityDescriptions'
+import { titlesByShowtimeCount } from '~/utils/cityDay'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import {
   screeningEventDetails,
@@ -336,6 +342,12 @@ function clearFilmSearch() {
   submitFilmSearch('')
 }
 
+// Today's programme lives at the canonical URL.
+function cinemaDateHref(date: string): string {
+  const path = `/cinema/${encodeURIComponent(slug.value)}`
+  return date === todayInParis() ? path : `${path}?date=${date}`
+}
+
 function selectDate(date: string) {
   router.replace({
     query: mergeOwnedQuery(route.query, ['date', ...DISPLAY_QUERY_KEYS], {
@@ -480,6 +492,7 @@ const pageDescription = computed(() =>
         address: response.value.theater.address,
         postalCode: response.value.theater.postal_code,
         availableDateCount: response.value.theater.available_dates.length,
+        movieTitles: titlesByShowtimeCount([response.value]),
       })
     : 'Consultez les séances et films programmés dans ce cinéma.',
 )
@@ -901,8 +914,13 @@ useHead(() => ({
               class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"
             >
               <time :datetime="response.date">{{
-                formatLongDate(response.date)
-              }}</time>
+                formatLongDateWithYear(response.date)
+              }}</time><template
+                v-if="formatParisUpdate(response.generated_at)"
+              >
+                · mis à jour le
+                {{ formatParisUpdate(response.generated_at) }}</template
+              >
             </p>
           </div>
           <div class="flex items-center gap-3 self-stretch sm:self-auto">
@@ -990,6 +1008,7 @@ useHead(() => ({
               :available-dates="availableDates"
               :today="todayInParis()"
               :disabled="availableDates.length === 0"
+              :date-href="cinemaDateHref"
               @select="selectDate"
             />
             <div

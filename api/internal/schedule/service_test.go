@@ -1766,20 +1766,11 @@ func TestMovieShowtimesUsesSnapshotCitySlugMapping(t *testing.T) {
 	if !result.CurrentlyScreened || !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15"}) || len(result.Theaters) != 2 {
 		t.Fatalf("result=%+v", result)
 	}
-	want := []struct {
-		id       string
-		slug     string
-		city     string
-		citySlug string
-		showtime string
-	}{
-		{id: "ugc-26", slug: "ugc-26", city: "Evry", citySlug: "evry--5a2839c1", showtime: "ugc-showing-104"},
-		{id: "ugc-25", slug: "ugc-25", city: "Évry", citySlug: "evry--b6b4bc41", showtime: "ugc-showing-100"},
-	}
-	for index, expected := range want {
-		theater := result.Theaters[index]
-		if theater.Provider != ProviderUGC || theater.ID != expected.id || theater.Slug != expected.slug || theater.City != expected.city || theater.CitySlug != expected.citySlug || len(theater.Showtimes) != 1 || theater.Showtimes[0].ID != expected.showtime {
-			t.Fatalf("theater[%d]=%+v want=%+v", index, theater, expected)
+	// Accent variants name one city, written with its accents.
+	want := map[string]string{"ugc-25": "ugc-showing-100", "ugc-26": "ugc-showing-104"}
+	for index, theater := range result.Theaters {
+		if theater.Provider != ProviderUGC || theater.Slug != theater.ID || want[theater.ID] == "" || theater.City != "Évry" || theater.CitySlug != "evry" || len(theater.Showtimes) != 1 || theater.Showtimes[0].ID != want[theater.ID] {
+			t.Fatalf("theater[%d]=%+v", index, theater)
 		}
 	}
 }

@@ -197,9 +197,12 @@ export function buildCitySitemapEntries(
 ): SitemapEntry[] {
   const { citySlugs } = validateSitemapData(data)
   if (!data.cities) throw new Error('Local sitemap unavailable')
-  return citySlugs.map((slug) =>
-    detailEntry(data, `/ville/${encodeURIComponent(slug)}/cinemas`),
-  )
+  // The day page changes with the same programme as the city directory.
+  return citySlugs.flatMap((slug) => {
+    const path = `/ville/${encodeURIComponent(slug)}`
+    const directory = detailEntry(data, `${path}/cinemas`)
+    return [{ ...directory, path }, directory]
+  })
 }
 
 function detailEntry(data: SitemapDataResponse, path: string): SitemapEntry {

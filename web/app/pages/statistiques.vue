@@ -22,6 +22,7 @@ import {
   type StatisticsMultiFilterKey,
   type StatisticsScalarFilterKey,
 } from '~/utils/statistics'
+import { languageOptionTitle } from '~/utils/languageGlossary'
 import {
   parseStatisticsPageQuery,
   statisticsParisToday,
@@ -579,6 +580,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                     v-for="option in filterOptions[filter.key]"
                     :key="option.value"
                     :value="option.value"
+                    :title="filter.key === 'language' ? languageOptionTitle(option.label) : undefined"
                   >
                     {{ option.label }}
                   </option>

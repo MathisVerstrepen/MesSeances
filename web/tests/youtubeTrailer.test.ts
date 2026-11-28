@@ -81,7 +81,10 @@ test('trailer header exposes one preferred action and modal owns the optional VO
     component,
     /v-if="secondaryTrailer && activeTrailer\?\.variant !== 'VO'"/u,
   )
-  assert.match(component, />\s*Voir en VO\s*<\/button>/u)
+  assert.match(
+    component,
+    />\s*Voir en <LanguageText text="VO" :focusable="false" \/>\s*<\/button>/u,
+  )
   assert.match(component, /@click="selectTrailer\(secondaryTrailer\)"/u)
   assert.match(
     component,

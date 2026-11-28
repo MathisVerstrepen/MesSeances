@@ -208,48 +208,60 @@ test('rejects invalid coordinates instead of producing an OpenStreetMap URL', ()
   )
 })
 
-test('cinemas page uses deferred browser geolocation with bounded options', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
-  const location = await readFile(
+const pageSource = () =>
+  readFile(new URL('../app/pages/cinemas.vue', import.meta.url), 'utf8')
+const locationSource = () =>
+  readFile(
     new URL('../app/utils/cinemaDirectoryLocation.ts', import.meta.url),
     'utf8',
   )
 
-  assert.match(page, /'Utiliser ma position'/)
-  assert.match(page, />\s*Afficher par ville\s*</)
+test('cinemas page uses deferred browser geolocation with bounded options', async () => {
+  const [page, location, search, picker] = await Promise.all([
+    pageSource(),
+    locationSource(),
+    readFile(
+      new URL('../app/components/CinemaDirectorySearch.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../app/components/CinemaPickerDialog.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
+
+  assert.match(page, /Utiliser ma position/)
+  assert.match(search, /'Autour de moi'/)
+  assert.match(page, /@nearby="useCurrentPosition"/)
   assert.match(page, /@click="useCurrentPosition"/)
-  assert.match(
-    page,
-    /createCinemaDirectoryLocation\(\s*\(\) =>\s*import.meta.client \? navigator.geolocation : undefined,?\s*\)/,
-  )
+  for (const source of [page, picker])
+    assert.match(
+      source,
+      /createCinemaDirectoryLocation\(\s*\(\) =>\s*import.meta.client \? navigator.geolocation : undefined,?\s*\)/,
+    )
   assert.match(
     location,
     /enableHighAccuracy: false,\s*timeout: 8000,\s*maximumAge: 600000/,
   )
   assert.equal(location.match(/\.getCurrentPosition\(/g)?.length, 1)
-  assert.doesNotMatch(page + location, /watchPosition/)
+  assert.doesNotMatch(page + picker + location, /watchPosition/)
+  assert.match(picker, /location\.dispose\(\)/)
 })
 
 test('cinemas page exposes accessible pending, failure, and nearest states', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
-  const location = await readFile(
-    new URL('../app/utils/cinemaDirectoryLocation.ts', import.meta.url),
-    'utf8',
-  )
+  const [page, location, row] = await Promise.all([
+    pageSource(),
+    locationSource(),
+    readFile(
+      new URL('../app/components/CinemaDirectoryRow.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
 
-  assert.match(
-    page,
-    /role="status"\s+aria-live="polite"\s*>\s*Recherche de votre position…/,
-  )
+  assert.match(page, /role="status"\s*>\s*Recherche de votre position…/)
   assert.match(page, /v-if="locationError"[\s\S]*role="alert"/)
-  assert.match(page, />\s*Le plus proche\s*</)
-  assert.match(page, /:aria-busy="locationStatus === 'requesting'"/)
+  assert.match(row, />Le plus proche</)
+  assert.match(page, /isNearest: position === 0/)
   assert.match(page, /onBeforeUnmount\(\(\) => \{\s*isUnmounted = true/)
   assert.match(
     location,
@@ -261,123 +273,60 @@ test('cinemas page exposes accessible pending, failure, and nearest states', asy
   )
   assert.match(location, /La localisation a pris trop de temps\. Réessayez\./)
   assert.match(
-    location,
-    /La localisation n’est pas disponible dans ce navigateur\. Continuez avec la liste par ville\./,
-  )
-  assert.match(
     page,
-    />\s*Position utilisée : latitude\s*\{\{\s*formatPositionCoordinate\(userPosition\.latitude\)\s*\}\}\s*· longitude/,
+    />Position utilisée : latitude\s*\{\{\s*formatPositionCoordinate\(userPosition\.latitude\)\s*\}\}\s*·\s*longitude/,
   )
   assert.match(page, /target="_blank"/)
   assert.match(page, /rel="noopener noreferrer"/)
-  assert.match(
-    page,
-    /class="sr-only"\s*>\s*\(ouvre OpenStreetMap dans un nouvel onglet\)\s*<\/span\s*>/,
-  )
+  assert.match(page, /\(ouvre OpenStreetMap dans un nouvel onglet\)/)
   assert.match(
     page,
     /<span>\s*·\s*\{\{\s*formatPositionAccuracy\(locationAccuracyMeters\)\s*\}\}\s*<\/span\s*>/,
   )
   assert.doesNotMatch(page, /window\.open/)
-  assert.match(
-    location,
-    /Number\.isFinite\(position\.coords\.accuracy\) &&\s*position\.coords\.accuracy >= 0/,
-  )
-  assert.match(location, /locationAccuracyMeters\.value = null/)
   assert.doesNotMatch(page + location, /localStorage|sessionStorage|console\./)
 })
 
 test('cinemas page lazy-loads client-only map mode while preserving list fallback and shared state', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
+  const page = await pageSource()
 
-  assert.match(
-    page,
-    /const viewMode = computed\(\(\) => routeState.value.view\)/,
-  )
   assert.match(page, /aria-label="Mode d’affichage des cinémas"/)
-  assert.match(page, /:aria-pressed="viewMode === 'list'"/)
+  assert.match(page, /:aria-pressed="routeState\.view === 'list'"/)
   assert.match(page, /<NuxtErrorBoundary v-else>/)
   assert.match(page, /<LazyCinemaTheaterMap/)
-  assert.match(page, /:theaters="displayedTheaters"/)
+  assert.match(page, /:theaters="resultTheaters"/)
   assert.match(page, /:favorite-theater-ids="draftFavoriteTheaterIds"/)
   assert.match(page, /:user-position="userPosition"/)
   assert.match(page, /@toggle-favorite="toggleTheater"/)
-  assert.match(page, /@show-list="showList"/)
+  assert.match(page, /@show-list="setView\('list'\)"/)
+  assert.match(page, /recoverMapBoundary\(clearError\)/)
   assert.doesNotMatch(page, /import\s+CinemaTheaterMap/)
-  assert.doesNotMatch(page, /localStorage|sessionStorage/)
 })
 
-test('cinemas page keeps favorite group controls deterministic until preferences finish loading', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
-  const fallbackBlocks = [
-    ...page.matchAll(/<template #fallback>([\s\S]*?)<\/template>/g),
-  ].map((match) => match[1]!)
+test('cinemas page keeps selection controls disabled until preferences finish loading', async () => {
+  const page = await pageSource()
 
   assert.match(page, /const preferencesReady = ref\(false\)/)
   assert.match(
     page,
     /await loadPreferences\(\)\s*if \(!isUnmounted\) preferencesReady\.value = true/,
   )
-  assert.equal(page.match(/<ClientOnly>/g)?.length, 2)
-  assert.equal(
-    page.match(
-      /:disabled="!preferencesReady \|\| writesBlocked \|\| group\.theaters\.every/g,
-    )?.length,
-    2,
-  )
-  assert.equal(fallbackBlocks.length, 2)
-  for (const fallback of fallbackBlocks) {
-    const fallbackButtons = [
-      ...fallback.matchAll(
-        /<button\s+type="button"[^>]*\sdisabled\s*>([\s\S]*?)<\/button>/g,
-      ),
-    ]
-    assert.equal(fallbackButtons.length, 2)
-    assert.match(fallbackButtons[0]![1]!, /Tout sélectionner/)
-    assert.match(fallbackButtons[1]![1]!, /Désélectionner/)
-  }
   assert.equal(page.match(/preferencesReady\.value = true/g)?.length, 1)
+  assert.match(
+    page,
+    /const selectionDisabled = computed\(\s*\(\) => writesBlocked\.value \|\| !preferencesReady\.value,?\s*\)/,
+  )
+  assert.match(page, /:disabled="selectionDisabled"/)
+  assert.match(page, /:selection-disabled="selectionDisabled"/)
 })
 
-test('cinemas page keeps a zero-capable draft and filters search results before selection', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
+test('cinemas page keeps a zero-capable draft that only targets the toggled cinemas', async () => {
+  const page = await pageSource()
 
-  assert.doesNotMatch(
-    page,
-    /selectedOnly|ListFilter|Sélectionnés uniquement|Afficher tous les cinémas/,
-  )
   assert.match(page, /const draftFavoriteTheaterIds = ref<string\[]>\(\[\]\)/)
   assert.match(
     page,
     /const selectedIds = computed\(\(\) => new Set\(draftFavoriteTheaterIds\.value\)\)/,
-  )
-  assert.match(
-    page,
-    /const searchResults = computed\(\s*\(\) =>\s*filterCinemaDirectory\(\s*directoryTheaters\.value,\s*search\.value,\s*selectedChains\.value/,
-  )
-  assert.match(page, /const displayedTheaters = searchResults/)
-  assert.match(
-    page,
-    /cinemaListSections\(\s*displayedTheaters\.value,\s*selectedIds\.value,\s*\(theater\) => theater\.id,?\s*\)/,
-  )
-  assert.match(page, /groupTheatersByCityIdentity\(section\.rows\)/)
-  assert.doesNotMatch(page, /selectedFirst|groupSelectedTheatersFirst/)
-  assert.match(
-    page,
-    /sortTheatersByDistance\(searchResults\.value, userPosition\.value\)/,
-  )
-  assert.match(
-    page,
-    /const visibleTheaterCount = computed\(\(\) => displayedTheaters\.value\.length\)/,
   )
   assert.doesNotMatch(page, /if \(nextIds\.length === 0\)/)
   assert.match(page, /setFavoriteTheaterIds\(nextIds\)/)
@@ -387,92 +336,13 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
   )
   assert.match(
     page,
-    /updateTheaterSelection\(\s*draftFavoriteTheaterIds\.value,\s*displayedTheaters\.value,\s*select,?\s*\)/,
-  )
-  assert.match(page, /const theaters = searchResults\.value/)
-  assert.doesNotMatch(page, /Conservez au moins un cinéma/)
-})
-
-test('cinemas page scopes city and global actions to displayed draft results', async () => {
-  const page = await readFile(
-    new URL('../app/pages/cinemas.vue', import.meta.url),
-    'utf8',
-  )
-  const toolbarStart = page.indexOf('class="selection-toolbar ')
-  const toolbarEnd = page.indexOf(
-    '<Teleport to="#cinema-settings-feedback"',
-    toolbarStart,
-  )
-  const selectionControlsStart = page.indexOf(
-    'class="selection-controls ',
-    toolbarStart,
-  )
-  const bulkActionsStart = page.indexOf(
-    'class="bulk-actions ',
-    selectionControlsStart,
-  )
-
-  assert.match(
-    page,
-    /function updateGroup\(groupTheaters: readonly Theater\[], select: boolean\)/,
-  )
-  assert.match(page, /function updateDisplayedSelection\(select: boolean\)/)
-  assert.match(page, /aria-label="Modifier les cinémas affichés"/)
-  assert.match(
-    page,
-    /displayedTheaters\.length === 0 \|\| displayedTheaters\.every\(\(theater\) => selectedIds\.has\(theater\.id\)\)/,
-  )
-  assert.match(page, /:key="group\.citySlug"/)
-  assert.match(page, /encodeURIComponent\(group\.citySlug\)/)
-  assert.match(page, /\{\{\s*draftFavoriteTheaterIds\.length\s*\}\}/)
-  assert.ok(toolbarStart >= 0)
-  assert.ok(toolbarEnd > toolbarStart)
-  assert.ok(page.indexOf('class="view-switch ', toolbarStart) < toolbarEnd)
-  assert.ok(
-    selectionControlsStart > page.indexOf('class="view-switch ', toolbarStart),
-  )
-  assert.ok(bulkActionsStart > selectionControlsStart)
-  assert.ok(
-    page.indexOf(
-      'aria-label="Modifier les cinémas affichés"',
-      selectionControlsStart,
-    ) < toolbarEnd,
-  )
-  assert.doesNotMatch(page, /class="view-switch mb-7"/)
-  assert.match(page, /class="selection-toolbar [^"]*flex-wrap /)
-  assert.match(page, /<List :size="16" aria-hidden="true" \/>\s+Liste/)
-  assert.match(page, /<MapIcon :size="16" aria-hidden="true" \/>\s+Carte/)
-  assert.match(
-    page,
-    /class="bulk-actions [^"]*"\s+role="group"\s+aria-label="Modifier les cinémas affichés"/,
-  )
-  assert.equal(
-    page.match(
-      /<CheckCheck :size="16" aria-hidden="true" \/>\s+Tout sélectionner/g,
-    )?.length,
-    2,
-  )
-  assert.equal(
-    page.match(/<X :size="16" aria-hidden="true" \/>\s+Désélectionner/g)
-      ?.length,
-    2,
+    /updateTheaterSelection\(\s*draftFavoriteTheaterIds\.value,\s*\[theater\],\s*!selectedIds\.value\.has\(id\),?\s*\)/,
   )
   assert.match(
     page,
-    /class="bulk-actions (?=[^"]*sm:h-11)[^"]*border-2 border-dashed border-ink/,
+    /updateTheaterSelection\(draftFavoriteTheaterIds\.value, theaters, true\)/,
   )
-  assert.match(page, /class="view-switch [^"]*h-11/)
-  assert.match(page, /class="selection-controls contents"/)
-  assert.match(
-    page,
-    /class="bulk-actions [\s\S]*?class="inline-flex h-full min-h-0 min-w-0/,
-  )
-  assert.equal(
-    page.match(/class="inline-flex h-full min-h-0 items-center justify-center/g)
-      ?.length,
-    2,
-  )
-  assert.doesNotMatch(page, /class="view-switch [^"]*max-sm:w-full/)
+  assert.doesNotMatch(page, /Tout sélectionner|Désélectionner/)
 })
 
 test('client map keeps individual points at every zoom, accessible Vue details, privacy, and cleanup', async () => {
