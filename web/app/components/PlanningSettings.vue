@@ -6,6 +6,7 @@ import {
   queryFormatOptions,
   queryLanguageOptions,
 } from '~/utils/showtimeFilters'
+import { languageOptionTitle } from '~/utils/languageGlossary'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 
 interface SettingsQuery {
@@ -419,6 +420,7 @@ onBeforeUnmount(() => {
                   v-for="option in queryLanguageOptions"
                   :key="option.value"
                   :value="option.value"
+                  :title="languageOptionTitle(option.label)"
                 >
                   {{ option.label }}
                 </option>

@@ -124,7 +124,12 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
               :id="dialogTitleId"
               class="min-w-0 truncate text-lg font-black tracking-[-0.035em] sm:text-2xl"
             >
-              Bande-annonce {{ activeTrailer?.variant }} de {{ movieTitle }}
+              Bande-annonce
+              <LanguageText
+                v-if="activeTrailer?.variant"
+                :text="activeTrailer.variant"
+              />
+              de {{ movieTitle }}
             </h2>
             <div class="flex shrink-0 items-center gap-2">
               <button
@@ -134,7 +139,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
                 :aria-label="`Voir la bande-annonce VO de ${movieTitle}`"
                 @click="selectTrailer(secondaryTrailer)"
               >
-                Voir en VO
+                Voir en <LanguageText text="VO" :focusable="false" />
               </button>
               <button
                 ref="closeButton"

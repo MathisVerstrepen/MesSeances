@@ -156,9 +156,15 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <code>{ chaîne}- { identifiant}</code>.
         </li>
         <li>
-          Versions : VF version française, VOF version originale française,
-          VOSTFR version originale sous-titrée en français, VO version
-          originale, VF SME sous-titres pour sourds et malentendants.
+          Versions : <LanguageText text="VF" /> version française,
+          <LanguageText text="VOF" />
+          version originale française,
+          <LanguageText text="VOSTFR" />
+          version originale sous-titrée en français,
+          <LanguageText text="VO" />
+          version originale,
+          <LanguageText text="VF SME" />
+          sous-titres pour sourds et malentendants.
         </li>
         <li>
           Chaque séance de l’API porte un <code>booking_url</code> vers le site

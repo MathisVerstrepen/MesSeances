@@ -599,9 +599,11 @@ useHead(() => ({
                       }}<small v-if="showtimeLabel(group, index).end">
                         → {{ showtimeLabel(group, index).end }}</small
                       ></b
-                    ><span v-if="showtimeLabel(group, index).details">{{
-                      showtimeLabel(group, index).details
-                    }}</span>
+                    ><LanguageText
+                      v-if="showtimeLabel(group, index).details"
+                      :text="showtimeLabel(group, index).details"
+                      :focusable="false"
+                    />
                   </BookingLink>
                 </li>
               </ul>
@@ -647,32 +649,32 @@ useHead(() => ({
         </h2>
         <dl class="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
           <div>
-            <dt class="inline font-black">VF</dt>
+            <dt class="inline font-black"><LanguageText text="VF" /></dt>
             :
             <dd class="inline">version française (doublée)</dd>
           </div>
           <div>
-            <dt class="inline font-black">VOF</dt>
+            <dt class="inline font-black"><LanguageText text="VOF" /></dt>
             :
             <dd class="inline">version originale française</dd>
           </div>
           <div>
-            <dt class="inline font-black">VOSTFR</dt>
+            <dt class="inline font-black"><LanguageText text="VOSTFR" /></dt>
             :
             <dd class="inline">version originale sous-titrée en français</dd>
           </div>
           <div>
-            <dt class="inline font-black">VO</dt>
+            <dt class="inline font-black"><LanguageText text="VO" /></dt>
             :
             <dd class="inline">version originale</dd>
           </div>
           <div>
-            <dt class="inline font-black">VF SME</dt>
+            <dt class="inline font-black"><LanguageText text="VF SME" /></dt>
             :
             <dd class="inline">sous-titres pour sourds et malentendants</dd>
           </div>
           <div>
-            <dt class="inline font-black">VFSTF</dt>
+            <dt class="inline font-black"><LanguageText text="VFSTF" /></dt>
             :
             <dd class="inline">version française sous-titrée en français</dd>
           </div>

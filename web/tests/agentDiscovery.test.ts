@@ -38,7 +38,10 @@ test('city day page is indexable only in its default view and links its Markdown
     /rel: 'alternate',\s*type: 'text\/markdown',\s*href: `\$\{canonicalUrl\.value\}\.md`/,
   )
   assert.match(page, /:href="`\$\{cityPath\}\.md`"/)
-  assert.match(page, /<dt class="inline font-black">VOSTFR<\/dt>/)
+  assert.match(
+    page,
+    /<dt class="inline font-black"><LanguageText text="VOSTFR" \/><\/dt>/,
+  )
   const directory = await read('pages/ville/[slug]/cinemas.vue')
   assert.match(
     directory,

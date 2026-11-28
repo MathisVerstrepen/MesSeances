@@ -47,7 +47,7 @@ const bars = computed(() => statisticsBars(props.rows, props.total))
                 row.label
               }}</NuxtLink
             >
-            <template v-else>{{ row.label }}</template>
+            <LanguageText v-else :text="row.label" />
           </span>
           <span class="font-mono text-xs tabular-nums"
             >{{ statisticsCount(row.count) }} {{ unit
