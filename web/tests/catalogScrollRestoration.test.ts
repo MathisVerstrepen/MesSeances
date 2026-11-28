@@ -167,6 +167,35 @@ test('cinema directory scrolls to the top for a new place but keeps filter chang
   assert.equal(page.callbacks.size, 0)
 })
 
+test('city showtimes open the next cinemas page from the top', async (t) => {
+  const page = dom(t)
+  const fixture = routerFixture(() => false)
+  assert.deepEqual(
+    await fixture.scroll('/ville/paris?page=2', '/ville/paris', null),
+    { left: 0, top: 0 },
+  )
+  assert.deepEqual(
+    await fixture.scroll(
+      '/ville/paris?date=2026-11-30',
+      '/ville/paris?date=2026-11-30&page=3',
+      null,
+    ),
+    { left: 0, top: 0 },
+  )
+  // History restores the reader's place once the new cinemas have rendered.
+  const waiting = fixture.scroll('/ville/paris', '/ville/paris?page=2')
+  await Promise.resolve()
+  assert.deepEqual(page.queried, ['city-day'])
+  page.render()
+  assert.deepEqual(await waiting, { left: 0, top: 2000 })
+  for (const [to, from] of [
+    ['/ville/paris?date=2026-11-30', '/ville/paris'],
+    ['/ville/paris?page=2#top', '/ville/paris'],
+  ])
+    assert.equal(await fixture.scroll(to!, from!, null), false)
+  assert.equal(page.callbacks.size, 0)
+})
+
 test('extends saved catalog restore only after framework readiness', async (t) => {
   const page = dom(t)
   let resolve!: () => void

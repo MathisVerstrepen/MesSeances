@@ -83,20 +83,33 @@ export function installCatalogScrollRestoration(
       directoryScopeKey(to.query) !== directoryScopeKey(from.query)
     if (directoryScopeChange && position === false)
       position = savedPosition ?? { left: 0, top: 0 }
+    // The next cinemas of a city start a new list: its pager sits at the
+    // bottom, so open the new page from the top like a different route.
+    const cityPageChange =
+      /^\/ville\/[^/]+$/.test(path) &&
+      path === from.path.replace(/\/$/, '') &&
+      !to.hash &&
+      String(to.query.page ?? '1') !== String(from.query.page ?? '1')
+    if (cityPageChange && position === false)
+      position = savedPosition ?? { left: 0, top: 0 }
     const elementId =
       readinessElements.get(path) ??
       (/^\/film\/[^/]+$/.test(path)
         ? 'film-catalog'
         : /^\/ville\/[^/]+\/cinemas$/.test(path)
           ? 'city-catalog'
-          : /^\/cinema\/[^/]+$/.test(path) && to.query.view === 'activity'
-            ? 'cinema-activity'
-            : undefined)
+          : /^\/ville\/[^/]+$/.test(path)
+            ? 'city-day'
+            : /^\/cinema\/[^/]+$/.test(path) && to.query.view === 'activity'
+              ? 'cinema-activity'
+              : undefined)
     if (
       savedPosition &&
       position === savedPosition &&
       elementId &&
-      (path !== from.path.replace(/\/$/, '') || activityTabHistory)
+      (path !== from.path.replace(/\/$/, '') ||
+        activityTabHistory ||
+        cityPageChange)
     ) {
       if (!(await waitForCatalogRender(controller.signal, elementId)))
         return false
