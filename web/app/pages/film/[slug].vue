@@ -1029,7 +1029,19 @@ useSeoMeta({
   twitterDescription: seoDescription,
   twitterImage: seoImageUrl,
 })
-useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
+useHead(() => ({
+  link: notFound.value
+    ? [{ rel: 'canonical', href: canonicalUrl.value }]
+    : [
+        { rel: 'canonical', href: canonicalUrl.value },
+        {
+          rel: 'alternate',
+          type: 'text/markdown',
+          href: `${canonicalUrl.value}.md`,
+          title: 'Version Markdown pour agents IA',
+        },
+      ],
+}))
 const serverNationwideSchedule = nationwideSeo.schedule
 if (
   import.meta.server &&

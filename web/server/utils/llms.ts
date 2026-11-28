@@ -1,5 +1,6 @@
 import type { SitemapDataResponse } from '../../app/types/api.ts'
 import { absoluteSiteUrl } from '../../app/utils/siteUrl.ts'
+import { markdownText } from './markdown.ts'
 import { API_SITEMAP_CACHE_POLICY, validateSitemapData } from './sitemap.ts'
 
 export const LLMS_CONTENT_TYPE = 'text/plain; charset=utf-8'
@@ -15,14 +16,6 @@ const LANGUAGES =
 const FORMATS =
   '`ALL`, `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, `INFINITY_VISION`'
 
-// Markdown link text and URL templates must not break the list syntax.
-function markdownText(value: string): string {
-  return value
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/([\\`*_[\]<>|])/g, '\\$1')
-}
-
 export function renderLlmsTxt(siteUrl: string): string {
   // Keeps URL templates such as {slug} readable instead of percent-encoded.
   const url = (path: string) =>
@@ -34,7 +27,7 @@ export function renderLlmsTxt(siteUrl: string): string {
 
 Repères pour les agents :
 
-- Préférez l'API JSON publique (section ci-dessous) pour extraire des horaires : elle est plus compacte et plus stable que le HTML. Donnez à l'utilisateur les liens vers les pages du site.
+- Préférez l'API JSON publique (section ci-dessous, décrite par une [spécification OpenAPI](${url('/api/v1/openapi.json')})) pour extraire des horaires : elle est plus compacte et plus stable que le HTML. Pour lire une fiche sans HTML, ajoutez \`.md\` à son adresse. Donnez à l'utilisateur les liens vers les pages du site.
 - Fuseau horaire : les dates (\`AAAA-MM-JJ\`) et les heures de créneau (\`HH:MM\`) s'entendent à l'heure de Paris (Europe/Paris). Les horodatages renvoyés par l'API sont en UTC (ISO 8601, suffixe \`Z\`).
 - Identifiants : un film a un slug \`film-{n}\` (ex. \`film-8806\`), un cinéma un slug \`{chaîne}-{identifiant}\` (ex. \`cgr-P0867\`), une ville un slug en minuscules (ex. \`agen\`). Les paramètres \`theaters\` attendent des \`id\` de cinéma séparés par des virgules ; l'\`id\` est égal au slug sauf mention contraire dans llms-full.txt. Trouvez les slugs avec \`/api/v1/cities\`, \`/api/v1/movies?search=\` ou dans [llms-full.txt](${url('/llms-full.txt')}).
 - Valeurs de \`language\` : ${LANGUAGES}. Valeurs de \`format\` : ${FORMATS}.
@@ -49,9 +42,11 @@ Repères pour les agents :
 - [Films à l'affiche](${url('/films')}): catalogue paginé ; paramètres \`q\` (recherche), \`sort\`, \`page\`.
 - [Prochaines sorties](${url('/films/prochainement')}): films qui sortent bientôt en salle.
 - [Fiche film](${url('/film/{slug}')}): séances d'un film par cinéma ; paramètres \`date\`, \`language\`, \`format\`, \`sort=next\` (prochaines séances d'abord).
+- [Fiche film en Markdown](${url('/film/{slug}.md')}): mêmes séances en texte léger ; paramètres \`date\`, \`city\` (slug de ville), \`page\`.
 - [Annuaire des cinémas](${url('/cinemas')}): tous les cinémas couverts, par ville et par chaîne.
 - [Cinémas d'une ville](${url('/ville/{slug}/cinemas')}): paramètres \`q\` (recherche), \`sort\`.
 - [Fiche cinéma](${url('/cinema/{slug}')}): séances du jour d'un cinéma ; paramètres \`date\`, \`view=films\`.
+- [Fiche cinéma en Markdown](${url('/cinema/{slug}.md')}): séances du jour regroupées par film ; paramètre \`date\`.
 - [Recherche par créneau](${url('/recherche?theaters=&date=AAAA-MM-JJ&start_after=HH:MM&finish_before=HH:MM')}): séances qui commencent après \`start_after\` et finissent avant \`finish_before\` (pas de 15 minutes, de 08:00 à 02:00 le lendemain). \`theaters\` vide pour tous les cinémas ; options \`language\`, \`format\`, \`include_ads=0\`, \`buffer_ads\`.
 - [Articles](${url('/articles')}): articles éditoriaux (par exemple le guide IMAX).
 
@@ -59,6 +54,7 @@ Repères pour les agents :
 
 Lecture seule, requêtes \`GET\` sans authentification, réponses \`application/json\`.
 
+- [Spécification OpenAPI](${url('/api/v1/openapi.json')}): OpenAPI 3.1 de toutes les routes ci-dessous, avec paramètres et schémas de réponse ; utilisable pour générer un client ou déclarer des actions d'agent.
 - [Villes et cinémas](${url('/api/v1/cities')}): inventaire complet des villes et de leurs cinémas (\`slug\`, \`id\`, \`provider\`, \`name\`).
 - [Détail d'une ville](${url('/api/v1/cities/{slug}')}): cinémas de la ville et films qui y sont programmés.
 - [Cinémas](${url('/api/v1/theaters?city={slug}')}): adresse, code postal, technologies et \`available_dates\` de chaque cinéma ; filtres \`city\` (slug de ville) et \`chain\` (ex. \`ugc\`, \`pathe\`, \`cgr\`).

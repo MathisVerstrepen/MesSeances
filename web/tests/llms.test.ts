@@ -5,6 +5,7 @@ import type { H3Event } from 'h3'
 import type { CatalogMovie, SitemapDataResponse } from '../app/types/api.ts'
 import * as internalApi from '../server/utils/internalApi.ts'
 import * as llms from '../server/utils/llms.ts'
+import * as markdownPages from '../server/utils/markdownPages.ts'
 import * as robots from '../server/utils/robots.ts'
 import * as sitemap from '../server/utils/sitemap.ts'
 import { executeModule } from './helpers/renderVue.ts'
@@ -161,6 +162,14 @@ test('llms.txt page links resolve to existing Nuxt pages or server routes', asyn
   for (const target of linkTargets(llms.renderLlmsTxt(site))) {
     const path = target.slice(site.length).split('?')[0]!
     if (path.startsWith('/api/')) continue
+    if (path.endsWith('.md')) {
+      const sample = path.replace('{slug}', 'film-1')
+      assert.ok(
+        markdownPages.parseMarkdownPageRequest(sample, new URLSearchParams()),
+        `${path} is not served by the Markdown middleware`,
+      )
+      continue
+    }
     const route = path.replace(/^\//, '').replace(/\{slug\}/g, '[slug]')
     const candidates = [
       new URL(`${route === '' ? 'index' : route}.vue`, pages),
