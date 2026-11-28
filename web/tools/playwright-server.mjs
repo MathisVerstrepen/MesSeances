@@ -40,6 +40,7 @@ import {
   watchedVenues,
   watchedShowtimes,
   scrollInventory,
+  locatedDirectoryTheaters,
 } from '../e2e/data.mjs'
 
 const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
@@ -474,6 +475,8 @@ const mock = createServer((request, response) => {
           technologies: ['IMAX', 'ICE'],
         },
       ])
+    if (path === '/api/v1/theaters' && scenario.locatedDirectory)
+      return json(response, locatedDirectoryTheaters)
     if (path === '/api/v1/theaters' && scenario.directoryTechnologies)
       return json(response, [
         {

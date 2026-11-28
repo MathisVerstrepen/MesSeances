@@ -24,7 +24,7 @@ for (const privateFeed of [false, true]) {
       },
     })
     const rows = page.locator('main [data-event-id]')
-    await openPage(page, '/cinemas')
+    await openPage(page, `/cinemas?ville=${theater.city_slug}`)
     if (privateFeed) {
       await page.locator('header a[href="/compte"]').click()
       await page

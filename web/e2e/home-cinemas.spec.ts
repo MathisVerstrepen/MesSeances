@@ -19,22 +19,31 @@ test('empty homepage selection leads to the directory and updates on return', as
   }))
   expect(neighbors).toEqual({
     before: 'now-showing-title',
-    after: 'shortcuts-title',
+    after: 'home-cities-title',
   })
   await section.scrollIntoViewIfNeeded()
   await page.screenshot({ path: testInfo.outputPath('home-cinemas-empty.png') })
   await choose.click()
   await expect(page).toHaveURL(/\/cinemas$/)
-  const checkbox = page
-    .getByRole('region', { name: /^Tous les cinémas\b/ })
-    .getByRole('checkbox', {
-      name: `Sélectionner ${theater.name}`,
-      exact: true,
-    })
-  await expect(checkbox).toBeEnabled()
-  await checkbox.focus()
+  const search = page.getByRole('combobox', { name: /^Ville, code postal/ })
+  await search.focus()
+  await page.keyboard.type(theater.city)
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(new RegExp(`ville=${theater.city_slug}`))
+  const add = page.getByRole('button', {
+    name: `Ajouter ${theater.name} à mes cinémas`,
+    exact: true,
+  })
+  await expect(add).toBeEnabled()
+  await add.focus()
   await page.keyboard.press('Space')
-  await expect(checkbox).toBeChecked()
+  await expect(
+    page.getByRole('button', {
+      name: `Retirer ${theater.name} de mes cinémas`,
+      exact: true,
+    }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await page.goBack()
   await page.goBack()
   await expect(
     section.getByRole('link', { name: `Voir les séances : ${theater.name}` }),

@@ -44,7 +44,7 @@ Repères pour les agents :
 - [Prochaines sorties](${url('/films/prochainement')}): films qui sortent bientôt en salle.
 - [Fiche film](${url('/film/{slug}')}): séances d'un film par cinéma ; paramètres \`date\`, \`language\`, \`format\`, \`sort=next\` (prochaines séances d'abord).
 - [Fiche film en Markdown](${url('/film/{slug}.md')}): mêmes séances en texte léger ; paramètres \`date\`, \`city\` (slug de ville), \`page\`.
-- [Annuaire des cinémas](${url('/cinemas')}): tous les cinémas couverts, par ville et par chaîne.
+- [Annuaire des cinémas](${url('/cinemas')}): tous les cinémas couverts, par ville, code postal, département, région, enseigne ou format.
 - [Séances d'une ville](${url('/ville/{slug}')}): toutes les séances du jour, regroupées par cinéma puis par film ; paramètres \`date\`, \`page\` (6 cinémas par page).
 - [Séances d'une ville en Markdown](${url('/ville/{slug}.md')}): mêmes séances en texte léger ; paramètres \`date\`, \`page\`.
 - [Cinémas d'une ville](${url('/ville/{slug}/cinemas')}): paramètres \`q\` (recherche), \`sort\`.

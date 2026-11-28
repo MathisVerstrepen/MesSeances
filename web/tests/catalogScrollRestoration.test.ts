@@ -115,7 +115,11 @@ function routerFixture(original: RouterScrollBehavior) {
     return () => {}
   }
   installCatalogScrollRestoration(router, (callback) => callback())
-  const scroll = (to: string, from: string, saved = { left: 0, top: 2000 }) =>
+  const scroll = (
+    to: string,
+    from: string,
+    saved: { left: number; top: number } | null = { left: 0, top: 2000 },
+  ) =>
     router.options.scrollBehavior!(
       router.resolve(to),
       router.resolve(from),
@@ -132,6 +136,35 @@ test('cinema activity tab history waits for rendering even on the same path', as
   assert.deepEqual(page.queried, ['cinema-activity'])
   page.render()
   assert.deepEqual(await waiting, { top: 2000, left: 0 })
+})
+
+test('cinema directory scrolls to the top for a new place but keeps filter changes in place', async (t) => {
+  const page = dom(t)
+  const fixture = routerFixture(() => false)
+  assert.deepEqual(
+    await fixture.scroll('/cinemas?region=bretagne', '/cinemas', null),
+    { left: 0, top: 0 },
+  )
+  assert.deepEqual(
+    await fixture.scroll(
+      '/cinemas?ville=paris',
+      '/cinemas?region=ile-de-france',
+      null,
+    ),
+    { left: 0, top: 0 },
+  )
+  assert.deepEqual(await fixture.scroll('/cinemas', '/cinemas?ville=paris'), {
+    left: 0,
+    top: 2000,
+  })
+  for (const [to, from] of [
+    ['/cinemas?ville=paris&technologies=IMAX', '/cinemas?ville=paris'],
+    ['/cinemas?ville=paris&view=map', '/cinemas?ville=paris'],
+    ['/cinemas?location=nearby&rayon=25', '/cinemas?location=nearby'],
+    ['/cinemas?region=bretagne#top', '/cinemas'],
+  ])
+    assert.equal(await fixture.scroll(to!, from!, null), false)
+  assert.equal(page.callbacks.size, 0)
 })
 
 test('extends saved catalog restore only after framework readiness', async (t) => {
