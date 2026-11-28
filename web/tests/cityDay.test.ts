@@ -4,6 +4,7 @@ import type { TimelineShowtime } from '../app/types/api.ts'
 import {
   CITY_DAY_PAGE_SIZE,
   cityAvailableDates,
+  cityMovieMedia,
   compactCityShowtime,
   orderCityTheaters,
   cityDayPageCount,
@@ -134,4 +135,31 @@ test('city cinemas order by programme size and drop unused fields', () => {
     'title',
   ])
   assert.equal(Object.hasOwn(compact, 'poster_url'), false)
+})
+
+test('city film artwork is kept once per film, first safe URL wins', () => {
+  const poster = 'https://image.tmdb.org/t/p/w500/poster.jpg'
+  const backdrop = 'https://image.tmdb.org/t/p/w780/backdrop.jpg'
+  const withArt = (
+    id: string,
+    slug: string,
+    posterUrl: string | null,
+    backdropUrl: string | null,
+  ) => ({
+    ...session(id, slug, '2026-11-28T14:00:00Z'),
+    poster_url: posterUrl,
+    backdrop_url: backdropUrl,
+  })
+  assert.deepEqual(
+    cityMovieMedia([
+      withArt('a', 'film-1', null, 'javascript:alert(1)'),
+      withArt('b', 'film-1', poster, backdrop),
+      withArt('c', 'film-1', 'https://image.tmdb.org/t/p/w500/other.jpg', null),
+      withArt('d', 'film-2', null, null),
+    ]),
+    {
+      'film-1': { poster, backdrop },
+      'film-2': { poster: null, backdrop: null },
+    },
+  )
 })

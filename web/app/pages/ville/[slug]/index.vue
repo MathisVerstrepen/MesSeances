@@ -9,9 +9,11 @@ import {
 import type { CityDetailResponse, TimelineResponse } from '~/types/api'
 import {
   type CityDayMovieGroup,
+  type CityDayMediaBySlug,
   type CityDayShowtime,
   type CityDayTheater,
   cityAvailableDates,
+  cityMovieMedia,
   compactCityShowtime,
   orderCityTheaters,
   cityDayPageCount,
@@ -27,7 +29,7 @@ import {
   todayInParis,
 } from '~/utils/date'
 import { cityShowtimesDescription } from '~/utils/entityDescriptions'
-import { formatLabel, formatRuntime } from '~/utils/formats'
+import { formatLabel } from '~/utils/formats'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import {
   calendarDate,
@@ -57,7 +59,10 @@ type CityDayState =
       date: string
       page: number
       pageCount: number
-      timeline: { theaters: CityDayTimelineTheater[] } | null
+      timeline: {
+        theaters: CityDayTimelineTheater[]
+        media: CityDayMediaBySlug
+      } | null
       errorMessage: string
     }
   | { kind: 'not-found' }
@@ -118,6 +123,9 @@ async function loadCityDay(): Promise<CityDayState> {
         id: theater.id,
         showtimes: theater.showtimes.map(compactCityShowtime),
       })),
+      media: cityMovieMedia(
+        response.theaters.flatMap((theater) => theater.showtimes),
+      ),
     }
     return { ...base, timeline, errorMessage: '' }
   } catch (error) {
@@ -558,26 +566,19 @@ useHead(() => ({
             <li
               v-for="group in section.movies"
               :key="group.movie.slug"
-              class="grid gap-3 p-5 sm:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)] sm:gap-6 sm:p-6"
+              class="grid sm:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]"
             >
-              <h3 class="min-w-0 text-lg font-black leading-tight">
-                <NuxtLink
-                  :to="filmHref(group.movie.slug)"
-                  class="underline decoration-2 underline-offset-4 hover:text-primary"
-                  >{{
-                    group.movie.title
-                  }}</NuxtLink
-                >
-                <span
-                  v-if="group.movie.runtime_minutes > 0"
-                  class="mt-1 block font-mono text-[11px] font-bold uppercase tracking-[0.08em] text-muted"
-                  >{{
-                    formatRuntime(group.movie.runtime_minutes)
-                  }}</span
-                >
-              </h3>
+              <CityDayFilmCell
+                :slug="group.movie.slug"
+                :title="group.movie.title"
+                :runtime-minutes="group.movie.runtime_minutes"
+                :href="filmHref(group.movie.slug)"
+                :media="success.timeline?.media[group.movie.slug]"
+                :showtime-count="group.showtimes.length"
+                class="border-b-2 border-ink sm:border-r-2 sm:border-b-0"
+              />
               <ul
-                class="flex flex-wrap gap-2"
+                class="flex flex-wrap content-center gap-2 p-4 sm:p-5"
                 :aria-label="`Séances de ${group.movie.title}`"
               >
                 <li
@@ -636,74 +637,6 @@ useHead(() => ({
           <span v-else />
         </nav>
       </div>
-
-      <aside
-        class="mt-10 border-2 border-ink bg-[#f1efe8] p-5 text-sm font-semibold leading-6 sm:p-6"
-        aria-labelledby="city-day-legend"
-      >
-        <h2
-          id="city-day-legend"
-          class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"
-        >
-          Légende
-        </h2>
-        <dl class="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">
-          <div>
-            <dt class="inline font-black"><LanguageText text="VF" /></dt>
-            :
-            <dd class="inline">version française (doublée)</dd>
-          </div>
-          <div>
-            <dt class="inline font-black"><LanguageText text="VOF" /></dt>
-            :
-            <dd class="inline">version originale française</dd>
-          </div>
-          <div>
-            <dt class="inline font-black"><LanguageText text="VOSTFR" /></dt>
-            :
-            <dd class="inline">version originale sous-titrée en français</dd>
-          </div>
-          <div>
-            <dt class="inline font-black"><LanguageText text="VO" /></dt>
-            :
-            <dd class="inline">version originale</dd>
-          </div>
-          <div>
-            <dt class="inline font-black"><LanguageText text="VF SME" /></dt>
-            :
-            <dd class="inline">sous-titres pour sourds et malentendants</dd>
-          </div>
-          <div>
-            <dt class="inline font-black"><LanguageText text="VFSTF" /></dt>
-            :
-            <dd class="inline">version française sous-titrée en français</dd>
-          </div>
-          <div>
-            <dt class="inline font-black">~</dt>
-            :
-            <dd class="inline">fin estimée, publicité comprise</dd>
-          </div>
-          <div>
-            <dt class="inline font-black">Heures</dt>
-            :
-            <dd class="inline">heure de Paris</dd>
-          </div>
-        </dl>
-        <p class="mt-3">
-          Agents IA :
-          <a
-            :href="`${cityPath}.md`"
-            class="underline decoration-2 underline-offset-4"
-            >version Markdown de cette page</a
-          >
-          ·
-          <NuxtLink
-            to="/agents"
-            class="underline decoration-2 underline-offset-4"
-            >guide pour agents et API</NuxtLink
-          >
-        </p>
-      </aside>
     </template>
   </main>
 </template>
