@@ -80,7 +80,7 @@ export default defineNuxtConfig({
         {
           name: 'description',
           content:
-            'Explorez les séances de cinéma de Paris sur une frise horaire et trouvez celles qui tiennent dans votre créneau.',
+            'Les horaires des séances de cinéma partout en France : trouvez vos films, vos cinémas et les séances qui tiennent dans votre créneau.',
         },
         { name: 'robots', content: 'noindex,follow' },
         { name: 'theme-color', content: '#FCFAF8' },
@@ -121,7 +121,7 @@ export default defineNuxtConfig({
       name: 'MesSeances - Vos séances, au bon moment',
       short_name: 'MesSeances',
       description:
-        'Explorez les séances de cinéma de Paris sur une frise horaire et trouvez celles qui tiennent dans votre créneau.',
+        'Les horaires des séances de cinéma partout en France : trouvez vos films, vos cinémas et les séances qui tiennent dans votre créneau.',
       lang: 'fr',
       start_url: '/',
       scope: '/',

@@ -3,6 +3,10 @@ import type { JsonLdDocument, JsonLdNode } from './jsonLd.ts'
 import { safeBackdropUrl, safePosterUrl } from './safeImageUrl.ts'
 import { absoluteSiteUrl } from './siteUrl.ts'
 import { hasCanonicalShowtimeEnd } from './showtimeEnd.ts'
+import {
+  screeningEventDetails,
+  theaterPostalAddress,
+} from './screeningJsonLd.ts'
 
 export interface FilmJsonLdOptions {
   movieUrl: string
@@ -16,10 +20,10 @@ export function buildFilmJsonLd(
   options: FilmJsonLdOptions,
 ): JsonLdDocument {
   const movieId = `${options.movieUrl}#movie`
-  const images = [
-    safePosterUrl(schedule.movie.poster_url),
-    safeBackdropUrl(schedule.backdrop_url),
-  ].filter((value): value is string => Boolean(value))
+  const poster = safePosterUrl(schedule.movie.poster_url)
+  const images = [poster, safeBackdropUrl(schedule.backdrop_url)].filter(
+    (value): value is string => Boolean(value),
+  )
   const movie: JsonLdNode = {
     '@type': 'Movie',
     '@id': movieId,
@@ -71,15 +75,24 @@ export function buildFilmJsonLd(
       `/cinema/${encodeURIComponent(theater.slug)}`,
     )
     const theaterId = `${theaterUrl}#cinema`
-    graph.push({
+    const theaterNode: JsonLdNode = {
       '@type': 'MovieTheater',
       '@id': theaterId,
       name: theater.name,
       url: theaterUrl,
-    })
+    }
+    const address = theaterPostalAddress(theater)
+    if (address) theaterNode.address = address
+    graph.push(theaterNode)
     for (const showtime of theater.showtimes) {
       const event: JsonLdNode = {
         '@type': 'ScreeningEvent',
+        ...screeningEventDetails(showtime, {
+          theaterId: theater.id,
+          theaterName: theater.name,
+          originalLanguage: schedule.movie.original_language,
+          image: poster,
+        }),
         startDate: showtime.start_time,
         location: { '@id': theaterId },
         workPresented: { '@id': movieId },

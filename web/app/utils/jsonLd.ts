@@ -15,6 +15,19 @@ export interface JsonLdSummaryListItem {
   url: string
 }
 
+export interface JsonLdPostalAddress {
+  '@type': 'PostalAddress'
+  streetAddress?: string
+  postalCode?: string
+  addressLocality: string
+  addressCountry: 'FR'
+}
+
+export interface JsonLdOffer {
+  '@type': 'Offer'
+  url: string
+}
+
 export interface JsonLdNode {
   '@type': string
   '@id'?: string
@@ -33,11 +46,16 @@ export interface JsonLdNode {
   image?: string | string[]
   sameAs?: string
   itemListElement?: JsonLdBreadcrumbListItem[] | JsonLdSummaryListItem[]
-  address?: string
+  address?: string | JsonLdPostalAddress
   startDate?: string
   endDate?: string
   location?: JsonLdReference
   workPresented?: JsonLdReference
+  eventStatus?: 'https://schema.org/EventScheduled'
+  eventAttendanceMode?: 'https://schema.org/OfflineEventAttendanceMode'
+  subtitleLanguage?: string
+  videoFormat?: string
+  offers?: JsonLdOffer
 }
 
 export interface JsonLdDocument {

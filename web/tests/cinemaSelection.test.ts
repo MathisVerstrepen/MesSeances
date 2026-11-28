@@ -91,14 +91,8 @@ test('frontend selection has no geographic defaults; unrelated metadata stays un
 
   assert.doesNotMatch(preferences, /api\.theaters\(\{ city: 'Paris' \}\)/)
   assert.doesNotMatch(preferences, /api\.theaters\(\{ city: 'Lille' \}\)/)
-  assert.equal(
-    config.match(/séances de cinéma de Paris sur une frise horaire/g)?.length,
-    2,
-  )
-  assert.doesNotMatch(
-    config,
-    /séances de cinéma de Lille sur une frise horaire/,
-  )
+  assert.equal(config.match(/séances de cinéma partout en France/g)?.length, 2)
+  assert.doesNotMatch(config, /séances de cinéma de (Paris|Lille)/)
 })
 
 test('header groups saved favorite cities by city slug with first label retained', async () => {
