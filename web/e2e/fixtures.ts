@@ -45,3 +45,19 @@ export async function openPage(page: Page, path: string) {
   )
   return response
 }
+
+// Directory filters render inline on desktop and in a bottom sheet on mobile.
+export async function openDirectoryFilters(page: Page) {
+  const trigger = page.getByRole('button', { name: /^Filtres/ })
+  if (!(await trigger.isVisible())) return page.locator('#cinema-results')
+  await trigger.click()
+  const sheet = page.getByRole('dialog', { name: 'Filtres', exact: true })
+  await expect(sheet).toBeVisible()
+  return sheet
+}
+
+export async function closeDirectoryFilters(page: Page) {
+  const close = page.getByRole('button', { name: 'Fermer les filtres' })
+  if (await close.isVisible()) await close.click()
+  await expect(page.getByRole('dialog', { name: 'Filtres' })).toHaveCount(0)
+}

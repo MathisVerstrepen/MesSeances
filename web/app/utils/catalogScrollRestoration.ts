@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router'
+import { directoryScopeKey } from './cinemaDirectoryQuery.ts'
 
 const readinessElements = new Map([
   ['/films', 'films-catalog'],
@@ -73,6 +74,15 @@ export function installCatalogScrollRestoration(
     // restoration too, once the lazy activity feed has rendered.
     if (savedPosition && activityTabHistory && position === false)
       position = savedPosition
+    // Opening another place in the cinema directory is a new page for the
+    // reader; filters, radius and display mode keep the current position.
+    const directoryScopeChange =
+      path === '/cinemas' &&
+      from.path.replace(/\/$/, '') === '/cinemas' &&
+      !to.hash &&
+      directoryScopeKey(to.query) !== directoryScopeKey(from.query)
+    if (directoryScopeChange && position === false)
+      position = savedPosition ?? { left: 0, top: 0 }
     const elementId =
       readinessElements.get(path) ??
       (/^\/film\/[^/]+$/.test(path)

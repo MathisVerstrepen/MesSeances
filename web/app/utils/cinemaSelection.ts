@@ -1,25 +1,5 @@
 import type { Theater } from '../types/api'
 
-export interface CinemaCityGroup {
-  city: string
-  citySlug: string
-  theaters: Theater[]
-}
-
-export function cinemaListSections<T>(
-  rows: readonly T[],
-  selectedIds: ReadonlySet<string>,
-  id: (row: T) => string,
-): { key: 'selected' | 'all'; rows: readonly T[] }[] {
-  const selected = rows.filter((row) => selectedIds.has(id(row)))
-  return [
-    ...(selected.length > 0
-      ? [{ key: 'selected' as const, rows: selected }]
-      : []),
-    { key: 'all', rows },
-  ]
-}
-
 export function isBroadTheaterSelection(
   ids: readonly string[],
   catalog: readonly Pick<Theater, 'id'>[],
@@ -29,28 +9,6 @@ export function isBroadTheaterSelection(
     selected.size === 0 ||
     (catalog.length > 0 && catalog.every((theater) => selected.has(theater.id)))
   )
-}
-
-export function groupTheatersByCityIdentity(
-  theaters: readonly Theater[],
-): CinemaCityGroup[] {
-  const groups = new Map<string, CinemaCityGroup>()
-
-  for (const theater of theaters) {
-    const existing = groups.get(theater.city_slug)
-    if (existing) {
-      existing.theaters.push(theater)
-      continue
-    }
-
-    groups.set(theater.city_slug, {
-      city: theater.city,
-      citySlug: theater.city_slug,
-      theaters: [theater],
-    })
-  }
-
-  return [...groups.values()]
 }
 
 export function updateTheaterSelection(

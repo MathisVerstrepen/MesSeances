@@ -75,20 +75,11 @@ onMounted(() => {
         </div>
       </div>
 
-      <ul
+      <CinemaFavoriteCards
         v-else-if="favoriteTheaters.length > 0"
-        class="-mx-1.5 mt-4 flex snap-x snap-proximity scroll-pl-1.5 gap-4 overflow-x-auto overscroll-x-contain px-1.5 pt-1.5 pb-3"
-        aria-label="Mes cinémas sélectionnés"
-        tabindex="0"
-      >
-        <li
-          v-for="theater in favoriteTheaters"
-          :key="theater.id"
-          class="w-[85%] min-w-0 shrink-0 snap-start sm:w-[calc((100%-1rem)/2)] lg:w-[calc((100%-2rem)/3)]"
-        >
-          <HomeCinemaCard :theater="theater" />
-        </li>
-      </ul>
+        :theaters="favoriteTheaters"
+        label="Mes cinémas sélectionnés"
+      />
 
       <div
         v-else

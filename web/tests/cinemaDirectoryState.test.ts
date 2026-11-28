@@ -9,6 +9,14 @@ import {
 } from '../app/utils/cinemaDirectoryQuery.ts'
 import { createCinemaDirectoryLocation } from '../app/utils/cinemaDirectoryLocation.ts'
 
+const PLACE_DEFAULTS = {
+  region: '',
+  department: '',
+  city: '',
+  arrondissement: null,
+  radius: 10,
+} as const
+
 function locationHarness() {
   const requests: {
     success: PositionCallback
@@ -63,6 +71,7 @@ test('directory query restores all independent mode combinations and omits defau
         search: 'Lille',
         chains: [],
         technologies: [],
+        ...PLACE_DEFAULTS,
       })
       assert.equal(query.view, view === 'map' ? 'map' : undefined)
       assert.equal(query.location, location === 'nearby' ? 'nearby' : undefined)
@@ -75,6 +84,7 @@ test('directory query restores all independent mode combinations and omits defau
     search: '',
     chains: [],
     technologies: [],
+    ...PLACE_DEFAULTS,
   })
 })
 
@@ -209,6 +219,7 @@ test('memory history restores independent modes, replaces search and does not re
       search: 'Lille',
       chains: [],
       technologies: [],
+      ...PLACE_DEFAULTS,
     })
     assert.equal(requests.length, 1)
     await traverse('back')
@@ -218,6 +229,7 @@ test('memory history restores independent modes, replaces search and does not re
       search: '',
       chains: [],
       technologies: [],
+      ...PLACE_DEFAULTS,
     })
     assert.equal(location.locationStatus.value, 'idle')
     await traverse('back')
@@ -227,6 +239,7 @@ test('memory history restores independent modes, replaces search and does not re
       search: '',
       chains: [],
       technologies: [],
+      ...PLACE_DEFAULTS,
     })
     await traverse('forward')
     await traverse('forward')
@@ -236,6 +249,7 @@ test('memory history restores independent modes, replaces search and does not re
       search: 'Lille',
       chains: [],
       technologies: [],
+      ...PLACE_DEFAULTS,
     })
     assert.equal(requests.length, 2)
     requests[1]!.success(position())
@@ -355,43 +369,25 @@ test('invalid browser coordinates fail and invalid accuracy is not retained', ()
   assert.equal(location.locationAccuracyMeters.value, null)
 })
 
-test('page wires route-derived display, push controls, replace search, mounted activation and disposal', async () => {
+test('page wires route-derived display, push navigation, mounted activation and disposal', async () => {
   const page = await readFile(
     new URL('../app/pages/cinemas.vue', import.meta.url),
     'utf8',
   )
   assert.match(
     page,
-    /const routeState = computed\(\(\) => parseCinemaDirectoryQuery\(route.query\)\)/,
+    /const routeState = computed\(\(\) => parseCinemaDirectoryQuery\(route\.query\)\)/,
   )
+  assert.match(page, /function navigate[\s\S]*?router\.push\(\{ query \}\)/)
   assert.match(
     page,
-    /function setDisplayMode[\s\S]*?router\.push\(\{ query \}\)/,
-  )
-  assert.match(
-    page,
-    /function updateSearch[\s\S]*?router\.replace\(\{ query \}\)/,
-  )
-  assert.match(
-    page,
-    /watch\(\s*locationMode,[\s\S]*?if \(isMounted\) location\.setNearbyMode[\s\S]*?flush: 'sync'/,
+    /watch\(\s*isNearby,[\s\S]*?if \(isMounted\) location\.setNearbyMode[\s\S]*?flush: 'sync'/,
   )
   assert.match(
     page,
     /onMounted\(async \(\) => \{\s*isMounted = true\s*location\.setNearbyMode/,
   )
   assert.match(page, /onBeforeUnmount\([\s\S]*?location\.dispose\(\)/)
-  assert.match(
-    page,
-    /if \(locationMode.value === 'nearby'\) location.retry\(\)/,
-  )
-  assert.match(
-    page,
-    /v-if="\s*locationMode === 'nearby' &&\s*\(locationStatus === 'active' \|\| locationStatus === 'failed'\)\s*"[^>]*>\s*<button[^>]*@click="showByCity"/,
-  )
-  assert.match(
-    page,
-    /function showList\(\) \{\s*setDisplayMode\(\{ view: 'list' \}\)/,
-  )
+  assert.match(page, /if \(isNearby\.value\) location\.retry\(\)/)
   assert.doesNotMatch(page, /localStorage|sessionStorage|console\./)
 })
