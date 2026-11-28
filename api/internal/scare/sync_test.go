@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -211,5 +212,19 @@ func TestClientRejectsInvalidQueryBeforeNetwork(t *testing.T) {
 	}
 	if _, err := NewClient(ClientConfig{}); err == nil {
 		t.Fatal("client without proxies accepted")
+	}
+}
+
+func TestGenresDropsNullPlaceholder(t *testing.T) {
+	for raw, want := range map[string][]string{
+		"null":                nil,
+		" NULL ":              nil,
+		"Drame, null,Comédie": {"Drame", "Comédie"},
+		"Nullité":             {"Nullité"},
+		"":                    nil,
+	} {
+		if got := Genres(raw); !slices.Equal(got, want) {
+			t.Fatalf("Genres(%q)=%q want %q", raw, got, want)
+		}
 	}
 }

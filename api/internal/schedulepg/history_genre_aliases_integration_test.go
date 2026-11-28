@@ -20,19 +20,31 @@ func TestHistoryGenreAliasesIntegration(t *testing.T) {
 	}
 	// Exercise both current metadata overrides and ordinary stored movie genres.
 	historyExec(t, pool, `INSERT INTO public_movie_metadata_overrides(public_movie_id,genres,genres_overridden) VALUES($1,ARRAY[]::text[],true)`, movieID)
-	unrelated := []string{"Comédie musicale", "Spectacle", "Musique", "Musical", "Crime", "Policier", "Fantastique", "Biopic"}
+	unrelated := []string{"Musique", "Concert", "Fantastique", "Western", "Guerre", "Téléfilm", "Fiction", "Clip"}
 	historyExec(t, pool, `UPDATE public_movies SET genres=$1 WHERE id=(SELECT public_movie_id FROM public_movie_sources WHERE source_provider='ugc' AND source_movie_id='202')`, unrelated)
 	for _, tc := range []struct {
 		label   string
 		aliases []string
 	}{
-		{"Famille", []string{"Familial", "Famille", "Famille/Enfants"}},
+		{"Famille", []string{"Familial", "Famille", "Famille/Enfants", "Enfants", "Jeune public", "À partir de 6 ans"}},
 		{"Opéra", []string{"Opéra", "Opera"}},
 		{"Science-fiction", []string{"Science-Fiction", "Science fiction"}},
-		{"Histoire", []string{"Histoire", "Historique"}},
-		{"Horreur", []string{"Horreur", "Horreur / Épouvante"}},
+		{"Histoire", []string{"Histoire", "Historique", "Fiction historique"}},
+		{"Horreur", []string{"Horreur", "Horreur / Épouvante", "Épouvante-horreur", "Epouvante-horreur", "Epouvante - Horreur"}},
+		{"Thriller", []string{"Thriller", "Suspense", "Thriler"}},
 		{"Romance", []string{"Romance", "Amour"}},
 		{"Animation", []string{"Animation", "Dessin animé"}},
+		{"Aventure", []string{"Aventure", "Film d'aventures"}},
+		{"Crime", []string{"Crime", "Policier"}},
+		{"Biopic", []string{"Biopic", "Biographie"}},
+		{"Court-métrage", []string{"Court-métrage", "Courts-Métrages", "Court-metrage"}},
+		{"Ballet", []string{"Ballet", "Ballets"}},
+		{"Comédie musicale", []string{"Comédie musicale", "Musical"}},
+		{"Événement sportif", []string{"Évènement sportif", "Sport event", "Événement sportif"}},
+		{"Spectacle", []string{"Spectacle", "Show"}},
+		{"Théâtre", []string{"Théâtre", "Theatre"}},
+		{"Espionnage", []string{"Espionnage", "Tous les films d’espionnage du moment"}},
+		{"Conférence / Rencontre", []string{"Philosophie", "Société", "Discussion", "Littérature", "Neurosciences", "Économie", "Podcast Live", "Féminisme", "Astrophysique", "Politique", "Cinéma", "Santé", "Food", "Divertissement"}},
 	} {
 		t.Run(tc.label, func(t *testing.T) {
 			aliases := append(slices.Clone(tc.aliases), "\u2003"+strings.ToUpper(tc.aliases[0])+"\u00a0")
@@ -179,5 +191,72 @@ func TestHistoryCompoundGenresIntegration(t *testing.T) {
 				t.Fatalf("stored movie genres changed: %v %v", stored, err)
 			}
 		})
+	}
+}
+
+func TestHistoryGenrePlaceholdersAndExpansionsIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	store := NewStore(pool)
+	historyPublish(t, store, testDataset())
+	var movieID int64
+	if err := pool.QueryRow(t.Context(), `SELECT public_movie_id FROM public_movie_sources WHERE source_provider='ugc' AND source_movie_id='200'`).Scan(&movieID); err != nil {
+		t.Fatal(err)
+	}
+	setGenres := func(source string, genres []string) {
+		historyExec(t, pool, `UPDATE public_movies SET genres=$1 WHERE id=(SELECT public_movie_id FROM public_movie_sources WHERE source_provider='ugc' AND source_movie_id=$2)`, genres, source)
+	}
+	// Placeholders in an override and in stored genres; expansions alongside.
+	historyExec(t, pool, `INSERT INTO public_movie_metadata_overrides(public_movie_id,genres,genres_overridden) VALUES($1,$2,true)`, movieID, []string{"null", "\u2003NON CLASSIFIÉ\u00a0"})
+	setGenres("201", []string{"Divers", "Musical", "Soirée film"})
+	setGenres("202", []string{"Drame historique", "Horror/Thriller", "Comédie policière"})
+	setGenres("203", []string{"Romancen musical", "Animation à partir de 3 ans", "Fiction"})
+	source, err := NewPostgresSource(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 7, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := historyGet(t, store, schedule.StatisticsQuery{})
+	assertHistorySums(t, base)
+	for _, want := range []schedule.StatisticsCountBucket{
+		{Value: "unknown", Label: "Non renseigné", Count: 1},
+		{Value: "comédie musicale", Label: "Comédie musicale", Count: 2},
+		{Value: "drame", Label: "Drame", Count: 1},
+		{Value: "histoire", Label: "Histoire", Count: 1},
+		{Value: "horreur", Label: "Horreur", Count: 1},
+		{Value: "thriller", Label: "Thriller", Count: 1},
+		{Value: "comédie", Label: "Comédie", Count: 1},
+		{Value: "crime", Label: "Crime", Count: 1},
+		{Value: "romance", Label: "Romance", Count: 1},
+		{Value: "animation", Label: "Animation", Count: 1},
+		{Value: "famille", Label: "Famille", Count: 1},
+		{Value: "fiction", Label: "Fiction", Count: 1},
+	} {
+		if !slices.Contains(base.Genres, want) {
+			t.Fatalf("missing %+v in %+v", want, base.Genres)
+		}
+	}
+	if len(base.Genres) != 12 {
+		t.Fatalf("genres=%+v", base.Genres)
+	}
+	for _, filter := range []string{"", "null", "Divers", "Non classifié", "unknown", "Comédie musicale", "Musical", "Drame historique", "crime"} {
+		query := schedule.StatisticsQuery{Date: "2026-08-15", Genre: filter}
+		history := historyGet(t, store, query)
+		upcoming, err := service.Statistics(t.Context(), query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if history.Totals != upcoming.Totals || !reflect.DeepEqual(history.Genres, upcoming.Genres) || !reflect.DeepEqual(history.Options.Genres, upcoming.Options.Genres) {
+			t.Fatalf("SQL/Go parity for %q: history=%+v upcoming=%+v", filter, history, upcoming)
+		}
+	}
+	if filtered := historyGet(t, store, schedule.StatisticsQuery{Genre: "null"}); filtered.Totals.Movies != 1 || !reflect.DeepEqual(filtered.Genres, []schedule.StatisticsCountBucket{{Value: "unknown", Label: "Non renseigné", Count: 1}}) {
+		t.Fatalf("placeholder filter: totals=%+v genres=%+v", filtered.Totals, filtered.Genres)
+	}
+	search, err := store.HistoryOptions(t.Context(), schedule.HistoryOptionsQuery{Kind: "genre", Q: "divers"})
+	if err != nil || len(search.Items) != 0 {
+		t.Fatalf("placeholder option remains: %+v %v", search, err)
 	}
 }

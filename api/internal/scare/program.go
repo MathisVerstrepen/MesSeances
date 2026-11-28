@@ -186,11 +186,12 @@ func BookingURL(raw string) string {
 	return ""
 }
 
-// Genres splits the comma-separated genre list.
+// Genres splits the comma-separated genre list. The dataset serializes a
+// missing genre as the literal "null", which is dropped.
 func Genres(raw string) []string {
 	var genres []string
 	for _, genre := range strings.Split(raw, ",") {
-		if genre = Clean(genre); genre != "" && len(genres) < 8 {
+		if genre = Clean(genre); genre != "" && !strings.EqualFold(genre, "null") && len(genres) < 8 {
 			genres = append(genres, genre)
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"messeances/api/internal/schedule"
 )
 
-const historyOptionsCTE = historyCanonicalCTE + `, inventory AS MATERIALIZED (
+var historyOptionsCTE = historyCanonicalCTE + `, inventory AS MATERIALIZED (
  SELECT 'city' kind,city_slug value,min(city_name COLLATE "C") label,min(city_name COLLATE "C") sort_label,
  jsonb_build_object('slug',city_slug,'name',min(city_name COLLATE "C")) item FROM theaters GROUP BY city_slug
  UNION ALL SELECT 'theater',id,name||' ('||city_name||')',name,
@@ -18,7 +18,7 @@ const historyOptionsCTE = historyCanonicalCTE + `, inventory AS MATERIALIZED (
  UNION ALL SELECT DISTINCT 'pass',p,p,p,to_jsonb(p) FROM theaters CROSS JOIN LATERAL unnest(passes) p
 )`
 
-const historyOptionsSQL = historyOptionsCTE + `, matches AS MATERIALIZED (
+var historyOptionsSQL = historyOptionsCTE + `, matches AS MATERIALIZED (
  SELECT value,label FROM inventory WHERE kind=$1 AND ($2='' OR strpos(lower(label COLLATE pg_catalog.pg_c_utf8),$2)>0 OR strpos(lower(value COLLATE pg_catalog.pg_c_utf8),$2)>0)
  ORDER BY lower(btrim(sort_label,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",value COLLATE "C" LIMIT 101
 ), selected AS (
@@ -57,7 +57,7 @@ func historyStatisticsOptions(ctx context.Context, tx pgx.Tx, query schedule.Sta
 	return decodeHistoryJSON(data, result)
 }
 
-const historyStatisticsOptionsSQL = historyOptionsCTE + `, ranked AS MATERIALIZED (
+var historyStatisticsOptionsSQL = historyOptionsCTE + `, ranked AS MATERIALIZED (
  SELECT *,row_number() OVER (PARTITION BY kind ORDER BY lower(btrim(sort_label,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",value COLLATE "C") position FROM inventory
 ), chosen AS MATERIALIZED (
  SELECT * FROM ranked WHERE position<=100 OR (kind='city' AND value=ANY($1::text[])) OR (kind='theater' AND value=ANY($2::text[])) OR (kind='genre' AND value=$3) OR (kind='pass' AND value=$4)
