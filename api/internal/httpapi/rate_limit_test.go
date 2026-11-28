@@ -55,11 +55,21 @@ func TestShortlinkCreationProductionPolicy(t *testing.T) {
 }
 
 func TestInternalExpensiveReadProductionPolicy(t *testing.T) {
-	if internalExpensiveReadBurst != 40 || internalExpensiveReadRefillRate != 5 || internalExpensiveReadIdleHorizon != 8*time.Second || internalRateLimitClients != 1 {
+	if internalExpensiveReadBurst != 320 || internalExpensiveReadRefillRate != 40 || internalExpensiveReadIdleHorizon != 8*time.Second || internalRateLimitClients != 1 {
 		t.Fatalf("internal policy burst=%d refill=%f idle=%s clients=%d", internalExpensiveReadBurst, internalExpensiveReadRefillRate, internalExpensiveReadIdleHorizon, internalRateLimitClients)
 	}
 	if refilled := internalExpensiveReadIdleHorizon.Seconds() * internalExpensiveReadRefillRate; refilled != internalExpensiveReadBurst {
 		t.Fatalf("tokens refilled over idle horizon=%f", refilled)
+	}
+	if internalVisitorReadBurst != 30 || internalVisitorReadRefillRate != 2 || internalVisitorReadIdleHorizon != 15*time.Second {
+		t.Fatalf("visitor policy burst=%d refill=%f idle=%s", internalVisitorReadBurst, internalVisitorReadRefillRate, internalVisitorReadIdleHorizon)
+	}
+	if refilled := internalVisitorReadIdleHorizon.Seconds() * internalVisitorReadRefillRate; refilled != internalVisitorReadBurst {
+		t.Fatalf("visitor tokens refilled over idle horizon=%f", refilled)
+	}
+	// A visitor alone never reaches the global ceiling.
+	if internalVisitorReadBurst >= internalExpensiveReadBurst || internalVisitorReadRefillRate >= internalExpensiveReadRefillRate {
+		t.Fatal("visitor budget must stay below the global ceiling")
 	}
 }
 
@@ -286,7 +296,7 @@ func TestPublicAndInternalExpensiveReadBucketsAreIsolated(t *testing.T) {
 	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, publicTarget, "192.0.2.1:1234", nil), "1")
 
 	internalHeaders := http.Header{internalServiceTokenHeader: {secret}}
-	for request := 0; request < internalExpensiveReadBurst; request++ {
+	for request := 0; request < internalVisitorReadBurst; request++ {
 		if response := requestFrom(t, handler, http.MethodGet, internalTarget, "172.18.0.2:1234", internalHeaders); response.Code != http.StatusOK {
 			t.Fatalf("internal request=%d status=%d body=%q", request, response.Code, response.Body.String())
 		}
@@ -324,12 +334,91 @@ func TestInvalidInternalCredentialsNeverUseInternalCapacity(t *testing.T) {
 	}
 
 	validHeaders := http.Header{internalServiceTokenHeader: {secret}}
-	for request := 0; request < internalExpensiveReadBurst; request++ {
+	for request := 0; request < internalVisitorReadBurst; request++ {
 		if response := requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", validHeaders); response.Code != http.StatusOK {
 			t.Fatalf("valid request=%d status=%d", request, response.Code)
 		}
 	}
 	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", validHeaders), "1")
+}
+
+func TestInternalVisitorsGetSeparateBudgetsUnderAGlobalCeiling(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	secret := strings.Repeat("a", 64)
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: secret, RateLimitClock: func() time.Time { return now }})
+	target := "/api/v1/movies?page_size=1"
+	visitor := func(address string) http.Header {
+		headers := http.Header{internalServiceTokenHeader: {secret}}
+		headers.Set(internalVisitorAddressHeader, address)
+		return headers
+	}
+
+	for request := 0; request < internalVisitorReadBurst; request++ {
+		if response := requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", visitor("203.0.113.7")); response.Code != http.StatusOK {
+			t.Fatalf("crawler request=%d status=%d body=%q", request, response.Code, response.Body.String())
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", visitor("203.0.113.7")), "1")
+	// IPv4-mapped spellings of the same visitor share its budget.
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", visitor("::ffff:203.0.113.7")), "1")
+
+	// Other visitors and calls without a visitor keep their own budgets.
+	for _, headers := range []http.Header{visitor("198.51.100.4"), visitor("2001:db8::1"), {internalServiceTokenHeader: {secret}}} {
+		if response := requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", headers); response.Code != http.StatusOK {
+			t.Fatalf("headers=%v status=%d body=%q", headers, response.Code, response.Body.String())
+		}
+	}
+
+	// Many visitors together stop at the global ceiling.
+	spent := internalVisitorReadBurst + 3
+	for client := 0; spent < internalExpensiveReadBurst; client++ {
+		for request := 0; request < internalVisitorReadBurst && spent < internalExpensiveReadBurst; request++ {
+			if response := requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", visitor(fmt.Sprintf("192.0.2.%d", client+1))); response.Code != http.StatusOK {
+				t.Fatalf("client=%d request=%d status=%d", client, request, response.Code)
+			}
+			spent++
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "172.18.0.2:1234", visitor("198.51.100.200")), "1")
+}
+
+func TestInternalVisitorAddressNeedsAValidTokenAndAPlainAddress(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	secret := strings.Repeat("a", 64)
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: secret, RateLimitClock: func() time.Time { return now }})
+	target := "/api/v1/movies?page_size=1"
+
+	// Without the token, the forwarded address is ignored: the peer pays.
+	for request := 0; request < expensiveReadBurst; request++ {
+		headers := http.Header{}
+		headers.Set(internalVisitorAddressHeader, fmt.Sprintf("192.0.2.%d", request+1))
+		if response := requestFrom(t, handler, http.MethodGet, target, "198.51.100.9:1234", headers); response.Code != http.StatusOK {
+			t.Fatalf("request=%d status=%d", request, response.Code)
+		}
+	}
+	spoofed := http.Header{}
+	spoofed.Set(internalVisitorAddressHeader, "192.0.2.250")
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "198.51.100.9:1234", spoofed), "1")
+
+	for _, test := range []struct {
+		name   string
+		values []string
+		want   string
+	}{
+		{name: "ipv4", values: []string{"203.0.113.7"}, want: "203.0.113.7"},
+		{name: "mapped", values: []string{"::ffff:203.0.113.7"}, want: "203.0.113.7"},
+		{name: "ipv6", values: []string{"2001:DB8::1"}, want: "2001:db8::1"},
+		{name: "missing"},
+		{name: "repeated", values: []string{"203.0.113.7", "203.0.113.8"}},
+		{name: "list", values: []string{"203.0.113.7, 203.0.113.8"}},
+		{name: "port", values: []string{"203.0.113.7:80"}},
+		{name: "zone", values: []string{"fe80::1%eth0"}},
+		{name: "spaces", values: []string{" 203.0.113.7"}},
+	} {
+		if got := internalVisitorKey(test.values); got != test.want {
+			t.Errorf("%s: internalVisitorKey(%q)=%q want %q", test.name, test.values, got, test.want)
+		}
+	}
 }
 
 func TestInvalidInternalCredentialOnPublicRouteUsesPublicCapacity(t *testing.T) {

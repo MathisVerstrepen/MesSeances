@@ -170,6 +170,8 @@ services:
     environment:
       NUXT_API_BASE: http://api:8080
       NUXT_INTERNAL_API_SHARED_SECRET: ${INTERNAL_API_SHARED_SECRET:?INTERNAL_API_SHARED_SECRET is required}
+      # The public reverse proxy must overwrite X-Real-IP with the client address.
+      NUXT_CLIENT_IP_HEADER: x-real-ip
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:?NUXT_PUBLIC_API_BASE is required}
       NUXT_PUBLIC_SITE_URL: ${WEB_ORIGIN:?WEB_ORIGIN is required}
       NUXT_PUBLIC_UMAMI_SCRIPT_URL: ${NUXT_PUBLIC_UMAMI_SCRIPT_URL:-}

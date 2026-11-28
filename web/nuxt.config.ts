@@ -3,6 +3,10 @@ import {
   accountPageRoots,
   accountPrivacyHeaders,
 } from './shared/accountPrivacy'
+import {
+  PUBLIC_PAGE_CACHE_SECONDS,
+  publicPageCacheRoutes,
+} from './shared/publicPageCache'
 
 declare const process: { env: Record<string, string | undefined> }
 
@@ -44,6 +48,17 @@ export default defineNuxtConfig({
       cache: false,
       headers: { 'Cache-Control': 'no-store' },
     },
+  },
+  // Server-rendered public pages are reused for a few minutes so crawlers do
+  // not turn every visit into API calls. Account state renders client-side
+  // only, and routes with cookies or private data stay out of this list.
+  $production: {
+    routeRules: Object.fromEntries(
+      publicPageCacheRoutes.map((pattern) => [
+        pattern,
+        { cache: { maxAge: PUBLIC_PAGE_CACHE_SECONDS, swr: false } },
+      ]),
+    ),
   },
   hooks: {
     'pwa:beforeBuildServiceWorker'(options) {
@@ -177,6 +192,9 @@ export default defineNuxtConfig({
   runtimeConfig: {
     apiBase: 'http://localhost:8080',
     internalApiSharedSecret: '',
+    // Request header holding the visitor address, overwritten by the reverse
+    // proxy on every request. Empty uses the socket peer.
+    clientIpHeader: '',
     public: {
       appVersion: process.env.NUXT_PUBLIC_APP_VERSION || 'dev',
       apiBase: '',

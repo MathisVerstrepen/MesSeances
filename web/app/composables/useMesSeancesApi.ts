@@ -111,6 +111,26 @@ export function useMesSeancesApi() {
             headers.set(name, value)
           options.headers = headers
         },
+        // Lets the page answer 503 with Retry-After instead of a successful
+        // page without showtimes when the API is saturated or down.
+        async onResponseError({ response }) {
+          if (!requestEvent) return
+          const { recordUpstreamFailure } = await import(
+            '~~/server/utils/upstreamAvailability'
+          )
+          recordUpstreamFailure(
+            requestEvent,
+            response.status,
+            response.headers.get('retry-after'),
+          )
+        },
+        async onRequestError() {
+          if (!requestEvent) return
+          const { recordUpstreamFailure } = await import(
+            '~~/server/utils/upstreamAvailability'
+          )
+          recordUpstreamFailure(requestEvent, undefined, null)
+        },
       })
     : $fetch
 

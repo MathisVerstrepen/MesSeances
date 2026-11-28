@@ -328,6 +328,7 @@ interface MiddlewareEvent {
   context: Record<string, string>
   status?: number
   headers: Headers
+  node: { req: { headers: Record<string, string>; socket: object } }
 }
 
 async function middleware(
@@ -382,6 +383,7 @@ async function middleware(
       useRuntimeConfig: () => ({
         apiBase: 'http://api.test/',
         internalApiSharedSecret: 'private-token',
+        clientIpHeader: 'x-real-ip',
         public: { siteUrl: site },
       }),
       $fetch: fetchImpl,
@@ -407,10 +409,16 @@ async function middleware(
 }
 
 function event(path: string, method = 'GET'): MiddlewareEvent {
-  return { path, method, context: {}, headers: new Headers() }
+  return {
+    path,
+    method,
+    context: {},
+    headers: new Headers(),
+    node: { req: { headers: { 'x-real-ip': '203.0.113.9' }, socket: {} } },
+  }
 }
 
-test('Markdown middleware serves pages from the public API budget with a canonical link', async () => {
+test('Markdown middleware serves pages from the visitor budget with a canonical link', async () => {
   const calls: Array<{
     url: string
     headers: Record<string, string>
@@ -436,11 +444,13 @@ test('Markdown middleware serves pages from the public API budget with a canonic
   )
   assert.equal(calls[0]!.url, 'http://api.test/api/v1/movies/film-42/showtimes')
   assert.deepEqual(calls[0]!.query, { date: '2026-08-29', city: 'agen' })
-  assert.deepEqual(
-    Object.keys(calls[0]!.headers),
-    ['X-Request-ID'],
-    'no internal token',
+  // Each agent spends its own server-rendering budget, keyed on its address.
+  assert.equal(
+    calls[0]!.headers['X-Messeances-Internal-Token'],
+    'private-token',
   )
+  assert.equal(calls[0]!.headers['X-Messeances-Client-IP'], '203.0.113.9')
+  assert.match(calls[0]!.headers['X-Request-ID']!, /^[0-9a-f]{32}$/)
 
   const cinema = event('/cinema/cgr-P0867.md')
   assert.match((await handler(cinema))!, /^# CGR Agen/)
@@ -665,5 +675,9 @@ test('Markdown middleware renders a city page from the city and timeline endpoin
     theaters: 'ugc-1,ugc-2',
   })
   for (const call of calls)
-    assert.deepEqual(Object.keys(call.headers), ['X-Request-ID'])
+    assert.deepEqual(Object.keys(call.headers), [
+      'X-Request-ID',
+      'X-Messeances-Internal-Token',
+      'X-Messeances-Client-IP',
+    ])
 })

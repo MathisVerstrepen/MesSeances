@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
+import * as publicPageCache from '../shared/publicPageCache.ts'
 import {
   accountPageRoots,
   accountPrivacyHeaders,
@@ -192,7 +193,9 @@ test('config preserves private policies, disables competing reloads, filters mut
       require: (name: string) =>
         name.startsWith('@tailwind')
           ? { __esModule: true, default: () => ({}) }
-          : { accountPageRoots, accountPrivacyHeaders },
+          : name.endsWith('publicPageCache')
+            ? publicPageCache
+            : { accountPageRoots, accountPrivacyHeaders },
       process: { env: {} },
       defineNuxtConfig: (value: typeof config) => {
         config = value

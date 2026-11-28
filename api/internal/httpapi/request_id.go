@@ -16,6 +16,8 @@ type requestIdentity struct {
 	publicKey                 string
 	internalService           bool
 	internalServiceConfigured bool
+	// Visitor address forwarded by the authenticated web server, or empty.
+	internalVisitorKey string
 }
 
 type requestIdentityContextKey struct{}
@@ -42,6 +44,9 @@ func requestMetadata(clients clientIdentifier, authenticator internalServiceAuth
 				publicKey:                 client.key,
 				internalService:           internalService,
 				internalServiceConfigured: authenticator.configured,
+			}
+			if internalService {
+				identity.internalVisitorKey = internalVisitorKey(r.Header.Values(internalVisitorAddressHeader))
 			}
 			ctx := context.WithValue(r.Context(), requestIdentityContextKey{}, identity)
 			ctx = observability.WithHTTPRequestMetadata(ctx, requestID, keyClass)
