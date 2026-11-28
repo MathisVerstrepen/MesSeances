@@ -123,10 +123,12 @@ func checkHistoryNumbers(value any) error {
 // of database locale and UNION-derived C collations. Sorting remains bytewise.
 const historyWhitespace = `U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'`
 
-// Genre expansion and aliases mirror schedule.statisticsGenreParents and
-// schedule.statisticsGenre before per-film deduplication. This read-only
-// projection also supplies history options/filters.
-const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
+// Genre expansion and aliases come from schedule.StatisticsGenreAliases, the
+// table behind schedule.statisticsGenreParents and schedule.statisticsGenre,
+// and apply before per-film deduplication. This read-only projection also
+// supplies history options/filters.
+var historyCanonicalCTE = `WITH genre_aliases(alias,labels) AS (VALUES ` + historyGenreAliasValues() + `
+), retained_sources AS MATERIALIZED (
  SELECT DISTINCT provider,movie_provider_id FROM screening_statistics_memberships
 ), source_movies AS MATERIALIZED (
  SELECT s.source_provider provider,s.source_movie_id movie_provider_id,c.id movie_id,c.original_language
@@ -140,27 +142,33 @@ const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
 ), movie_genres AS MATERIALIZED (
  SELECT m.id,coalesce(lower(g.label COLLATE pg_catalog.pg_c_utf8),'unknown') value,coalesce(min(g.label COLLATE "C"),'Non renseigné') label
   FROM movies m LEFT JOIN LATERAL (
-   SELECT unnest(CASE
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie dramatique' THEN ARRAY['Comédie','Drame']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie romantique' THEN ARRAY['Comédie','Romance']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie d''action' THEN ARRAY['Comédie','Action']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('familial','famille','famille/enfants') THEN ARRAY['Famille']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('opéra','opera') THEN ARRAY['Opéra']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('science-fiction','science fiction') THEN ARRAY['Science-fiction']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('histoire','historique') THEN ARRAY['Histoire']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('horreur','horreur / épouvante') THEN ARRAY['Horreur']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('romance','amour') THEN ARRAY['Romance']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('animation','dessin animé') THEN ARRAY['Animation']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie' THEN ARRAY['Comédie']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='drame' THEN ARRAY['Drame']
-    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='action' THEN ARRAY['Action']
-    ELSE ARRAY[label] END) label
-   FROM (SELECT btrim(genre,` + historyWhitespace + `) label FROM unnest(m.genres) genre) raw WHERE label<>''
+   SELECT unnest(coalesce(a.labels,ARRAY[raw.label])) label
+   FROM (SELECT btrim(genre,` + historyWhitespace + `) label FROM unnest(m.genres) genre) raw
+   LEFT JOIN genre_aliases a ON a.alias=lower(raw.label COLLATE pg_catalog.pg_c_utf8)
+   WHERE raw.label<>''
   ) g ON true
  GROUP BY m.id,lower(g.label COLLATE pg_catalog.pg_c_utf8)
 ), theaters AS MATERIALIZED (
  SELECT t.* FROM screening_history_theaters t WHERE EXISTS (SELECT 1 FROM screening_statistics_memberships h WHERE h.theater_id=t.id)
 )`
+
+// historyGenreAliasValues renders the genre alias table as SQL VALUES rows.
+func historyGenreAliasValues() string {
+	aliases := schedule.StatisticsGenreAliases()
+	rows := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		labels := make([]string, 0, len(alias.Labels))
+		for _, label := range alias.Labels {
+			labels = append(labels, historySQLLiteral(label))
+		}
+		rows = append(rows, "("+historySQLLiteral(alias.Alias)+"::text,ARRAY["+strings.Join(labels, ",")+"]::text[])")
+	}
+	return strings.Join(rows, ",")
+}
+
+func historySQLLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
 
 // Validate each retained association once rather than joining every screening.
 // Source and movie keys are unique, so absence of a valid one-hop canonical
@@ -297,7 +305,7 @@ const historyMatchedFiltersSQL = `h.theater_id IN (SELECT id FROM matched_theate
  AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END=$7)
  AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))`
 
-const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
+var historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
  SELECT t.id FROM theaters t
  WHERE (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
  AND ($5='' OR t.provider=$5 OR ($5='independants' AND t.provider=ANY($11::text[]))) AND ($9='' OR $9=ANY(t.passes))

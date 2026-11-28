@@ -244,19 +244,31 @@ func TestStatisticsGenreAliases(t *testing.T) {
 		label   string
 		aliases []string
 	}{
-		{"Famille", []string{"Familial", "Famille", "Famille/Enfants"}},
+		{"Famille", []string{"Familial", "Famille", "Famille/Enfants", "Enfants", "Jeune public", "À partir de 6 ans"}},
 		{"Opéra", []string{"Opéra", "Opera"}},
 		{"Science-fiction", []string{"Science-Fiction", "Science fiction"}},
-		{"Histoire", []string{"Histoire", "Historique"}},
-		{"Horreur", []string{"Horreur", "Horreur / Épouvante"}},
+		{"Histoire", []string{"Histoire", "Historique", "Fiction historique"}},
+		{"Horreur", []string{"Horreur", "Horreur / Épouvante", "Épouvante-horreur", "Epouvante-horreur", "Epouvante - Horreur"}},
+		{"Thriller", []string{"Thriller", "Suspense", "Thriler"}},
 		{"Romance", []string{"Romance", "Amour"}},
 		{"Animation", []string{"Animation", "Dessin animé"}},
+		{"Aventure", []string{"Aventure", "Film d'aventures"}},
+		{"Crime", []string{"Crime", "Policier"}},
+		{"Biopic", []string{"Biopic", "Biographie"}},
+		{"Court-métrage", []string{"Court-métrage", "Courts-Métrages", "Court-metrage"}},
+		{"Ballet", []string{"Ballet", "Ballets"}},
+		{"Comédie musicale", []string{"Comédie musicale", "Musical"}},
+		{"Événement sportif", []string{"Évènement sportif", "Sport event", "Événement sportif"}},
+		{"Spectacle", []string{"Spectacle", "Show"}},
+		{"Théâtre", []string{"Théâtre", "Theatre"}},
+		{"Espionnage", []string{"Espionnage", "Tous les films d’espionnage du moment"}},
+		{"Conférence / Rencontre", []string{"Philosophie", "Société", "Discussion", "Littérature", "Neurosciences", "Économie", "Podcast Live", "Féminisme", "Astrophysique", "Politique", "Cinéma", "Santé", "Food", "Divertissement"}},
 	} {
 		t.Run(tc.label, func(t *testing.T) {
 			data := statisticsDataset()
 			aliases := append(slices.Clone(tc.aliases), "\u2003"+strings.ToUpper(tc.aliases[0])+"\u00a0")
 			originalGenres := slices.Clone(aliases)
-			unrelated := []string{"Comédie musicale", "Spectacle", "Musique", "Musical", "Crime", "Policier", "Fantastique", "Biopic"}
+			unrelated := []string{"Musique", "Concert", "Fantastique", "Western", "Guerre", "Téléfilm", "Fiction", "Clip"}
 			data.PublicMovies[0].Genres = aliases
 			data.PublicMovies[1].Genres = []string{tc.aliases[len(tc.aliases)-1]}
 			data.PublicMovies[2].Genres = unrelated
@@ -372,6 +384,86 @@ func TestStatisticsCompoundGenres(t *testing.T) {
 				t.Fatal("genre/showtime order changed statistics")
 			}
 		})
+	}
+}
+
+func TestStatisticsGenreAliasTable(t *testing.T) {
+	aliases := StatisticsGenreAliases()
+	if len(aliases) != len(statisticsGenreAliases) || !slices.IsSortedFunc(aliases, func(a, b StatisticsGenreAlias) int { return strings.Compare(a.Alias, b.Alias) }) {
+		t.Fatalf("aliases are not a sorted copy: %d", len(aliases))
+	}
+	for _, alias := range aliases {
+		if alias.Alias == "" || alias.Alias != normalized(alias.Alias) || strings.ContainsAny(alias.Alias, "\\\x00") {
+			t.Fatalf("alias %q is not normalized", alias.Alias)
+		}
+		for _, label := range alias.Labels {
+			// Canonical labels must be stable: they never re-alias to something else.
+			if label == "" || label != strings.TrimSpace(label) || strings.ContainsAny(label, "\\\x00") || !slices.Equal(statisticsGenreParents(label), []string{label}) {
+				t.Fatalf("alias %q has unstable label %q", alias.Alias, label)
+			}
+			if value, got := statisticsGenre(label); value != normalized(label) || got != label {
+				t.Fatalf("label %q canonicalizes to %q/%q", label, value, got)
+			}
+		}
+		if len(alias.Labels) > 0 {
+			alias.Labels[0] = "mutated"
+		}
+	}
+	if slices.Contains(statisticsGenreParents("Drame historique"), "mutated") || slices.Contains(statisticsGenreParents("Drame"), "mutated") {
+		t.Fatal("StatisticsGenreAliases exposed the shared table")
+	}
+}
+
+func TestStatisticsGenreExpansions(t *testing.T) {
+	for raw, want := range map[string][]string{
+		"Comédie policière":              {"Comédie", "Crime"},
+		"Drame historique":               {"Drame", "Histoire"},
+		"Drame Costume":                  {"Drame", "Histoire"},
+		"Drame fantastique":              {"Drame", "Fantastique"},
+		"Horror/Thriller":                {"Horreur", "Thriller"},
+		"\u2003Horreur / thriller\u00a0": {"Horreur", "Thriller"},
+		"Romancen musical":               {"Romance", "Comédie musicale"},
+		"Animation à partir de 3 ans":    {"Animation", "Famille"},
+		"Animation à partir de 2/3 ans":  {"Animation", "Famille"},
+		"Fiction":                        {"Fiction"},
+		"Clip":                           {"Clip"},
+	} {
+		if got := statisticsGenreParents(raw); !slices.Equal(got, want) {
+			t.Fatalf("parents(%q)=%q want %q", raw, got, want)
+		}
+	}
+}
+
+func TestStatisticsGenrePlaceholders(t *testing.T) {
+	data := statisticsDataset()
+	data.PublicMovies[0].Genres = []string{"null"}
+	data.PublicMovies[1].Genres = []string{"Divers", "Musical"}
+	data.PublicMovies[2].Genres = []string{"Non classifié", " NULL "}
+	data.PublicMovies[3].Genres = []string{"Soirée film", "Drame"}
+	service := statisticsService(t, data, testServiceNow())
+	base := getStatistics(t, service, StatisticsQuery{})
+	unknown := StatisticsCountBucket{Value: statisticsUnknown, Label: "Non renseigné", Count: 3}
+	want := []StatisticsCountBucket{unknown, {Value: "comédie musicale", Label: "Comédie musicale", Count: 1}, {Value: "drame", Label: "Drame", Count: 1}}
+	if !reflect.DeepEqual(base.Genres, want) {
+		t.Fatalf("genres=%+v want %+v", base.Genres, want)
+	}
+	for _, option := range base.Options.Genres {
+		if option.Value == "null" || option.Value == "divers" || option.Value == "non classifié" || option.Value == "soirée film" {
+			t.Fatalf("placeholder option %+v", option)
+		}
+	}
+	for _, filter := range []string{"null", "Divers", "Non classifié", "Soirée film", statisticsUnknown} {
+		filtered := getStatistics(t, service, StatisticsQuery{Genre: filter})
+		if filtered.Totals.Movies != 3 || !reflect.DeepEqual(filtered.Genres, []StatisticsCountBucket{unknown}) {
+			t.Fatalf("filter %q: totals=%+v genres=%+v", filter, filtered.Totals, filtered.Genres)
+		}
+		history, err := NormalizeHistoryQuery(StatisticsQuery{Genre: filter})
+		if err != nil || history.Genre != statisticsUnknown {
+			t.Fatalf("history filter %q: %+v %v", filter, history, err)
+		}
+	}
+	if history, err := NormalizeHistoryQuery(StatisticsQuery{}); err != nil || history.Genre != "" {
+		t.Fatalf("empty genre filter changed: %+v %v", history, err)
 	}
 }
 

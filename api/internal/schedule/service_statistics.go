@@ -322,56 +322,6 @@ func statisticsResolveMovie(view *SnapshotView, slug string, record MovieRecord)
 	return movie
 }
 
-// statisticsGenreParents replaces compound statistics genres with their parents.
-// Keep the SQL expansion in schedulepg.historyCanonicalCTE in sync.
-func statisticsGenreParents(genre string) []string {
-	switch normalized(genre) {
-	case "comédie dramatique":
-		return []string{"Comédie", "Drame"}
-	case "comédie romantique":
-		return []string{"Comédie", "Romance"}
-	case "comédie d'action":
-		return []string{"Comédie", "Action"}
-	default:
-		return []string{genre}
-	}
-}
-
-// statisticsGenre canonicalizes statistics aliases and parents, never stored metadata.
-// Keep the SQL mapping in schedulepg.historyCanonicalCTE in sync.
-func statisticsGenre(genre string) (value, label string) {
-	label = strings.TrimSpace(genre)
-	switch normalized(label) {
-	case "familial", "famille", "famille/enfants":
-		label = "Famille"
-	case "opéra", "opera":
-		label = "Opéra"
-	case "science-fiction", "science fiction":
-		label = "Science-fiction"
-	case "histoire", "historique":
-		label = "Histoire"
-	case "horreur", "horreur / épouvante":
-		label = "Horreur"
-	case "romance", "amour":
-		label = "Romance"
-	case "animation", "dessin animé":
-		label = "Animation"
-	case "comédie":
-		label = "Comédie"
-	case "drame":
-		label = "Drame"
-	case "action":
-		label = "Action"
-	}
-	return normalized(label), label
-}
-
-func statisticsGenreLabel(labels map[string]string, value, label string) {
-	if current, ok := labels[value]; !ok || label < current {
-		labels[value] = label
-	}
-}
-
 func statisticsMatches(filters statisticsFilters, window Window, showing ShowtimeRecord, theater StatisticsTheaterOption, movie *statisticsMovie, language, format string) bool {
 	query := filters.query
 	_, genre := movie.genres[query.Genre]
