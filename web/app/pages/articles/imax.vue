@@ -1134,8 +1134,10 @@ useHead({
               <p
                 class="col-start-2 mt-1 text-sm leading-relaxed text-muted md:col-start-3 md:row-start-1 md:mt-0"
               >
-                IMAX Laser ou IMAX 70 mm, puis 2D ou 3D et VF ou VOST. Pour le
-                1,43:1, vérifiez que la séance et la salle sont compatibles.
+                IMAX Laser ou IMAX 70 mm, puis 2D ou 3D et
+                <LanguageText text="VF" />
+                ou <LanguageText text="VOST" />. Pour le 1,43:1, vérifiez que la
+                séance et la salle sont compatibles.
               </p>
             </li>
             <li

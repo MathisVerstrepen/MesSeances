@@ -137,9 +137,10 @@ function formatRoom(room: string) {
         class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
       >
         <template v-if="result.language"
-          ><span>{{
-            languageLabel(result.language, result.movieOriginalLanguage)
-          }}</span><span aria-hidden="true">·</span></template
+          ><LanguageText
+            :text="languageLabel(result.language, result.movieOriginalLanguage)"
+            :focusable="false"
+          /><span aria-hidden="true">·</span></template
         ><ShowtimeFormat :format="result.format" />
         <template v-if="result.room"
           ><span aria-hidden="true">·</span
@@ -234,9 +235,9 @@ function formatRoom(room: string) {
       class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
     >
       <template v-if="result.language"
-        ><span>{{
-          languageLabel(result.language, result.movieOriginalLanguage)
-        }}</span><span aria-hidden="true">·</span></template
+        ><LanguageText
+          :text="languageLabel(result.language, result.movieOriginalLanguage)"
+        /><span aria-hidden="true">·</span></template
       ><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"
         ><span aria-hidden="true">·</span
@@ -385,9 +386,10 @@ function formatRoom(room: string) {
       class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
     >
       <template v-if="result.language"
-        ><span>{{
-          languageLabel(result.language, result.movieOriginalLanguage)
-        }}</span><span aria-hidden="true">·</span></template
+        ><LanguageText
+          class="relative z-20"
+          :text="languageLabel(result.language, result.movieOriginalLanguage)"
+        /><span aria-hidden="true">·</span></template
       ><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"
         ><span aria-hidden="true">·</span

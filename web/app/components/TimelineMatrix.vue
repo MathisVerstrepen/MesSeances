@@ -565,9 +565,10 @@ onBeforeUnmount(() => {
               {{ formatParisTime(item.showtime.start_time) }}
               ·
               <template v-if="item.showtime.language"
-                >{{
-                  languageLabel(item.showtime.language, item.showtime.movie.original_language)
-                }}
+                ><LanguageText
+                  :text="languageLabel(item.showtime.language, item.showtime.movie.original_language)"
+                  :focusable="false"
+                />
                 ·
               </template>
               <ShowtimeFormat
@@ -709,9 +710,9 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-ink">Version</dt>
             <dd class="text-right font-medium text-ink">
               <template v-if="selected.showtime.language"
-                >{{
-                  languageLabel(selected.showtime.language, selected.showtime.movie.original_language)
-                }}
+                ><LanguageText
+                  :text="languageLabel(selected.showtime.language, selected.showtime.movie.original_language)"
+                />
                 ·
               </template><ShowtimeFormat :format="selected.showtime.format" />
             </dd>
