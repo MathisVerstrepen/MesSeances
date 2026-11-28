@@ -1,7 +1,7 @@
-import { absoluteSiteUrl } from '../../app/utils/siteUrl'
+import { renderRobotsTxt } from '../utils/robots'
 
 export default defineEventHandler((event) => {
   const config = useRuntimeConfig(event)
   setResponseHeader(event, 'Content-Type', 'text/plain; charset=utf-8')
-  return `User-agent: *\nAllow: /\nSitemap: ${absoluteSiteUrl(config.public.siteUrl, '/sitemap.xml')}\n`
+  return renderRobotsTxt(config.public.siteUrl)
 })
