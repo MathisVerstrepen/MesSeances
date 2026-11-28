@@ -16,6 +16,8 @@ const props = withDefaults(
     desktopTabs?: DateTabsMode
     calendarPosition?: CalendarPosition
     stretchTabs?: boolean
+    // Renders tabs as links so crawlers and agents can discover dated URLs.
+    dateHref?: (date: string) => string
   }>(),
   {
     mobileTabs: 'today-tomorrow',
@@ -94,6 +96,21 @@ function selectAdjacentDate(
   nextTick(() => tabs?.[nextIndex]?.focus())
 }
 
+// Plain clicks keep in-page navigation; modified clicks open the link.
+function selectDateFromTab(event: MouseEvent, date: string) {
+  if (
+    props.dateHref &&
+    (event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey)
+  )
+    return
+  event.preventDefault()
+  emit('select', date)
+}
+
 defineExpose({
   getTriggerElement: () => calendarTrigger.value,
 })
@@ -147,24 +164,27 @@ defineExpose({
           role="tablist"
           aria-label="Choisir une date"
         >
-          <button
+          <component
+            :is="dateHref ? 'a' : 'button'"
             v-for="(option, index) in group.dates"
             :key="option"
-            type="button"
+            :type="dateHref ? undefined : 'button'"
+            :href="dateHref ? dateHref(option) : undefined"
             role="tab"
             class="date-button h-9 shrink-0 border-2 border-r-0 border-ink px-2 font-mono text-[10px] font-black uppercase capitalize tracking-[0.04em] last:border-r-2 focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent sm:h-10 sm:px-4 sm:tracking-[0.06em]"
             :class="[
               selectedDate === option ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]',
-              group.mode === 'today-tomorrow' && (group.key === 'mobile' || stretchTabs) ? 'w-full' : 'w-auto'
+              group.mode === 'today-tomorrow' && (group.key === 'mobile' || stretchTabs) ? 'w-full' : 'w-auto',
+              dateHref ? 'inline-flex items-center justify-center' : ''
             ]"
             :aria-pressed="selectedDate === option"
             :aria-selected="selectedDate === option"
             :tabindex="group.rovingDate === option ? 0 : -1"
-            @click="emit('select', option)"
+            @click="selectDateFromTab($event, option)"
             @keydown="selectAdjacentDate($event, index, group.dates)"
           >
             {{ formatDateLabel(option, today) }}
-          </button>
+          </component>
         </div>
       </div>
     </template>
